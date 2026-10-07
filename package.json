@@ -53,7 +53,7 @@
     "dotenv": "^17.4.2",
     "mdui": "^2.1.5",
     "mp4-muxer": "^5.2.2",
-    "nxapi": "1.6.1-next.257",
+    "nxapi": "1.6.1",
     "onnxruntime-node": "^1.30.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.0",
