@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 运行要求与配置说明
+    url: https://github.com/furlingdu/splatoon3-record#readme
+    about: 提交问题前先确认运行要求、配置方式与已知限制

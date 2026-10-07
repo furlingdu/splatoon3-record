@@ -1,0 +1,195 @@
+{
+  "name": "splatoon3record",
+  "version": "2.0.0",
+  "description": "基于采集卡的 Splatoon 3 录像、直播与对局归档工具",
+  "author": "澪度",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/furlingdu/splatoon3-record.git"
+  },
+  "homepage": "https://github.com/furlingdu/splatoon3-record",
+  "bugs": {
+    "url": "https://github.com/furlingdu/splatoon3-record/issues"
+  },
+  "keywords": [
+    "splatoon3",
+    "electron",
+    "capture-card",
+    "webcodecs",
+    "recorder",
+    "live-streaming",
+    "onnxruntime"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "type": "module",
+  "main": "dist/main/app.js",
+  "scripts": {
+    "dev": "npm run build:ffmpeg && npm run build:runtime && npm run build:electron && concurrently -k \"vite\" \"node build/watch.js\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.test.json",
+    "check:naming": "node build/naming.js",
+    "lint": "npm run check:naming && eslint src tests build",
+    "test": "vitest run --mode unit",
+    "test:unit": "vitest run --mode unit",
+    "test:integration": "vitest run --mode integration",
+    "test:all": "npm run test:unit && npm run test:integration",
+    "test:ui": "npm run build:renderer && node tests/ui.js",
+    "test:capture": "node tests/capture.js",
+    "test:packaged": "node tests/packaged.js",
+    "build:ffmpeg": "node build/ffmpeg.js",
+    "build:runtime": "node build/runtime.js",
+    "build:renderer": "vite build",
+    "build:electron": "node build/clean.js && tsc -p tsconfig.electron.json && node build/rename.js",
+    "build": "npm run build:ffmpeg && npm run build:runtime && npm run build:renderer && npm run build:electron",
+    "dist:win": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "dist:mac": "npm run build && node build/macdist.js",
+    "dist:linux": "npm run build && electron-builder --linux AppImage --x64 --publish never"
+  },
+  "dependencies": {
+    "@tencent-connect/qqbot-connector": "^1.2.0",
+    "@tencent-connect/qqbot-nodejs": "^1.0.4",
+    "dotenv": "^17.4.2",
+    "mdui": "^2.1.5",
+    "mp4-muxer": "^5.2.2",
+    "nxapi": "1.6.1-next.257",
+    "onnxruntime-node": "^1.30.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.10.0",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.0.1",
+    "globals": "^17.4.0",
+    "puppeteer": "^25.9.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.14"
+  },
+  "build": {
+    "appId": "cn.miodu.splatoon3record",
+    "productName": "Splatoon3 Record",
+    "directories": {
+      "output": "release"
+    },
+    "afterPack": "./build/xattr.js",
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "!node_modules/onnxruntime-node/bin/napi-v6/linux/**"
+    ],
+    "extraResources": [
+      {
+        "from": "src/renderer/assets/appIcon512.png",
+        "to": "appIcon.png"
+      },
+      {
+        "from": "runtime",
+        "to": "runtime"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**"
+    ],
+    "win": {
+      "icon": "src/renderer/assets/appIcon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "splatoon3Record${version}${arch}Setup.${ext}",
+      "extraResources": [
+        {
+          "from": "bin/ffmpeg.exe",
+          "to": "bin/ffmpeg.exe"
+        }
+      ],
+      "files": [
+        "dist/**/*",
+        "package.json",
+        "!node_modules/onnxruntime-node/bin/napi-v6/linux/**",
+        "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**",
+        "!node_modules/onnxruntime-node/bin/napi-v6/darwin/**"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "icon": "src/renderer/assets/appIcon.icns",
+      "category": "public.app-category.games",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "splatoon3Record${version}-mac-${arch}.${ext}",
+      "extendInfo": {
+        "NSCameraUsageDescription": "录制与直播需要读取采集卡或摄像头画面",
+        "NSMicrophoneUsageDescription": "录制与直播需要采集麦克风声音"
+      },
+      "files": [
+        "dist/**/*",
+        "package.json",
+        "!node_modules/onnxruntime-node/bin/napi-v6/linux/**",
+        "!node_modules/onnxruntime-node/bin/napi-v6/win32/**"
+      ],
+      "extraResources": [
+        {
+          "from": "bin/ffmpeg",
+          "to": "bin/ffmpeg"
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "splatoon3Record${version}-linux-${arch}.${ext}",
+      "files": [
+        "dist/**/*",
+        "package.json",
+        "!node_modules/onnxruntime-node/bin/napi-v6/darwin/**",
+        "!node_modules/onnxruntime-node/bin/napi-v6/win32/**",
+        "!node_modules/onnxruntime-node/bin/napi-v6/linux/arm64/**"
+      ],
+      "extraResources": [
+        {
+          "from": "bin/ffmpeg",
+          "to": "bin/ffmpeg"
+        }
+      ]
+    }
+  },
+  "web-types": [
+    "./node_modules/mdui/web-types.zh-cn.json"
+  ]
+}

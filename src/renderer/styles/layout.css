@@ -1,0 +1,82 @@
+.app-layout {
+  height: 100vh;
+}
+
+mdui-top-app-bar {
+  --mdui-color-surface-container: 23, 22, 29, 0.6;
+  padding-left: 8px;
+}
+
+mdui-navigation-drawer {
+  --mdui-color-background: 23, 22, 29, 0.5;
+  --mdui-color-surface: 23, 22, 29, 0.5;
+  --mdui-color-surface-container-low: 23, 22, 29, 0.5;
+}
+
+.app-layout mdui-navigation-drawer {
+  z-index: 41;
+}
+
+mdui-layout {
+  --mdui-color-background: 23, 22, 29, 0;
+}
+
+.bar-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: contain;
+  align-self: center;
+  cursor: pointer;
+}
+
+mdui-top-app-bar .bar-logo:hover {
+  opacity: 0.75;
+}
+
+.bar-title {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  font-size: 17px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.drawer-nav {
+  padding-top: 8px;
+}
+
+.drawer-nav mdui-list-item {
+  --shape-corner: 28px;
+  margin: 2px 12px;
+}
+
+.page-host {
+  position: relative;
+  z-index: 40;
+  overflow-y: auto;
+}
+
+.mascot {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: var(--mascot-w);
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+  z-index: 30;
+}
+
+.page-host::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.page-body {
+  max-width: var(--record-page-max);
+  margin: 0 auto;
+  padding: 24px 28px 48px;
+  box-sizing: border-box;
+}

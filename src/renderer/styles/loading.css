@@ -1,0 +1,35 @@
+.boot-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: url("../assets/bg/informationBg.jpg") 50% 50% / 400px repeat;
+  transition: opacity var(--mdui-motion-duration-medium2, 300ms) var(--mdui-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1));
+}
+
+.boot-layer.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.boot-logo {
+  width: 132px;
+  height: 132px;
+  border-radius: 28px;
+  object-fit: contain;
+  animation: bootLogoIn var(--mdui-motion-duration-medium2, 300ms) var(--mdui-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1)) backwards;
+}
+
+@keyframes bootLogoIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

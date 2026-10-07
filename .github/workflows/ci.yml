@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Prepare build tools
+        run: npm run build:ffmpeg && npm run build:runtime
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Integration tests
+        run: npm run test:integration
+      - name: Renderer UI smoke tests
+        run: xvfb-run -a npm run test:ui
+
+  package:
+    # 三平台产物会一并打包 FFmpeg 构建、字体、界面图片与推理模型，只有确认这些资源可再分发后才打开该开关
+    if: ${{ github.event_name != 'pull_request' && vars.THIRD_PARTY_ASSETS_CLEARED == 'true' }}
+    name: Package ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows NSIS x64
+            os: windows-2022
+            command: dist:win
+            artifact: windows-nsis-x64
+            installer: release/splatoon3Record*x64Setup.exe
+          - name: macOS DMG arm64
+            os: macos-14
+            command: dist:mac
+            artifact: macos-dmg-arm64
+            installer: release/splatoon3Record*-mac-arm64.dmg
+          - name: Linux AppImage x64
+            os: ubuntu-22.04
+            command: dist:linux
+            artifact: linux-appimage-x64
+            installer: release/splatoon3Record*-linux-x64.AppImage
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build installer
+        run: npm run ${{ matrix.command }}
+        env:
+          S3R_TEST_PACKAGE: 'true'
+      - name: Test packaged application
+        if: matrix.os != 'macos-14'
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run -a npm run test:packaged' || 'npm run test:packaged' }}
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.installer }}
+          if-no-files-found: error
+          retention-days: 14

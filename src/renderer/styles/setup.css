@@ -1,0 +1,43 @@
+.empty-tip {
+  padding: 40px 0;
+  text-align: center;
+  color: rgb(var(--mdui-color-on-surface-variant));
+  font-size: 14px;
+}
+
+.setup-body {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 28px 32px 40px;
+  box-sizing: border-box;
+}
+
+.setup-body > :not(.bg-layer):not(.mascot) {
+  position: relative;
+  z-index: 40;
+}
+
+.setup-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.setup-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  object-fit: contain;
+}
+
+.setup-step {
+  margin-top: 24px;
+}
+
+.setup-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+}
