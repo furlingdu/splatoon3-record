@@ -2,6 +2,10 @@ name: Release
 
 # 发布 Release 时自动构建各平台安装包并挂到该 Release 上；测试由 CI 工作流负责，这里不跑测试
 on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   release:
     types: [published]
   workflow_dispatch:
@@ -19,6 +23,15 @@ concurrency:
 
 jobs:
   package:
+    if: >-
+      ${{
+        github.event_name != 'workflow_run' ||
+        (
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_repository.full_name == github.repository
+        )
+      }}
     name: Package ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -65,7 +78,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG || github.ref }}
+          ref: ${{ env.RELEASE_TAG || github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
