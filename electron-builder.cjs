@@ -1,7 +1,11 @@
 // electron-builder 打包配置。
 // 构建架构跟随运行所在的主机架构（CI 由 matrix 选择对应架构的运行器，本地构建前先确认自己的机器架构）。
 // 各平台只保留本机对应的 onnxruntime 原生运行库，其余平台与架构的二进制通过 files 排除，控制安装包体积。
+// 本机存在 Electron 解包目录时直接复用，避免打包阶段访问 GitHub；CI 上没有该目录，回退官方下载。
+const { existsSync } = require('node:fs');
+const path = require('node:path');
 const napiRoot = 'node_modules/onnxruntime-node/bin/napi-v6';
+const localElectron = path.join(__dirname, 'node_modules', 'electron', 'dist');
 const platforms = ['darwin', 'linux', 'win32'];
 const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
 const otherArch = arch === 'arm64' ? 'x64' : 'arm64';
@@ -35,7 +39,7 @@ module.exports = {
     },
   ],
   asarUnpack: ['node_modules/onnxruntime-node/**'],
-  electronDist: 'node_modules/electron/dist',
+  ...(existsSync(localElectron) ? { electronDist: localElectron } : {}),
   win: {
     icon: 'src/renderer/assets/appIcon.ico',
     target: ['nsis'],
