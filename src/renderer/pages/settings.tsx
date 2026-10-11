@@ -202,7 +202,7 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
       </div>
       {dialogLayer(
         <mdui-dialog ref={(element) => { restartRef.current = element; }} headline="需要重启应用"
-          description={restartMf ? 'NV12、YUY2 采集支持已开启，重启后改走 Media Foundation 采集，分辨率与帧率选项会重新检测。' : 'NV12、YUY2 采集支持已关闭，重启后恢复默认采集后端。'}>
+          description={restartMf ? 'NV12、YUY2 采集支持已开启，请重启应用程序。' : 'NV12、YUY2 采集支持已关闭，请重启应用程序。'}>
           <mdui-button slot="action" variant="text" onClick={() => { if (restartRef.current) (restartRef.current as HTMLDialogElement).open = false; }}>稍后重启</mdui-button>
           <mdui-button slot="action" variant="filled" onClick={() => { void window.recordApi.relaunchApp(); }}>立即重启</mdui-button>
         </mdui-dialog>,

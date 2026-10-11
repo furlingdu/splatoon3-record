@@ -594,7 +594,7 @@ async function main() {
   await setChecked(page, 'mdui-switch[name="nv12Capture"]', true);
   await new Promise((resolve) => setTimeout(resolve, 200));
   check('设置页 NV12 采集开关即时保存', await page.evaluate(() => window.__ui.lastSettings?.nv12Capture === true));
-  check('设置页 NV12 采集开关提示重启', await page.waitForFunction(() => Array.from(document.querySelectorAll('mdui-dialog')).some((element) => element.open === true && (element.getAttribute('headline') || '').includes('需要重启应用')), { timeout: 10000 }).then(() => true).catch(() => false));
+  check('设置页 NV12 采集开关提示重启', await page.waitForFunction(() => Array.from(document.querySelectorAll('mdui-dialog')).some((element) => element.open === true && (element.getAttribute('headline') || '').includes('需要重启应用') && (element.getAttribute('description') || '').includes('请重启应用程序')), { timeout: 10000 }).then(() => true).catch(() => false));
   await clickText(page, 'mdui-dialog mdui-button', '立即重启');
   check('设置页 NV12 重启按钮通知主进程', await page.waitForFunction(() => (window.__ui.calls.relaunchApp || 0) > 0, { timeout: 5000 }).then(() => true).catch(() => false));
   await clickText(page, 'mdui-dialog mdui-button', '稍后重启');
