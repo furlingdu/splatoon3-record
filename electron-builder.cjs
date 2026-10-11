@@ -35,6 +35,7 @@ module.exports = {
     },
   ],
   asarUnpack: ['node_modules/onnxruntime-node/**'],
+  electronDist: 'node_modules/electron/dist',
   win: {
     icon: 'src/renderer/assets/appIcon.ico',
     target: ['nsis'],
