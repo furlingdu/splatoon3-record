@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { snackbar } from 'mdui/functions/snackbar.js';
 import { useElementEvent, restoreSelect, targetChecked, targetValue } from '../lib/event.js';
+import { dialogLayer } from '../lib/portal.js';
 import { iconSvg } from '../lib/icons.js';
 import { refreshDevices, useSession } from '../lib/session.js';
 import { deviceLabel, fpsList, matchDevice, resolutionKey, resolutionList, resolutionText } from '../../shared/capture.js';
@@ -34,6 +35,8 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
   const session = useSession();
   const settings = status?.settings;
   const [loading, setLoading] = useState(false);
+  const [restartMf, setRestartMf] = useState(false);
+  const restartRef = useRef<HTMLElement | null>(null);
   const videoDevice = matchDevice(session.devices, 'video', settings?.videoDevice);
   const audioDevice = matchDevice(session.devices, 'audio', settings?.audioDevice);
   const resolutions = resolutionList(videoDevice, settings ? { width: settings.width, height: settings.height } : undefined);
@@ -87,6 +90,14 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
     const checked = targetChecked(event);
     if (!settings || Boolean((settings as unknown as Record<string, unknown>)[name]) === checked) return;
     save({ [name]: checked } as Partial<RecordSettings>);
+  });
+  const nv12Ref = useElementEvent<HTMLElement>('change', (event) => {
+    const checked = targetChecked(event);
+    if (!settings || Boolean(settings.nv12Capture) === checked) return;
+    void window.recordApi.saveSettings({ ...settings, nv12Capture: checked }).then(() => {
+      setRestartMf(checked);
+      if (restartRef.current) (restartRef.current as HTMLDialogElement).open = true;
+    }).catch(() => snackbar({ message: '保存设置失败' }));
   });
   const qualityRef = useElementEvent<HTMLElement>('change', (event) => {
     const value = Number(targetValue(event));
@@ -146,6 +157,10 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
           <span>垂直翻转画面<em className="form-note">画面上下颠倒时开启</em></span>
           <mdui-switch checked={Boolean(settings?.flipVertical)} ref={switchRef} name="flipVertical" />
         </div>
+        <div className="form-switch form-field-wide">
+          <span>开启NV12、YUY2采集支持<em className="form-note">部分采集卡只在 NV12 或 YUY2 下输出高分辨率，开启后重启应用生效</em></span>
+          <mdui-switch checked={Boolean(settings?.nv12Capture)} ref={nv12Ref} name="nv12Capture" />
+        </div>
         <div className="form-field">
           <mdui-select label="编码器" value={settings?.encoder || 'auto'} ref={encoderRef} name="encoder">
             {encoderOptions.map((item) => <mdui-menu-item key={item.value} value={item.value}>{item.label}</mdui-menu-item>)}
@@ -185,6 +200,13 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
           <mdui-switch checked={Boolean(settings?.autoLaunch)} ref={switchRef} name="autoLaunch" />
         </div>
       </div>
+      {dialogLayer(
+        <mdui-dialog ref={(element) => { restartRef.current = element; }} headline="需要重启应用"
+          description={restartMf ? 'NV12、YUY2 采集支持已开启，重启后改走 Media Foundation 采集，分辨率与帧率选项会重新检测。' : 'NV12、YUY2 采集支持已关闭，重启后恢复默认采集后端。'}>
+          <mdui-button slot="action" variant="text" onClick={() => { if (restartRef.current) (restartRef.current as HTMLDialogElement).open = false; }}>稍后重启</mdui-button>
+          <mdui-button slot="action" variant="filled" onClick={() => { void window.recordApi.relaunchApp(); }}>立即重启</mdui-button>
+        </mdui-dialog>,
+      )}
     </div>
   );
 }

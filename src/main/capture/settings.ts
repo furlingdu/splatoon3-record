@@ -25,6 +25,7 @@ export function sanitizeSettings(raw: unknown, current: RecordSettings): RecordS
     height: pickNumber(input.height, 180, 4320, current.height || defaultSettings.height),
     fps: pickNumber(input.fps, 1, 240, current.fps || defaultSettings.fps),
     flipVertical: Boolean(input.flipVertical ?? current.flipVertical),
+    nv12Capture: Boolean(input.nv12Capture ?? current.nv12Capture),
     encoder: encoderNames.has(encoder) ? encoder : 'auto',
     quality: clampQuality(input.quality ?? current.quality),
     saveDir: pickText(input.saveDir ?? current.saveDir),

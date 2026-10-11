@@ -33,6 +33,7 @@ export interface RecordSettings {
   height: number;
   fps: number;
   flipVertical?: boolean;
+  nv12Capture: boolean;
   encoder: 'auto' | 'nvidia' | 'amd' | 'intel' | 'software';
   quality: number;
   saveDir: string;
@@ -45,6 +46,8 @@ export interface RecordSettings {
 }
 
 export type PushCodec = 'hevc' | 'h264' | 'av1';
+
+export type CaptureBackend = 'dshow' | 'mf';
 
 export interface PushOptions {
   cap: number;
@@ -109,6 +112,7 @@ export interface RuntimeInfo {
   gpu: string[];
   gpuStatus: Record<string, string>;
   hardwareAcceleration: boolean;
+  captureBackend: CaptureBackend;
   displays: string[];
 }
 
@@ -243,6 +247,7 @@ export interface BridgeApi {
   finishSetup: () => Promise<SetupResult>;
   openPreview: () => Promise<void>;
   togglePreviewFullscreen: () => Promise<boolean>;
+  relaunchApp: () => Promise<void>;
   startLive: () => Promise<AppStatus>;
   stopLive: () => Promise<AppStatus>;
   liveChunk: (chunk: LiveChunk) => void;

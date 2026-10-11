@@ -36,6 +36,7 @@ export const defaultSettings = {
   height: 1080,
   fps: 60,
   flipVertical: false,
+  nv12Capture: false,
   encoder: 'auto' as const,
   quality: qualityDefault,
   saveDir: '',

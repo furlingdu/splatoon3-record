@@ -590,6 +590,15 @@ async function main() {
   await new Promise((resolve) => setTimeout(resolve, 200));
   check('设置页垂直翻转即时保存', await page.evaluate(() => window.__ui.lastSettings?.flipVertical === true));
   check('设置页只有一处录制参数入口', await page.evaluate(() => document.querySelectorAll('mdui-select[name="width"]').length === 1 && document.querySelectorAll('mdui-switch[name="flipVertical"]').length === 1));
+  check('设置页提供 NV12 采集开关', await page.evaluate(() => document.querySelectorAll('mdui-switch[name="nv12Capture"]').length === 1));
+  await setChecked(page, 'mdui-switch[name="nv12Capture"]', true);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  check('设置页 NV12 采集开关即时保存', await page.evaluate(() => window.__ui.lastSettings?.nv12Capture === true));
+  check('设置页 NV12 采集开关提示重启', await page.waitForFunction(() => Array.from(document.querySelectorAll('mdui-dialog')).some((element) => element.open === true && (element.getAttribute('headline') || '').includes('需要重启应用')), { timeout: 10000 }).then(() => true).catch(() => false));
+  await clickText(page, 'mdui-dialog mdui-button', '立即重启');
+  check('设置页 NV12 重启按钮通知主进程', await page.waitForFunction(() => (window.__ui.calls.relaunchApp || 0) > 0, { timeout: 5000 }).then(() => true).catch(() => false));
+  await clickText(page, 'mdui-dialog mdui-button', '稍后重启');
+  check('设置页 NV12 重启提示可稍后处理', await page.evaluate(() => !Array.from(document.querySelectorAll('mdui-dialog')).some((element) => element.open === true && (element.getAttribute('headline') || '').includes('需要重启应用'))));
   check('设置页不提供缓存与分段编辑入口', await page.evaluate(() => !document.querySelector('mdui-slider[name="cacheMinutes"]')
     && !document.querySelector('mdui-slider[name="segmentSeconds"]')
     && !document.body.innerText.includes('缓存保留')));
@@ -690,6 +699,7 @@ async function main() {
       && diagnostic.includes('GPU：NVIDIA / GeForce RTX 4060')
       && diagnostic.includes('硬件加速：已启用')
       && diagnostic.includes('GPU 功能：video_decode=enabled, video_encode=enabled')
+      && diagnostic.includes('采集后端：DirectShow')
       && diagnostic.includes('硬件解码档位：CUDA')
       && diagnostic.includes('归档编码器：hevc_amf');
   }));

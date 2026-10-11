@@ -227,7 +227,7 @@ async function installMock(page, status, matches) {
           appVersion: '2.0.1', electronVersion: '38.0.0', chromeVersion: '140.0.0.0', nodeVersion: '22.0.0',
           platform: 'win32', arch: 'x64', osRelease: '10.0.26100', gpu: ['NVIDIA / GeForce RTX 4060'],
           gpuStatus: { video_decode: 'enabled', video_encode: 'enabled' }, hardwareAcceleration: true,
-          displays: ['1920x1080@100%'],
+          captureBackend: 'dshow', displays: ['1920x1080@100%'],
         };
       },
       saveSettings: async (settings) => {
@@ -317,6 +317,7 @@ async function installMock(page, status, matches) {
       openLink: async (url) => { state.links.push(url); },
       openPreview: async () => { mark('openPreview'); },
       togglePreviewFullscreen: async () => { mark('togglePreviewFullscreen'); return true; },
+      relaunchApp: async () => { mark('relaunchApp'); },
       finishSetup: async () => {
         mark('finishSetup');
         if (state.finishError) return { success: false, error: state.finishError };

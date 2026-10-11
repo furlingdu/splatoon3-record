@@ -26,6 +26,7 @@ const recordApi: BridgeApi = {
   finishSetup: () => ipcRenderer.invoke(ipcNames.finishSetup),
   openPreview: () => ipcRenderer.invoke(ipcNames.openPreview),
   togglePreviewFullscreen: () => ipcRenderer.invoke(ipcNames.togglePreviewFullscreen),
+  relaunchApp: () => ipcRenderer.invoke(ipcNames.relaunchApp),
   startLive: () => ipcRenderer.invoke(ipcNames.startLive),
   stopLive: () => ipcRenderer.invoke(ipcNames.stopLive),
   liveChunk: (chunk: LiveChunk) => { ipcRenderer.send(ipcNames.liveChunk, chunk); },

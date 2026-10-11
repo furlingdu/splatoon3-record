@@ -36,4 +36,5 @@ export const ipcNames = {
   openPreview: 'preview:open',
   togglePreviewFullscreen: 'preview:fullscreen',
   getRuntimeInfo: 'runtime:info',
+  relaunchApp: 'app:relaunch',
 } as const;

@@ -1,4 +1,4 @@
-import { clipboard, dialog, ipcMain, shell, BrowserWindow } from 'electron';
+import { app, clipboard, dialog, ipcMain, shell, BrowserWindow } from 'electron';
 import { copyFile, mkdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
 import { ipcNames } from '../shared/events.js';
@@ -81,6 +81,12 @@ export function registerIpc(context: IpcContext): void {
   ipcMain.handle(ipcNames.openPreview, (event) => context.isMainSource(event.sender.id) ? context.openPreview() : undefined);
   ipcMain.handle(ipcNames.togglePreviewFullscreen, (event) => context.togglePreviewFullscreen(event.sender.id));
   ipcMain.handle(ipcNames.getRuntimeInfo, () => context.getRuntimeInfo());
+  ipcMain.handle(ipcNames.relaunchApp, () => relaunchApp());
+}
+
+function relaunchApp(): void {
+  app.relaunch();
+  app.quit();
 }
 
 function sizeArg(value: unknown): number {

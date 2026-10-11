@@ -1,8 +1,9 @@
+import { readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { dataPath } from './path.js';
 import { defaultSettings } from '../../shared/constants.js';
-import type { AppConfig, RecordSettings } from '../../shared/types.js';
+import type { AppConfig, CaptureBackend, RecordSettings } from '../../shared/types.js';
 
 const configFile = join(dataPath, 'config.json');
 const fallback: AppConfig = { settings: { ...defaultSettings, saveDir: join(dataPath, 'videos') }, pushEnabled: true, setupDone: false, handledIds: [] };
@@ -21,6 +22,15 @@ export async function loadConfig(): Promise<AppConfig> {
 
 export function getConfig(): AppConfig {
   return current;
+}
+
+export function startupBackend(file = configFile): CaptureBackend {
+  try {
+    const data = JSON.parse(readFileSync(file, 'utf8')) as Partial<AppConfig>;
+    return data.settings?.nv12Capture ? 'mf' : 'dshow';
+  } catch {
+    return 'dshow';
+  }
 }
 
 export async function saveConfig(config: AppConfig): Promise<void> {

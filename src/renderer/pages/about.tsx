@@ -137,6 +137,7 @@ function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, dev
     `实际画幅：${status?.streamWidth || 0}x${status?.streamHeight || 0}`,
     `实际帧率：${status?.streamFps || 0} fps`,
     `采集格式：${status?.streamFormat || '未知'}`,
+    `采集后端：${runtime.captureBackend === 'mf' ? 'Media Foundation' : 'DirectShow'}`,
     `采集音频：${status?.streamAudio ? '有' : '无'}`,
     `硬件解码档位：${status?.hwAccel || '未启用或未知'}`,
     `归档编码器：${status?.encoder || '未知'}`,

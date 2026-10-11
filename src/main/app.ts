@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, protocol, screen, shell } from 'electron';
 import { release } from 'node:os';
 import { initPath, matchPath, saveFolder } from './store/path.js';
-import { getConfig, loadConfig, saveConfig, saveSettings } from './store/config.js';
+import { getConfig, loadConfig, saveConfig, saveSettings, startupBackend } from './store/config.js';
 import { createWindow, createSetup } from './window.js';
 import { registerIpc } from './ipc.js';
 import { SegmentStore } from './capture/segment.js';
@@ -35,8 +35,9 @@ const nsoRetryInterval = 300000;
 const sweepInterval = 60000;
 const recordStates = new Set(['idle', 'starting', 'recording', 'error']);
 
-app.commandLine.appendSwitch('disable-features', 'MediaFoundationVideoCapture');
-app.commandLine.appendSwitch('enable-features', 'PlatformHEVCEncoderSupport');
+const captureBackend = startupBackend();
+app.commandLine.appendSwitch('enable-features', captureBackend === 'mf' ? 'PlatformHEVCEncoderSupport,MediaFoundationVideoCapture' : 'PlatformHEVCEncoderSupport');
+if (captureBackend !== 'mf') app.commandLine.appendSwitch('disable-features', 'MediaFoundationVideoCapture');
 
 let mainWindow: BrowserWindow | undefined;
 let liveViewers = 0;
@@ -207,11 +208,12 @@ function runtimeInfo(): Promise<RuntimeInfo> {
       gpu,
       gpuStatus: Object.fromEntries(Object.entries(app.getGPUFeatureStatus()).map(([key, value]) => [key, String(value)])),
       hardwareAcceleration: !app.commandLine.hasSwitch('disable-gpu'),
+      captureBackend,
       displays: screen.getAllDisplays().map((item) => `${Math.round(item.size.width)}x${Math.round(item.size.height)}@${Math.round(item.scaleFactor * 100)}%`),
     };
   }).catch(() => ({
     appVersion: app.getVersion(), electronVersion: process.versions.electron ?? '', chromeVersion: process.versions.chrome ?? '', nodeVersion: process.versions.node ?? '',
-    platform: process.platform, arch: process.arch, osRelease: release(), gpu: [], gpuStatus: {}, hardwareAcceleration: !app.commandLine.hasSwitch('disable-gpu'), displays: [],
+    platform: process.platform, arch: process.arch, osRelease: release(), gpu: [], gpuStatus: {}, hardwareAcceleration: !app.commandLine.hasSwitch('disable-gpu'), captureBackend, displays: [],
   }));
 }
 
