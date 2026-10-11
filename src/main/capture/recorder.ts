@@ -35,14 +35,14 @@ export class SegmentWriter {
     const id = draft.id;
     if (!idPattern.test(id)) return undefined;
     await this.closePart(id);
-    const startAt = Math.round(Number(draft.startAt));
-    const endAt = Math.max(Math.round(Number(draft.endAt)), startAt + 1);
+    const startAt = Number(draft.startAt);
+    const endAt = Math.max(Number(draft.endAt), startAt + 1);
     if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || startAt <= 0) {
       await this.dropSegment(id);
       return undefined;
     }
     const ext = extNames.has(draft.ext) ? draft.ext : 'mp4';
-    const filePath = join(this.folder, `segment${startAt}p${this.seq++}.${ext}`);
+    const filePath = join(this.folder, `segment${Math.round(startAt)}p${this.seq++}.${ext}`);
     this.sizes.delete(id);
     try {
       await rename(this.partPath(id), filePath);

@@ -82,8 +82,8 @@ function renderPiece(part: CropPart, rung: AccelRung, target: TargetSize, output
 }
 
 function pieceArgs(part: CropPart, rung: AccelRung, target: TargetSize, output: string, wantAudio: boolean, silent: boolean, mp4: boolean): string[] {
-  const span = part.duration.toFixed(3);
-  const args = [...rung.decodeArgs, '-ss', part.offset.toFixed(3), '-t', span, '-i', part.record.filePath];
+  const span = part.duration.toFixed(6);
+  const args = [...rung.decodeArgs, '-ss', part.offset.toFixed(6), '-t', span, '-i', part.record.filePath];
   if (silent) args.push('-f', 'lavfi', '-t', span, '-i', 'anullsrc=r=48000:cl=stereo');
   args.push('-map', '0:v:0');
   if (wantAudio) args.push('-map', silent ? '1:a:0' : '0:a:0', '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2');

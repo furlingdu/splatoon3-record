@@ -44,6 +44,7 @@ interface VideoCandidate {
 const keyframeGapUs = 2000000;
 const queueLimit = 8;
 const audioWaitMs = 1000;
+const firstFrameWaitMs = 1000;
 const nominalBps = 8000000;
 const partChunkSize = 1 << 20;
 const videoCandidates: VideoCandidate[] = [
@@ -63,6 +64,9 @@ export class SegmentEncoder {
   private closed = false;
   private chunks = 0;
   private dropped = false;
+  private firstUs?: number;
+  private firstWaiter?: () => void;
+  private firstTimer?: number;
 
   private constructor(private choice: VideoChoice, private spec: SegmentSpec, private sink: SegmentSink) {}
 
@@ -80,7 +84,26 @@ export class SegmentEncoder {
     });
     encoder.startVideo(video);
     if (probe) encoder.startAudio(probe.reader, probe.choice);
+    await encoder.waitFirstFrame();
     return encoder;
+  }
+
+  firstTimestamp(): number | undefined {
+    return this.firstUs;
+  }
+
+  waitFirstFrame(): Promise<void> {
+    if (this.firstUs !== undefined) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = (): void => {
+        if (this.firstTimer !== undefined) window.clearTimeout(this.firstTimer);
+        this.firstTimer = undefined;
+        this.firstWaiter = undefined;
+        resolve();
+      };
+      this.firstTimer = window.setTimeout(done, firstFrameWaitMs);
+      this.firstWaiter = done;
+    });
   }
 
   info(): SegmentInfo {
@@ -90,6 +113,7 @@ export class SegmentEncoder {
   async close(): Promise<void> {
     if (this.closed) throw new Error('分段已经关闭');
     this.closed = true;
+    this.firstWaiter?.();
     const readers = [this.videoReader, this.audioReader];
     this.videoReader = undefined;
     this.audioReader = undefined;
@@ -135,6 +159,10 @@ export class SegmentEncoder {
       const step = await reader.read().catch(() => ({ done: true, value: undefined }) as ReadableStreamReadResult<VideoFrame>);
       if (step.done || !step.value) return;
       const frame = step.value;
+      if (this.firstUs === undefined) {
+        this.firstUs = frame.timestamp;
+        this.firstWaiter?.();
+      }
       if (!this.pumping || this.closed) {
         frame.close();
         return;

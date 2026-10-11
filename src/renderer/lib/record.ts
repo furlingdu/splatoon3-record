@@ -1,6 +1,7 @@
 import { defaultSettings, segmentSecondsFixed } from '../../shared/constants.js';
 import type { SegmentDraft } from '../../shared/types.js';
 import { SegmentEncoder, type SegmentInfo, type SegmentSpec } from './segment.js';
+import { frameWall, seedOrigin } from './stamp.js';
 
 interface PendingSegment {
   id: string;
@@ -30,6 +31,7 @@ let active = false;
 let mime = '';
 let planned = 'video/mp4';
 let segmentMs = minSegmentMs;
+let stampOrigin: number | undefined;
 let recordQuality = defaultSettings.quality;
 let failure: string | undefined;
 let stopping = false;
@@ -64,6 +66,7 @@ export function clearRecord(): void {
 export async function startRecord(stream: MediaStream): Promise<void> {
   await stopRecord();
   segmentMs = Math.max(minSegmentMs, segmentSecondsFixed * 1000);
+  stampOrigin = undefined;
   failure = undefined;
   source = stream;
   active = true;
@@ -123,7 +126,10 @@ async function openEncoder(gen: number): Promise<SegmentRun | undefined> {
       await encoder.close().catch(() => undefined);
       return undefined;
     }
-    segment.startAt = Date.now();
+    const firstUs = encoder.firstTimestamp();
+    const now = Date.now();
+    stampOrigin = seedOrigin(stampOrigin, now, firstUs);
+    segment.startAt = frameWall(stampOrigin, firstUs, now);
     failure = undefined;
     const run: SegmentRun = { encoder, segment, flushed: () => pending };
     live.add(run);
