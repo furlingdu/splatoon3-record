@@ -705,7 +705,7 @@ async function main() {
 
   await clickNav(page, 6);
   check('关于页显示项目名', await waitText(page, 'Splatoon3Record'));
-  check('关于页显示版本', await waitText(page, '2.1.0'));
+  check('关于页显示版本', await waitText(page, '2.2.0'));
   check('关于页显示作者简介', await waitText(page, '巨齿刮水刀'));
   check('作者头像指向作者 QQ 头像并与应用图标区分', await page.evaluate(() => {
     const logo = document.querySelector('.about-logo');

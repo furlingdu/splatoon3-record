@@ -225,7 +225,7 @@ async function installMock(page, status, matches) {
       getRuntimeInfo: async () => {
         mark('getRuntimeInfo');
         return {
-          appVersion: '2.1.0', electronVersion: '38.0.0', chromeVersion: '140.0.0.0', nodeVersion: '22.0.0',
+          appVersion: '2.2.0', electronVersion: '38.0.0', chromeVersion: '140.0.0.0', nodeVersion: '22.0.0',
           platform: 'win32', arch: 'x64', osRelease: '10.0.26100', gpu: ['NVIDIA / GeForce RTX 4060'],
           gpuStatus: { video_decode: 'enabled', video_encode: 'enabled' }, hardwareAcceleration: true,
           captureBackend: 'dshow', displays: ['1920x1080@100%'],

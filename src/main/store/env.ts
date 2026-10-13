@@ -61,7 +61,7 @@ export function nsoEnv(): NsoEnv {
 
 export function publicEnv(): PublicEnv {
   const projectName = process.env.PROJECT_NAME || 'Splatoon3Record';
-  const version = process.env.PROJECT_VERSION || '2.1.0';
+  const version = process.env.PROJECT_VERSION || '2.2.0';
   const projectUrl = process.env.PROJECT_URL || 'https://github.com/furlingdu/splatoon3-record';
   return {
     appName: process.env.APP_NAME || 'Splatoon3 Record',
