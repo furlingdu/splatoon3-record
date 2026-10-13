@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { activeStream, applySize, closeStream, listDevices, openStream, planSize, streamInfo } from './device.js';
-import { clearRecord, planFormat, recordError, recordFormat, recordState, setRecordQuality, startRecord, stopRecord } from './record.js';
+import { clearRecord, planFormat, recordEncoder, recordError, recordFormat, recordState, setRecordQuality, startRecord, stopRecord } from './record.js';
 import type { AppStatus, CaptureDevice, RecordSettings, RecordState } from '../../shared/types.js';
 
 export interface SessionView {
@@ -8,6 +8,7 @@ export interface SessionView {
   recordError?: string;
   devices: CaptureDevice[];
   format: string;
+  encoder: string;
   width: number;
   height: number;
   fps: number;
@@ -35,6 +36,7 @@ function captureView(): SessionView {
     recordError: error ?? recordError(),
     devices,
     format: recordFormat(),
+    encoder: recordEncoder(),
     width: info.width,
     height: info.height,
     fps: info.fps,
@@ -59,6 +61,7 @@ function reportCapture(): void {
     height: view.height,
     fps: view.fps,
     format: view.format,
+    encoder: view.encoder,
     hasAudio: view.hasAudio,
   });
 }

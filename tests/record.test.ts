@@ -14,7 +14,7 @@ vi.mock('../src/renderer/lib/segment.js', () => ({
       const firstUs = state.queue.shift() ?? 0;
       state.created.push({ at, firstUs });
       return {
-        info: () => ({ codec: 'hevc', ext: 'mp4', mime: 'video/mp4;codecs=hvc1' }),
+        info: () => ({ codec: 'hevc', ext: 'mp4', mime: 'video/mp4;codecs=hvc1', hardware: true }),
         close: async () => undefined,
         firstTimestamp: () => firstUs,
       };

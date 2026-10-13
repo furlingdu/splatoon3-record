@@ -33,6 +33,7 @@ export interface CaptureReport {
   height: number;
   fps: number;
   format?: string;
+  encoder?: string;
   hasAudio: boolean;
 }
 
@@ -176,6 +177,7 @@ export interface AppStatus {
   streamHeight: number;
   streamFps: number;
   streamFormat?: string;
+  streamEncoder?: string;
   streamAudio: boolean;
   segments: number;
   cacheStart?: number;

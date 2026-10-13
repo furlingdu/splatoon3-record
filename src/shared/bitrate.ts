@@ -22,7 +22,7 @@ export function liveBitrateBps(width: number, height: number): number {
 }
 
 export function recordFallbackBps(width: number, height: number): number {
-  return liveBitrateBps(width, height) * 2;
+  return liveBitrateBps(width, height);
 }
 
 export function pushCapBps(cap: number): number {

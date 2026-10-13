@@ -409,6 +409,7 @@ let purgeGuardAt = 0;
 
 function setCapture(raw: CaptureReport): void {
   const state = String(raw?.recordState ?? '');
+  const previous = captureBrief();
   capture = {
     recordState: recordStates.has(state) ? (state as CaptureReport['recordState']) : 'error',
     error: typeof raw?.error === 'string' ? raw.error.slice(0, 300) : undefined,
@@ -416,10 +417,17 @@ function setCapture(raw: CaptureReport): void {
     height: clampNumber(raw?.height, 0, 4320),
     fps: Number.isFinite(Number(raw?.fps)) ? Math.min(240, Math.max(0, Number(raw.fps))) : 0,
     format: typeof raw?.format === 'string' ? raw.format.slice(0, 40) : undefined,
+    encoder: typeof raw?.encoder === 'string' ? raw.encoder.slice(0, 40) : undefined,
     hasAudio: Boolean(raw?.hasAudio),
   };
+  const brief = captureBrief();
+  if (brief !== previous) logApp(`capture ${brief}${capture.error ? ` error=${capture.error}` : ''}`);
   pushStatus();
   void handleCaptureShortage(raw);
+}
+
+function captureBrief(): string {
+  return `${capture.recordState} ${capture.width}x${capture.height}@${capture.fps} ${capture.format ?? ''} ${capture.encoder ?? ''}`.trim();
 }
 
 async function handleCaptureShortage(raw: CaptureReport): Promise<void> {
@@ -472,6 +480,7 @@ export function getStatus(): AppStatus {
     streamHeight: capture.height,
     streamFps: capture.fps,
     streamFormat: capture.format,
+    streamEncoder: capture.encoder,
     streamAudio: capture.hasAudio,
     segments: summary.count,
     cacheStart: summary.start,

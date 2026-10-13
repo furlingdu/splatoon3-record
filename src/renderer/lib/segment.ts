@@ -12,6 +12,7 @@ export interface SegmentInfo {
   codec: string;
   ext: string;
   mime: string;
+  hardware: boolean;
 }
 
 export interface SegmentSink {
@@ -47,12 +48,45 @@ const audioWaitMs = 1000;
 const firstFrameWaitMs = 1000;
 const nominalBps = 8000000;
 const partChunkSize = 1 << 20;
-const videoCandidates: VideoCandidate[] = [
-  { codec: 'hvc1.1.6.L150.B0', muxer: 'hevc' },
-  { codec: 'hev1.1.6.L150.B0', muxer: 'hevc' },
-  { codec: 'avc1.640033', muxer: 'avc' },
-  { codec: 'avc1.640028', muxer: 'avc' },
+const hevcLevels = [
+  { name: 'L150', rate: 89128960 },
+  { name: 'L153', rate: 267386880 },
+  { name: 'L156', rate: 534773760 },
+  { name: 'L159', rate: 1069547520 },
 ];
+const avcLevels = [
+  { codec: 'avc1.640028', mbps: 245760 },
+  { codec: 'avc1.64002A', mbps: 522240 },
+  { codec: 'avc1.640032', mbps: 589824 },
+  { codec: 'avc1.640033', mbps: 983040 },
+  { codec: 'avc1.640034', mbps: 2073600 },
+];
+
+// 按画幅与帧率取能装下码流的最低等级，避免 4K60 用 5.0、5.1 挡掉硬件编码
+export function hevcCodec(width: number, height: number, fps: number): string {
+  const rate = Math.max(1, Math.round(width)) * Math.max(1, Math.round(height)) * Math.max(1, Math.round(fps));
+  const tier = hevcLevels.find((item) => rate <= item.rate) ?? hevcLevels[hevcLevels.length - 1];
+  return `hvc1.1.6.${tier.name}.B0`;
+}
+
+export function avcCodec(width: number, height: number, fps: number): string {
+  const blocks = Math.ceil(Math.max(1, Math.round(width)) / 16) * Math.ceil(Math.max(1, Math.round(height)) / 16);
+  const mbps = blocks * Math.max(1, Math.round(fps));
+  return (avcLevels.find((item) => mbps <= item.mbps) ?? avcLevels[avcLevels.length - 1]).codec;
+}
+
+export function videoCandidates(spec: SegmentSpec): VideoCandidate[] {
+  const hevc = hevcCodec(spec.width, spec.height, spec.fps);
+  const list: VideoCandidate[] = [
+    { codec: hevc, muxer: 'hevc' },
+    { codec: hevc.replace(/^hvc1/, 'hev1'), muxer: 'hevc' },
+    { codec: avcCodec(spec.width, spec.height, spec.fps), muxer: 'avc' },
+  ];
+  for (const codec of ['avc1.640033', 'avc1.640028']) {
+    if (!list.some((item) => item.codec === codec)) list.push({ codec, muxer: 'avc' });
+  }
+  return list;
+}
 
 export class SegmentEncoder {
   private muxer!: Muxer<StreamTarget>;
@@ -107,7 +141,7 @@ export class SegmentEncoder {
   }
 
   info(): SegmentInfo {
-    return { codec: this.choice.codec.split('.')[0] || this.choice.codec, ext: 'mp4', mime: `video/mp4;codecs=${this.choice.codec}` };
+    return { codec: this.choice.codec.split('.')[0] || this.choice.codec, ext: 'mp4', mime: `video/mp4;codecs=${this.choice.codec}`, hardware: this.choice.config.hardwareAcceleration === 'prefer-hardware' };
   }
 
   async close(): Promise<void> {
@@ -246,8 +280,8 @@ async function chooseVideo(spec: SegmentSpec, quality: number): Promise<VideoCho
   const key = choiceKey(spec, quality);
   const cached = choiceCache.get(key);
   if (cached) return cached;
-  for (const candidate of videoCandidates) {
-    for (const acceleration of ['prefer-hardware', 'no-preference'] as HardwareAcceleration[]) {
+  for (const acceleration of ['prefer-hardware', 'no-preference'] as HardwareAcceleration[]) {
+    for (const candidate of videoCandidates(spec)) {
       for (const quantizer of [true, false]) {
         const config = videoConfig(candidate.codec, spec, quality, quantizer);
         const support = await VideoEncoder.isConfigSupported({ ...config, hardwareAcceleration: acceleration }).catch(() => undefined);

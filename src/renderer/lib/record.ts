@@ -29,6 +29,7 @@ let counter = 0;
 let generation = 0;
 let active = false;
 let mime = '';
+let codecText = '';
 let planned = 'video/mp4';
 let segmentMs = minSegmentMs;
 let stampOrigin: number | undefined;
@@ -52,6 +53,10 @@ export function recordError(): string | undefined {
 
 export function recordFormat(): string {
   return mime || planned;
+}
+
+export function recordEncoder(): string {
+  return codecText;
 }
 
 export function planFormat(stream: MediaStream): string {
@@ -132,9 +137,11 @@ async function openEncoder(gen: number): Promise<SegmentRun | undefined> {
     segment.startAt = frameWall(stampOrigin, firstUs, now);
     failure = undefined;
     const run: SegmentRun = { encoder, segment, flushed: () => pending };
+    const info = encoder.info();
     live.add(run);
-    mime = encoder.info().mime;
+    mime = info.mime;
     planned = mime;
+    codecText = `${info.mime.split('codecs=')[1] || info.codec} ${info.hardware ? '硬编' : '软编'}`;
     run.rotateTimer = window.setTimeout(() => {
       run.rotateTimer = undefined;
       if (gen === generation) void rotateSegment(run, gen);

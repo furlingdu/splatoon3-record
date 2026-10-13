@@ -25,6 +25,7 @@ function statusPage(props: { status?: AppStatus }): ReactElement {
   const processing = new Set(status?.processingMatchIds ?? []);
   const sizeMissed = Boolean(settings) && session.width > 0 && !session.applying && (session.width !== settings?.width || session.height !== settings?.height);
   const fpsMissed = Boolean(settings) && session.fps > 0 && !session.applying && Math.abs(session.fps - (settings?.fps || 0)) > 0.5;
+  const softwareSlow = session.encoder.endsWith('软编') && session.width * session.height * session.fps >= 3840 * 2160 * 30;
 
   const exportDebug = (): void => {
     void window.recordApi.debugExportLast()
@@ -53,12 +54,14 @@ function statusPage(props: { status?: AppStatus }): ReactElement {
         <StatusItem label="分辨率" value={session.width > 0 ? resolutionText(session.width, session.height) : '未开始采集'} />
         <StatusItem label="帧率" value={session.fps > 0 ? `${Number(session.fps.toFixed(2))} fps` : '未开始采集'} />
         <StatusItem label="采集格式" value={formatText(session.format)} />
+        <StatusItem label="录制编码" value={session.encoder || '-'} />
         <StatusItem label="硬件加速" value={status?.hwAccel ? `${status.hwAccel} 硬件解码` : '未启用'} />
         <StatusItem label="编码器" value={status?.encoder || '-'} />
         {session.recordError ? <StatusItem label="错误信息" value={session.recordError} /> : null}
       </div>
       {sizeMissed ? <div className="status-warn">采集卡未接受设置页的分辨率，当前输出 {resolutionText(session.width, session.height)}</div> : null}
       {fpsMissed ? <div className="status-warn">采集卡未接受设置页的帧率，当前输出 {Number(session.fps.toFixed(2))} fps</div> : null}
+      {softwareSlow ? <div className="status-warn">当前档位没有硬件编码，录制会丢帧，建议降低分辨率或帧率</div> : null}
       <h3 className="section-title">连接</h3>
       <div className="status-grid">
         <StatusItem label="NSO 登录" value={stateNames[status?.nsoState || 'unbound']} />

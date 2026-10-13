@@ -44,9 +44,9 @@ describe('liveBitrateBps', () => {
 });
 
 describe('recordFallbackBps', () => {
-  it('无量化档支持时的兜底码率为直播码率的两倍', () => {
-    expect(recordFallbackBps(1920, 1080)).toBe(80000000);
-    expect(recordFallbackBps(1280, 720)).toBe(40000000);
+  it('无量化档支持时的兜底码率与直播码率一致', () => {
+    expect(recordFallbackBps(1920, 1080)).toBe(40000000);
+    expect(recordFallbackBps(1280, 720)).toBe(20000000);
   });
 });
 

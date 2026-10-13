@@ -139,6 +139,8 @@ function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, dev
     `实际画幅：${status?.streamWidth || 0}x${status?.streamHeight || 0}`,
     `实际帧率：${status?.streamFps || 0} fps`,
     `采集格式：${status?.streamFormat || '未知'}`,
+    `录制编码：${status?.streamEncoder || '未知'}`,
+    `录制质量：${status?.settings.quality ?? '未知'}`,
     `采集后端：${runtime.captureBackend === 'mf' ? 'Media Foundation' : 'DirectShow'}`,
     `采集画面格式：${formatLabel(status?.settings.captureFormat ?? 'nv12')}`,
     ...modeText(modes),

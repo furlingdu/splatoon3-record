@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { logPath } from './path.js';
 
@@ -20,7 +20,18 @@ async function collectLogs(): Promise<string> {
     const tail = await tailLog(join(logPath, name));
     if (tail) parts.push(`===== ${name} =====\n${tail}`);
   }
-  return `===== 运行日志 =====\n${parts.length ? parts.join('\n\n') : '暂无日志'}`;
+  const header = `===== 运行日志 =====\n日志目录：${logPath}`;
+  if (!parts.length) return `${header}\n未找到日志文件，目录内容：${await listLogs()}`;
+  return `${header}\n${parts.join('\n\n')}`;
+}
+
+async function listLogs(): Promise<string> {
+  try {
+    const names = await readdir(logPath);
+    return names.length ? names.join('、') : '空';
+  } catch {
+    return '目录不可读';
+  }
 }
 
 async function tailLog(file: string): Promise<string> {

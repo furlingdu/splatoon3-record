@@ -710,7 +710,7 @@ async function main() {
 
   await clickNav(page, 6);
   check('关于页显示项目名', await waitText(page, 'Splatoon3Record'));
-  check('关于页显示版本', await waitText(page, '2.2.0'));
+  check('关于页显示版本', await waitText(page, '2.2.1'));
   check('关于页显示作者简介', await waitText(page, '巨齿刮水刀'));
   check('作者头像指向作者 QQ 头像并与应用图标区分', await page.evaluate(() => {
     const logo = document.querySelector('.about-logo');
@@ -730,6 +730,8 @@ async function main() {
       && diagnostic.includes('采集卡原生规格：1280x720 @ 30 fps')
       && diagnostic.includes('已选音频设备：Audio 1')
       && diagnostic.includes('采集画面格式：YUY2')
+      && diagnostic.includes('录制编码：avc1.640034 软编')
+      && diagnostic.includes('录制质量：28')
       && diagnostic.includes('采集档位：')
       && diagnostic.includes('GPU：NVIDIA / GeForce RTX 4060')
       && diagnostic.includes('硬件加速：已启用')
