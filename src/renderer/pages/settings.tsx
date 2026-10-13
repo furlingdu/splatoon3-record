@@ -177,19 +177,25 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
               <mdui-menu-item value="">不录制音频</mdui-menu-item>
               {session.devices.filter((item) => item.kind === 'audio').map((device) => <mdui-menu-item key={device.id} value={device.id}>{deviceLabel(device)}</mdui-menu-item>)}
             </mdui-select>
-            <mdui-button-icon disabled={loading} ref={reloadRef}>
-              <mdui-icon dangerouslySetInnerHTML={{ __html: iconSvg('refresh') }} />
-            </mdui-button-icon>
+            {settings?.nv12Capture ? null : (
+              <mdui-button-icon disabled={loading} ref={reloadRef}>
+                <mdui-icon dangerouslySetInnerHTML={{ __html: iconSvg('refresh') }} />
+              </mdui-button-icon>
+            )}
           </div>
           {loading ? <mdui-linear-progress indeterminate className="device-loading" /> : null}
           <span className="form-hint">选择音频输入</span>
         </div>
         {settings?.nv12Capture ? (
           <div className="form-field">
-            <mdui-select label="采集画面格式" value={captureFormat} ref={formatRef} name="captureFormat">
-              {modeFormats(modes, settings.captureFormat).map((item) => <mdui-menu-item key={item} value={item}>{formatLabel(item)}</mdui-menu-item>)}
-            </mdui-select>
-            <span className="form-hint">NV12 走 Media Foundation，YUY2 走 DirectShow，切换后重启应用生效。</span>
+            <div className="select-icon-row">
+              <mdui-select label="采集画面格式" value={captureFormat} ref={formatRef} name="captureFormat">
+                {modeFormats(modes, settings.captureFormat).map((item) => <mdui-menu-item key={item} value={item}>{formatLabel(item)}</mdui-menu-item>)}
+              </mdui-select>
+              <mdui-button-icon disabled={loading} ref={reloadRef}>
+                <mdui-icon dangerouslySetInnerHTML={{ __html: iconSvg('refresh') }} />
+              </mdui-button-icon>
+            </div>
           </div>
         ) : null}
       </div>

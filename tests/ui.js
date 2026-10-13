@@ -614,6 +614,11 @@ async function main() {
     const values = Array.from(select?.querySelectorAll('mdui-menu-item') ?? []).map((item) => item.getAttribute('value'));
     return Boolean(select) && values.join(',') === 'nv12,yuy2';
   }, { timeout: 5000 }).then(() => true).catch(() => false));
+  check('设置页刷新按钮排在采集格式下拉后', await page.evaluate(() => {
+    const row = document.querySelector('mdui-select[name="captureFormat"]')?.closest('.select-icon-row');
+    const audioRow = document.querySelector('mdui-select[name="audioDevice"]')?.closest('.select-icon-row');
+    return Boolean(row?.querySelector('mdui-button-icon')) && !audioRow?.querySelector('mdui-button-icon');
+  }));
   check('设置页 NV12 分辨率档位来自采集卡枚举', await page.waitForFunction(() => {
     const values = Array.from(document.querySelectorAll('mdui-select[name="width"] mdui-menu-item')).map((item) => item.getAttribute('value'));
     return values.includes('3840x2160') && !values.includes('2560x1440');
