@@ -57,20 +57,20 @@ describe('openStream codec selection', () => {
     await openStream(options);
     expect(codecs.configured[0].codec).toBe('avc1.64002A');
     expect(streamCodec()).toContain('avc1.64002A');
-    expect(VideoEncoder.isConfigSupported).not.toHaveBeenCalledWith(expect.objectContaining({ codec: 'hvc1.1.6.L150.B0' }));
+    expect(VideoEncoder.isConfigSupported).not.toHaveBeenCalledWith(expect.objectContaining({ codec: 'hvc1.1.6.L153.B0' }));
   });
 
   it('prefers decodable HEVC and falls back when its encoder cannot configure', async () => {
     const codecs = mockCodecs(() => true, () => true, (codec) => codec.startsWith('hvc1') || codec.startsWith('hev1'));
     await openStream(options);
-    expect(codecs.closed).toContain('hvc1.1.6.L150.B0');
+    expect(codecs.closed).toContain('hvc1.1.6.L153.B0');
     expect(codecs.configured[0].codec).toBe('avc1.64002A');
   });
 
   it('uses HEVC when both encoder and decoder support it', async () => {
     const codecs = mockCodecs(() => true, () => true);
     await openStream(options);
-    expect(codecs.configured[0]).toMatchObject({ codec: 'hvc1.1.6.L150.B0', hardwareAcceleration: 'prefer-hardware', bitrateMode: 'constant' });
+    expect(codecs.configured[0]).toMatchObject({ codec: 'hvc1.1.6.L153.B0', hardwareAcceleration: 'prefer-hardware', bitrateMode: 'constant' });
   });
 
   it('reports unavailable when there is no mutually supported codec', async () => {

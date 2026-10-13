@@ -1,3 +1,4 @@
+import { videoCodecs } from './encode.js';
 import type { LiveChunk } from '../../shared/types.js';
 
 interface StreamOptions {
@@ -281,24 +282,22 @@ function interleave(data: AudioData): Float32Array {
 
 async function chooseCodec(width: number, height: number, fps: number, bitrate: number, skipped: Set<string>): Promise<{ codec: string; acceleration: HardwareAcceleration; bitrateMode: VideoEncoderBitrateMode } | undefined> {
   if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') return undefined;
-  const rate = width * height * Math.max(1, fps);
-  const avc = rate > 1920 * 1080 * 60 ? 'avc1.640034' : rate >= 1920 * 1080 * 30 ? 'avc1.64002A' : 'avc1.640028';
-  const candidates = ['hvc1.1.6.L150.B0', 'hev1.1.6.L150.B0', avc, 'avc1.640033', 'avc1.64002A', 'avc1.640028'];
-  for (const candidate of Array.from(new Set(candidates))) {
-    let decodable = false;
-    for (const acceleration of ['prefer-hardware', 'no-preference'] as HardwareAcceleration[]) {
-      const support = await VideoDecoder.isConfigSupported({ codec: candidate, codedWidth: width, codedHeight: height, optimizeForLatency: true, hardwareAcceleration: acceleration }).catch(() => undefined);
-      if (support?.supported) {
-        decodable = true;
-        break;
+  const candidates = videoCodecs(width, height, fps);
+  for (const acceleration of ['prefer-hardware', 'no-preference'] as HardwareAcceleration[]) {
+    for (const candidate of candidates) {
+      let decodable = false;
+      for (const decode of ['prefer-hardware', 'no-preference'] as HardwareAcceleration[]) {
+        const support = await VideoDecoder.isConfigSupported({ codec: candidate.codec, codedWidth: width, codedHeight: height, optimizeForLatency: true, hardwareAcceleration: decode }).catch(() => undefined);
+        if (support?.supported) {
+          decodable = true;
+          break;
+        }
       }
-    }
-    if (!decodable) continue;
-    for (const acceleration of ['prefer-hardware', 'no-preference'] as HardwareAcceleration[]) {
+      if (!decodable) continue;
       for (const mode of ['constant', 'variable'] as VideoEncoderBitrateMode[]) {
-        if (skipped.has(`${candidate}:${acceleration}:${mode}`)) continue;
+        if (skipped.has(`${candidate.codec}:${acceleration}:${mode}`)) continue;
         const support = await VideoEncoder.isConfigSupported({
-          codec: candidate,
+          codec: candidate.codec,
           width,
           height,
           bitrate,
@@ -307,7 +306,7 @@ async function chooseCodec(width: number, height: number, fps: number, bitrate: 
           hardwareAcceleration: acceleration,
           latencyMode: 'realtime',
         }).catch(() => undefined);
-        if (support?.supported) return { codec: candidate, acceleration, bitrateMode: mode };
+        if (support?.supported) return { codec: candidate.codec, acceleration, bitrateMode: mode };
       }
     }
   }

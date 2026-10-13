@@ -1,6 +1,6 @@
 export const appName = 'Splatoon3 Record';
 export const projectName = 'Splatoon3Record';
-export const projectVersion = '2.2.1';
+export const projectVersion = '2.2.2';
 export const projectUrl = 'https://github.com/furlingdu/splatoon3-record';
 export const authorName = '澪度';
 export const avatarUrl = 'https://q2.qlogo.cn/headimg_dl?dst_uin=3648192311&spec=640';

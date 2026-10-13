@@ -3,10 +3,11 @@ import { MonitorSwitch } from '../components/monitor.js';
 import { Preview } from '../components/preview.js';
 import { StatusItem } from '../components/item.js';
 import { startCapture, stopCapture, retryCapture, useSession } from '../lib/session.js';
-import { formatText, resolutionText } from '../../shared/capture.js';
+import { formatText, matchDevice, resolutionText } from '../../shared/capture.js';
 import { durationText, kindNames, resultText, ruleName } from '../../shared/nso.js';
-import { type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
+import { useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
 import type { AppStatus } from '../../shared/types.js';
+import { hardwareModes } from '../lib/encode.js';
 
 const stateNames: Record<string, string> = {
   unbound: '未绑定',
@@ -26,6 +27,27 @@ function statusPage(props: { status?: AppStatus }): ReactElement {
   const sizeMissed = Boolean(settings) && session.width > 0 && !session.applying && (session.width !== settings?.width || session.height !== settings?.height);
   const fpsMissed = Boolean(settings) && session.fps > 0 && !session.applying && Math.abs(session.fps - (settings?.fps || 0)) > 0.5;
   const softwareSlow = session.encoder.endsWith('软编') && session.width * session.height * session.fps >= 3840 * 2160 * 30;
+  const [advice, setAdvice] = useState<string[] | undefined>(undefined);
+
+  useEffect(() => {
+    if (!softwareSlow || !settings) {
+      setAdvice(undefined);
+      return undefined;
+    }
+    const video = matchDevice(session.devices, 'video', settings.videoDevice);
+    if (!video?.name) return undefined;
+    let alive = true;
+    setAdvice(undefined);
+    void window.recordApi.listModes(video.name)
+      .then((list) => hardwareModes(list.filter((item) => item.format === settings.captureFormat)))
+      .then((ready) => {
+        if (!alive) return;
+        const load = session.width * session.height * session.fps;
+        setAdvice(ready.filter((item) => item.width * item.height * item.fps < load).slice(0, 3).map((item) => `${item.width}x${item.height}@${item.fps}`));
+      })
+      .catch(() => { if (alive) setAdvice([]); });
+    return () => { alive = false; };
+  }, [softwareSlow, settings?.videoDevice, settings?.captureFormat]);
 
   const exportDebug = (): void => {
     void window.recordApi.debugExportLast()
@@ -61,7 +83,7 @@ function statusPage(props: { status?: AppStatus }): ReactElement {
       </div>
       {sizeMissed ? <div className="status-warn">采集卡未接受设置页的分辨率，当前输出 {resolutionText(session.width, session.height)}</div> : null}
       {fpsMissed ? <div className="status-warn">采集卡未接受设置页的帧率，当前输出 {Number(session.fps.toFixed(2))} fps</div> : null}
-      {softwareSlow ? <div className="status-warn">当前档位没有硬件编码，录制会丢帧，建议降低分辨率或帧率</div> : null}
+      {softwareSlow ? <div className="status-warn">当前档位没有硬件编码，录制会丢帧，{advice === undefined ? '正在检查本机可用的硬编档位……' : advice.length ? `建议改用 ${advice.join('、')}` : '本机浏览器也没有其它可用硬编档位'}</div> : null}
       <h3 className="section-title">连接</h3>
       <div className="status-grid">
         <StatusItem label="NSO 登录" value={stateNames[status?.nsoState || 'unbound']} />

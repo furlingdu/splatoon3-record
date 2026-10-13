@@ -667,6 +667,7 @@ async function main() {
     return values.includes('30') && !values.includes('60');
   }));
   check('设置页在采集卡拒绝配置分辨率时提示未接受', await waitText(page, '采集卡未接受该分辨率'));
+  check('设置页显示录制编码硬件能力', await waitText(page, '录制编码：'));
   check('设置页录制质量按固定三档渲染', await page.evaluate(() => {
     const select = document.querySelector('mdui-select[name="quality"]');
     const items = Array.from(select?.querySelectorAll('mdui-menu-item') ?? []);
@@ -710,7 +711,7 @@ async function main() {
 
   await clickNav(page, 6);
   check('关于页显示项目名', await waitText(page, 'Splatoon3Record'));
-  check('关于页显示版本', await waitText(page, '2.2.1'));
+  check('关于页显示版本', await waitText(page, '2.2.2'));
   check('关于页显示作者简介', await waitText(page, '巨齿刮水刀'));
   check('作者头像指向作者 QQ 头像并与应用图标区分', await page.evaluate(() => {
     const logo = document.querySelector('.about-logo');
@@ -732,6 +733,7 @@ async function main() {
       && diagnostic.includes('采集画面格式：YUY2')
       && diagnostic.includes('录制编码：avc1.640034 软编')
       && diagnostic.includes('录制质量：28')
+      && diagnostic.includes('硬编档位：')
       && diagnostic.includes('采集档位：')
       && diagnostic.includes('GPU：NVIDIA / GeForce RTX 4060')
       && diagnostic.includes('硬件加速：已启用')

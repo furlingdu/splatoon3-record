@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { avcCodec, hevcCodec, videoCandidates } from '../src/renderer/lib/segment.js';
+import { avcCodec, hardwareModes, hardwareReady, hevcCodec, videoCodecs } from '../src/renderer/lib/encode.js';
 
 describe('hevcCodec', () => {
   it('按画幅帧率取足够的最低等级', () => {
@@ -21,9 +21,16 @@ describe('avcCodec', () => {
   });
 });
 
-describe('videoCandidates', () => {
+describe('hardwareReady', () => {
+  it('没有 WebCodecs 时判定为无硬件编码', async () => {
+    expect(await hardwareReady(3840, 2160, 60)).toBe(false);
+    expect(await hardwareModes([{ format: 'nv12', width: 3840, height: 2160, minFps: 30, maxFps: 60 }])).toEqual([]);
+  });
+});
+
+describe('videoCodecs', () => {
   it('列表按硬件候选顺序包含 HEVC 与 H.264', () => {
-    const list = videoCandidates({ width: 3840, height: 2160, fps: 60, hasAudio: true });
+    const list = videoCodecs(3840, 2160, 60);
     expect(list[0]).toEqual({ codec: 'hvc1.1.6.L156.B0', muxer: 'hevc' });
     expect(list[1]).toEqual({ codec: 'hev1.1.6.L156.B0', muxer: 'hevc' });
     expect(list.some((item) => item.codec === 'avc1.640034')).toBe(true);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { snackbar } from 'mdui/functions/snackbar.js';
 import { useElementEvent, restoreSelect, targetChecked, targetValue } from '../lib/event.js';
+import { EncodeHint } from '../components/encodehint.js';
 import { dialogLayer } from '../lib/portal.js';
 import { iconSvg } from '../lib/icons.js';
 import { refreshDevices, useSession } from '../lib/session.js';
@@ -212,6 +213,7 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
             {sizes.map((item) => <mdui-menu-item key={String(item)} value={String(item)}>{item} fps</mdui-menu-item>)}
           </mdui-select>
           {fpsMissed ? <span className="form-hint">采集卡未接受设置页的帧率，当前输出 {Number(session.fps.toFixed(2))} fps</span> : null}
+          {settings ? <EncodeHint width={settings.width} height={settings.height} fps={settings.fps} /> : null}
         </div>
         <div className="form-switch form-field-wide">
           <span>垂直翻转画面<em className="form-note">画面上下颠倒时开启</em></span>

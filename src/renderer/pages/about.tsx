@@ -5,6 +5,7 @@ import type { AppStatus, CaptureDevice, RuntimeInfo } from '../../shared/types.j
 import { listDevices } from '../lib/device.js';
 import { liveView } from '../lib/live.js';
 import { formatLabel, matchDevice } from '../../shared/capture.js';
+import { hardwareModes, type ModeRate } from '../lib/encode.js';
 import { iconSvg } from '../lib/icons.js';
 import appLogo from '../assets/appIcon.png';
 import abxyLogo from '../assets/abxy.png';
@@ -20,7 +21,8 @@ function aboutPage(props: { status?: AppStatus }): ReactElement {
       const [runtime, devices] = await Promise.all([window.recordApi.getRuntimeInfo(), listDevices(props.status?.settings.videoDevice)]);
       const selected = matchDevice(devices, 'video', props.status?.settings.videoDevice);
       const modes = selected ? await window.recordApi.listModes(selected.name).catch(() => []) : [];
-      const file = await window.recordApi.saveReport(diagnosticText(props.status, runtime, devices, modes));
+      const ready = await hardwareModes(modes);
+      const file = await window.recordApi.saveReport(diagnosticText(props.status, runtime, devices, modes, ready));
       snackbar({ message: file ? `设备信息已保存到 ${file}` : '设备信息保存失败，请稍后重试。' });
     } catch {
       snackbar({ message: '设备信息保存失败，请稍后重试。' });
@@ -112,7 +114,7 @@ function aboutPage(props: { status?: AppStatus }): ReactElement {
   );
 }
 
-function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, devices: CaptureDevice[], modes: CaptureMode[]): string {
+function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, devices: CaptureDevice[], modes: CaptureMode[], ready: ModeRate[]): string {
   const video = devices.filter((item) => item.kind === 'video').map((item) => item.name).join('、') || '未检测到';
   const audio = devices.filter((item) => item.kind === 'audio').map((item) => item.name).join('、') || '未检测到';
   const selected = matchDevice(devices, 'video', status?.settings.videoDevice);
@@ -144,6 +146,7 @@ function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, dev
     `采集后端：${runtime.captureBackend === 'mf' ? 'Media Foundation' : 'DirectShow'}`,
     `采集画面格式：${formatLabel(status?.settings.captureFormat ?? 'nv12')}`,
     ...modeText(modes),
+    `硬编档位：${ready.length ? ready.map((item) => `${formatLabel(item.format)} ${item.width}x${item.height}@${item.fps}`).join('、') : '无'}`,
     `采集音频：${status?.streamAudio ? '有' : '无'}`,
     `硬件解码档位：${status?.hwAccel || '未启用或未知'}`,
     `归档编码器：${status?.encoder || '未知'}`,

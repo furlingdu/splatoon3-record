@@ -4,6 +4,7 @@ import appLogo from '../assets/appIcon.png';
 import { useElementEvent, markSelectClick, restoreSelect, targetChecked, targetValue } from '../lib/event.js';
 import { listDevices } from '../lib/device.js';
 import { deviceLabel, fpsList, matchDevice, resolutionKey, resolutionList, resolutionText } from '../../shared/capture.js';
+import { EncodeHint } from '../components/encodehint.js';
 import { appName, defaultSettings } from '../../shared/constants.js';
 import { NsoApiNotice } from '../components/notice.js';
 import characterImg from '../assets/character/character.png';
@@ -187,6 +188,7 @@ function setupApp(): ReactElement {
                 <mdui-select label="录制帧率" value={String(value?.fps ?? defaultSettings.fps)} ref={fpsRef} name="fps">
                   {sizes.map((item) => <mdui-menu-item key={String(item)} value={String(item)}>{item} fps</mdui-menu-item>)}
                 </mdui-select>
+                {value ? <EncodeHint width={value.width} height={value.height} fps={value.fps} /> : null}
               </div>
               <div className="form-field form-field-wide">
                 <div className="form-switch">
