@@ -13,6 +13,7 @@ export function makeSettings(overrides: Partial<RecordSettings> = {}): RecordSet
     fps: 60,
     flipVertical: false,
     nv12Capture: false,
+    captureFormat: 'nv12',
     encoder: 'auto',
     quality: 22,
     saveDir: 'D:/videos',

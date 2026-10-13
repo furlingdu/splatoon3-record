@@ -4,24 +4,26 @@ import { appName, authorName, avatarUrl, projectUrl, projectVersion, projectName
 import type { AppStatus, CaptureDevice, RuntimeInfo } from '../../shared/types.js';
 import { listDevices } from '../lib/device.js';
 import { liveView } from '../lib/live.js';
-import { matchDevice } from '../../shared/capture.js';
+import { formatLabel, matchDevice } from '../../shared/capture.js';
 import { iconSvg } from '../lib/icons.js';
 import appLogo from '../assets/appIcon.png';
 import abxyLogo from '../assets/abxy.png';
+import type { CaptureFormat, CaptureMode } from '../../shared/types.js';
 
 const projectRepo = projectUrl.replace('https://github.com/', '');
 const nsoRepo = 'Cypas/splatoon3-nso';
 const nxapiRepo = 'samuelthomas2774/nxapi';
 
 function aboutPage(props: { status?: AppStatus }): ReactElement {
-  const copyInfo = async (): Promise<void> => {
+  const saveInfo = async (): Promise<void> => {
     try {
       const [runtime, devices] = await Promise.all([window.recordApi.getRuntimeInfo(), listDevices(props.status?.settings.videoDevice)]);
-      const text = diagnosticText(props.status, runtime, devices);
-      await window.recordApi.copyText(text);
-      snackbar({ message: '设备信息已复制，请通过项目主页反馈。' });
+      const selected = matchDevice(devices, 'video', props.status?.settings.videoDevice);
+      const modes = selected ? await window.recordApi.listModes(selected.name).catch(() => []) : [];
+      const file = await window.recordApi.saveReport(diagnosticText(props.status, runtime, devices, modes));
+      snackbar({ message: file ? `设备信息已保存到 ${file}` : '设备信息保存失败，请稍后重试。' });
     } catch {
-      snackbar({ message: '设备信息复制失败，请稍后重试。' });
+      snackbar({ message: '设备信息保存失败，请稍后重试。' });
     }
   };
   return (
@@ -40,7 +42,7 @@ function aboutPage(props: { status?: AppStatus }): ReactElement {
           一款斯普拉遁3录制机，通过采集卡自动采集整局录像，并通过 QQBot 推送。
         </p>
         <div className="status-actions">
-          <mdui-button variant="filled" onClick={() => void copyInfo()}>复制设备信息</mdui-button>
+          <mdui-button variant="filled" onClick={() => void saveInfo()}>保存设备信息</mdui-button>
         </div>
       </div>
 
@@ -110,7 +112,7 @@ function aboutPage(props: { status?: AppStatus }): ReactElement {
   );
 }
 
-function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, devices: CaptureDevice[]): string {
+function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, devices: CaptureDevice[], modes: CaptureMode[]): string {
   const video = devices.filter((item) => item.kind === 'video').map((item) => item.name).join('、') || '未检测到';
   const audio = devices.filter((item) => item.kind === 'audio').map((item) => item.name).join('、') || '未检测到';
   const selected = matchDevice(devices, 'video', status?.settings.videoDevice);
@@ -138,6 +140,8 @@ function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, dev
     `实际帧率：${status?.streamFps || 0} fps`,
     `采集格式：${status?.streamFormat || '未知'}`,
     `采集后端：${runtime.captureBackend === 'mf' ? 'Media Foundation' : 'DirectShow'}`,
+    `采集画面格式：${formatLabel(status?.settings.captureFormat ?? 'nv12')}`,
+    ...modeText(modes),
     `采集音频：${status?.streamAudio ? '有' : '无'}`,
     `硬件解码档位：${status?.hwAccel || '未启用或未知'}`,
     `归档编码器：${status?.encoder || '未知'}`,
@@ -147,6 +151,13 @@ function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, dev
     `直播地址端口：${status?.liveOptions.port || '未知'}`,
     `推理状态：${status?.settings.blurNickname ? '已开启' : '未开启'}`,
   ].join('\n');
+}
+
+function modeText(modes: CaptureMode[]): string[] {
+  if (!modes.length) return ['采集档位：未获取'];
+  const formats: CaptureFormat[] = [];
+  for (const item of modes) if (!formats.includes(item.format)) formats.push(item.format);
+  return formats.map((format) => `${formatLabel(format)} 档位：${modes.filter((item) => item.format === format).map((item) => `${item.width}x${item.height}@${item.minFps}-${item.maxFps}`).join('、')}`);
 }
 
 export { aboutPage as AboutPage };

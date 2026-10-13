@@ -27,7 +27,8 @@ export function getConfig(): AppConfig {
 export function startupBackend(file = configFile): CaptureBackend {
   try {
     const data = JSON.parse(readFileSync(file, 'utf8')) as Partial<AppConfig>;
-    return data.settings?.nv12Capture ? 'mf' : 'dshow';
+    if (!data.settings?.nv12Capture) return 'dshow';
+    return data.settings.captureFormat === 'yuy2' ? 'dshow' : 'mf';
   } catch {
     return 'dshow';
   }

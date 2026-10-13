@@ -43,6 +43,8 @@ const recordApi: BridgeApi = {
   detectFrame: (frame: ArrayBuffer, width: number, height: number, conf: number) => ipcRenderer.invoke(ipcNames.detectFrame, frame, width, height, conf),
   stopDetect: () => ipcRenderer.invoke(ipcNames.stopDetect),
   copyText: (text: string) => ipcRenderer.invoke(ipcNames.copyText, text),
+  listModes: (device: string) => ipcRenderer.invoke(ipcNames.listModes, device),
+  saveReport: (text: string) => ipcRenderer.invoke(ipcNames.saveReport, text),
   getRuntimeInfo: () => ipcRenderer.invoke(ipcNames.getRuntimeInfo),
   getEvents: (callback: (status: AppStatus) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, status: AppStatus) => callback(status);

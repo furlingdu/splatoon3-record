@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { chooseMime, cleanNames, deviceKey, deviceLabel, deviceName, formatText, fpsList, matchDevice, mimeCandidates, resolutionKey, resolutionList, resolutionText } from '../src/shared/capture.js';
-import type { CaptureDevice } from '../src/shared/types.js';
+import { chooseMime, clampModeFps, cleanNames, deviceKey, deviceLabel, deviceName, formatLabel, formatText, fpsList, matchDevice, mimeCandidates, modeFormats, modeFpsList, modeResolutions, pickMode, resolutionKey, resolutionList, resolutionText } from '../src/shared/capture.js';
+import type { CaptureDevice, CaptureMode } from '../src/shared/types.js';
 
 const camera: CaptureDevice = { id: 'cam1', name: 'Camera', kind: 'video', maxWidth: 1920, maxHeight: 1080, maxFps: 30 };
 
@@ -145,5 +145,46 @@ describe('formatText', () => {
   it('转成易读格式', () => {
     expect(formatText()).toBe('未开始采集');
     expect(formatText('video/mp4;codecs=avc1')).toBe('mp4 · avc1');
+  });
+});
+
+const modes: CaptureMode[] = [
+  { format: 'nv12', width: 3840, height: 2160, minFps: 24, maxFps: 30 },
+  { format: 'nv12', width: 1920, height: 1080, minFps: 24, maxFps: 60 },
+  { format: 'yuy2', width: 1920, height: 1080, minFps: 24, maxFps: 50 },
+  { format: 'yuy2', width: 1280, height: 720, minFps: 50, maxFps: 60 },
+];
+
+describe('采集档位筛选', () => {
+  it('按格式列出格式选项并保留当前格式', () => {
+    expect(modeFormats(modes, 'nv12')).toEqual(['nv12', 'yuy2']);
+    expect(modeFormats(modes, 'yuy2')).toEqual(['nv12', 'yuy2']);
+    expect(modeFormats([], 'yuy2')).toEqual(['nv12', 'yuy2']);
+  });
+
+  it('分辨率只取所选格式的档位并按面积降序', () => {
+    expect(modeResolutions(modes, 'nv12')).toEqual([{ width: 3840, height: 2160 }, { width: 1920, height: 1080 }]);
+    expect(modeResolutions(modes, 'yuy2')).toEqual([{ width: 1920, height: 1080 }, { width: 1280, height: 720 }]);
+  });
+
+  it('帧率取所选分辨率档位范围内的常用帧率与边界', () => {
+    expect(modeFpsList(modes, 'nv12', 3840, 2160, 60)).toEqual([24, 30]);
+    expect(modeFpsList(modes, 'nv12', 1920, 1080, 60)).toEqual([24, 30, 60]);
+    expect(modeFpsList(modes, 'yuy2', 1920, 1080, 60)).toEqual([24, 30, 50]);
+    expect(modeFpsList(modes, 'yuy2', 1280, 720, 30)).toEqual([50, 60]);
+    expect(modeFpsList(modes, 'yuy2', 640, 480, 30)).toEqual([]);
+  });
+
+  it('帧率按档位范围夹取', () => {
+    expect(clampModeFps(modes[0], 60)).toBe(30);
+    expect(clampModeFps(modes[1], 50)).toBe(50);
+  });
+
+  it('格式切换时挑选最接近的档位', () => {
+    expect(pickMode(modes, 'yuy2', 3840, 2160, 60)?.height).toBe(1080);
+    expect(pickMode(modes, 'yuy2', 1920, 1080, 60)).toEqual({ format: 'yuy2', width: 1920, height: 1080, minFps: 24, maxFps: 50 });
+    expect(pickMode(modes, 'nv12', 1280, 720, 30)?.width).toBe(1920);
+    expect(formatLabel('nv12')).toBe('NV12');
+    expect(formatLabel('yuy2')).toBe('YUY2');
   });
 });

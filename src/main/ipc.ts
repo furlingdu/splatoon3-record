@@ -5,6 +5,8 @@ import { ipcNames } from '../shared/events.js';
 import { blurConfidence } from '../shared/constants.js';
 import { clearSecret } from './store/secret.js';
 import { matchPath } from './store/path.js';
+import { listModes } from './capture/modes.js';
+import { saveReport } from './store/report.js';
 import { removeMatch } from './match/archive.js';
 import { getThumb, dropThumb } from './media/thumbs.js';
 import { makeVideoUrl } from './media/video.js';
@@ -78,6 +80,8 @@ export function registerIpc(context: IpcContext): void {
   ipcMain.handle(ipcNames.detectFrame, (_event, frame: ArrayBuffer, width: number, height: number, conf: number) => context.detectFrame(chunkBytes(frame), sizeArg(width), sizeArg(height), rateArg(conf)));
   ipcMain.handle(ipcNames.stopDetect, () => { context.stopDetect(); });
   ipcMain.handle(ipcNames.copyText, (_event, text: string) => { clipboard.writeText(copyTextArg(text)); });
+  ipcMain.handle(ipcNames.listModes, (_event, device: string) => listModes(textArg(device)));
+  ipcMain.handle(ipcNames.saveReport, (_event, text: string) => saveReportFile(reportArg(text)));
   ipcMain.handle(ipcNames.openPreview, (event) => context.isMainSource(event.sender.id) ? context.openPreview() : undefined);
   ipcMain.handle(ipcNames.togglePreviewFullscreen, (event) => context.togglePreviewFullscreen(event.sender.id));
   ipcMain.handle(ipcNames.getRuntimeInfo, () => context.getRuntimeInfo());
@@ -161,6 +165,16 @@ function textArg(value: unknown): string {
 
 function copyTextArg(value: unknown): string {
   return typeof value === 'string' ? value.slice(0, 16000) : '';
+}
+
+function reportArg(value: unknown): string {
+  return typeof value === 'string' ? value.slice(0, 200000) : '';
+}
+
+async function saveReportFile(text: string): Promise<string | undefined> {
+  const file = await saveReport(text);
+  if (file) shell.showItemInFolder(file);
+  return file;
 }
 
 

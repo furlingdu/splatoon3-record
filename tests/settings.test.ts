@@ -13,6 +13,13 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({}, base).nv12Capture).toBe(false);
     expect(sanitizeSettings({ nv12Capture: true }, base).nv12Capture).toBe(true);
   });
+
+  it('保留采集画面格式且非法值回退 NV12', () => {
+    const base: RecordSettings = { ...defaultSettings };
+    expect(sanitizeSettings({}, base).captureFormat).toBe('nv12');
+    expect(sanitizeSettings({ captureFormat: 'yuy2' }, base).captureFormat).toBe('yuy2');
+    expect(sanitizeSettings({ captureFormat: 'mjpeg' }, base).captureFormat).toBe('nv12');
+  });
 });
 
 describe('startupBackend', () => {
@@ -30,6 +37,16 @@ describe('startupBackend', () => {
       const file = join(root, 'config.json');
       await writeFile(file, JSON.stringify({ settings: { nv12Capture: true } }), 'utf8');
       expect(startupBackend(file)).toBe('mf');
+      await writeFile(file, JSON.stringify({ settings: { nv12Capture: true, captureFormat: 'nv12' } }), 'utf8');
+      expect(startupBackend(file)).toBe('mf');
+    });
+  });
+
+  it('配置选择 YUY2 格式后启动走 DirectShow', async () => {
+    await withRoot(async (root) => {
+      const file = join(root, 'config.json');
+      await writeFile(file, JSON.stringify({ settings: { nv12Capture: true, captureFormat: 'yuy2' } }), 'utf8');
+      expect(startupBackend(file)).toBe('dshow');
     });
   });
 

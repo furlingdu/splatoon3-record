@@ -1,4 +1,4 @@
-import type { CaptureDevice } from './types.js';
+import type { CaptureDevice, CaptureFormat, CaptureMode } from './types.js';
 
 export interface Resolution {
   width: number;
@@ -75,6 +75,63 @@ export function fpsList(device?: CaptureDevice, current?: number): number[] {
     if (fps > 0 && (fps <= maxFps || !maxFps) && !list.includes(fps)) list.push(fps);
   }
   return list.sort((left, right) => left - right);
+}
+
+export function formatLabel(format: CaptureFormat): string {
+  return format === 'yuy2' ? 'YUY2' : 'NV12';
+}
+
+export function modeFormats(modes: CaptureMode[], current?: CaptureFormat): CaptureFormat[] {
+  if (!modes.length) return ['nv12', 'yuy2'];
+  const list: CaptureFormat[] = [];
+  for (const item of modes) if (!list.includes(item.format)) list.push(item.format);
+  if (current && !list.includes(current)) list.push(current);
+  return list;
+}
+
+export function modeResolutions(modes: CaptureMode[], format: CaptureFormat): Resolution[] {
+  const list: Resolution[] = [];
+  for (const item of modes) {
+    if (item.format !== format) continue;
+    if (!list.some((hit) => hit.width === item.width && hit.height === item.height)) list.push({ width: item.width, height: item.height });
+  }
+  return list.sort((left, right) => right.width * right.height - left.width * left.height);
+}
+
+export function modeFpsList(modes: CaptureMode[], format: CaptureFormat, width: number, height: number, current?: number): number[] {
+  const list = new Set<number>();
+  for (const item of modes) {
+    if (item.format !== format || item.width !== width || item.height !== height) continue;
+    for (const candidate of [...fpsOptions, item.minFps, item.maxFps, current ?? 0]) {
+      const fps = Math.round(candidate);
+      if (fps >= item.minFps && fps <= item.maxFps) list.add(fps);
+    }
+  }
+  return [...list].sort((left, right) => left - right);
+}
+
+export function clampModeFps(mode: CaptureMode, fps: number): number {
+  return Math.min(mode.maxFps, Math.max(mode.minFps, Math.round(fps)));
+}
+
+export function pickMode(modes: CaptureMode[], format: CaptureFormat, width: number, height: number, fps: number): CaptureMode | undefined {
+  const list = modes.filter((item) => item.format === format);
+  if (!list.length) return undefined;
+  const exact = list.filter((item) => item.width === width && item.height === height);
+  const pool = exact.length ? exact : list.slice().sort((left, right) => areaGap(left, width, height) - areaGap(right, width, height));
+  const bestArea = areaGap(pool[0], width, height);
+  const near = pool.filter((item) => areaGap(item, width, height) === bestArea);
+  return near.reduce((best, item) => (fpsGap(item, fps) < fpsGap(best, fps) ? item : best));
+}
+
+function areaGap(mode: CaptureMode, width: number, height: number): number {
+  return Math.abs(mode.width * mode.height - width * height);
+}
+
+function fpsGap(mode: CaptureMode, fps: number): number {
+  if (fps < mode.minFps) return mode.minFps - fps;
+  if (fps > mode.maxFps) return fps - mode.maxFps;
+  return 0;
 }
 
 export function mimeCandidates(hasAudio: boolean, order: MimeOrder = 'default'): MimeChoice[] {

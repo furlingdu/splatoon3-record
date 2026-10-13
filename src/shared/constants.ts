@@ -37,6 +37,7 @@ export const defaultSettings = {
   fps: 60,
   flipVertical: false,
   nv12Capture: false,
+  captureFormat: 'nv12' as const,
   encoder: 'auto' as const,
   quality: qualityDefault,
   saveDir: '',

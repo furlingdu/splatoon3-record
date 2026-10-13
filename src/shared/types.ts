@@ -16,6 +16,16 @@ export interface CaptureDevice {
   nativeFps?: number;
 }
 
+export type CaptureFormat = 'nv12' | 'yuy2';
+
+export interface CaptureMode {
+  format: CaptureFormat;
+  width: number;
+  height: number;
+  minFps: number;
+  maxFps: number;
+}
+
 export interface CaptureReport {
   recordState: RecordState;
   error?: string;
@@ -34,6 +44,7 @@ export interface RecordSettings {
   fps: number;
   flipVertical?: boolean;
   nv12Capture: boolean;
+  captureFormat: CaptureFormat;
   encoder: 'auto' | 'nvidia' | 'amd' | 'intel' | 'software';
   quality: number;
   saveDir: string;
@@ -260,6 +271,8 @@ export interface BridgeApi {
   detectFrame: (frame: ArrayBuffer, width: number, height: number, conf: number) => Promise<DetectReply>;
   stopDetect: () => Promise<void>;
   copyText: (text: string) => Promise<void>;
+  listModes: (device: string) => Promise<CaptureMode[]>;
+  saveReport: (text: string) => Promise<string | undefined>;
   getRuntimeInfo: () => Promise<RuntimeInfo>;
   getEvents: (callback: (status: AppStatus) => void) => () => void;
 }

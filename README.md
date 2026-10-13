@@ -26,7 +26,7 @@ Splatoon3 Record 是一款面向 Splatoon 3 的本地录制、直播与对局归
 
 ## 采集后端
 
-Windows 上默认使用 DirectShow 采集后端。部分采集卡只在 NV12 或 YUY2 模式下输出 2K 以上分辨率，Chromium 的 DirectShow 后端不支持 NV12，可在设置页打开「开启NV12、YUY2采集支持」改走 Media Foundation 后端，重启应用后生效，重启后分辨率与帧率选项会按新后端重新检测。Media Foundation 后端原生支持 NV12 与 YUY2，并在内部统一转换为 I420 后交给录制与直播链路。
+Windows 上默认使用 DirectShow 采集后端。部分采集卡只在 NV12 或 YUY2 模式下输出 2K 以上分辨率，Chromium 的 DirectShow 后端不支持 NV12，可在设置页打开「开启NV12、YUY2采集支持」并选择采集画面格式，NV12 走 Media Foundation，YUY2 走 DirectShow，切换后重启应用生效。重启后设置页会用 ffmpeg 枚举采集卡的档位，分辨率与帧率选项按所选格式列出并自动校正到可用档位，避免采集卡静默回退到低帧率。Media Foundation 后端原生支持 NV12 与 YUY2，并在内部统一转换为 I420 后交给录制与直播链路。
 
 `.env` 按当前工作目录、可执行文件同目录、数据目录的顺序取第一个存在的文件，可参考仓库根目录的 `.env.example`。
 

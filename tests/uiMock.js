@@ -62,6 +62,7 @@ function createMockStatus(overrides = {}) {
     pushState: 'idle',
     settings: {
       videoDevice: 'obs1', audioDevice: 'audio1', width: 1920, height: 1080, fps: 60, flipVertical: false,
+      nv12Capture: false, captureFormat: 'nv12',
       encoder: 'auto', quality: 22, saveDir: 'D:/videos',
       autoPush: true, autoRecord: false, autoLaunch: false, blurNickname: false, monitorAudio: false, pollSeconds: 10,
     },
@@ -99,7 +100,7 @@ async function installMock(page, status, matches) {
       unknown: [], chunks: [], segments: [], reports: [], links: [], calls: {}, lastSettings: null,
       baseSettings: initialStatus.settings, settingsWrites: [],
       missingDevice: null, statusListeners: [], mediaListeners: {}, audioReady: false, pipElement: null, pipOpens: 0, pipExits: 0,
-      liveStarted: 0, blurStart: null, blurChunks: 0, copied: [],
+      liveStarted: 0, blurStart: null, blurChunks: 0, copied: [], modes: {}, reportText: null,
       liveChunks: 0, liveViewerListeners: [],
     };
     window.__ui = state;
@@ -311,6 +312,15 @@ async function installMock(page, status, matches) {
         state.copied.push(text);
         mark('copyText');
         return true;
+      },
+      listModes: async (device) => {
+        mark('listModes');
+        return state.modes?.[device] || [];
+      },
+      saveReport: async (text) => {
+        state.reportText = text;
+        mark('saveReport');
+        return 'C:/Users/test/.splatoon3record/logs/report-20261012-201350.txt';
       },
       debugExportLast: async () => { mark('debugExportLast'); return 'D:/picked/debug.mp4'; },
       pickFolder: async () => { mark('pickFolder'); return 'D:/picked'; },

@@ -81,6 +81,7 @@ async function main() {
   await writeFile(join(dataDir, 'config.json'), JSON.stringify({
     settings: {
       videoDevice: '', audioDevice: '', width: 1280, height: 720, fps: 60, flipVertical: false,
+      nv12Capture: false, captureFormat: 'nv12',
       encoder: 'software', quality: 22, saveDir: videoDir,
       autoPush: false, autoRecord: false, autoLaunch: false, blurNickname: false, monitorAudio: false, pollSeconds: 10,
     },

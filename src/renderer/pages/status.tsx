@@ -24,6 +24,7 @@ function statusPage(props: { status?: AppStatus }): ReactElement {
   const recent = status?.recentMatches ?? [];
   const processing = new Set(status?.processingMatchIds ?? []);
   const sizeMissed = Boolean(settings) && session.width > 0 && !session.applying && (session.width !== settings?.width || session.height !== settings?.height);
+  const fpsMissed = Boolean(settings) && session.fps > 0 && !session.applying && Math.abs(session.fps - (settings?.fps || 0)) > 0.5;
 
   const exportDebug = (): void => {
     void window.recordApi.debugExportLast()
@@ -57,6 +58,7 @@ function statusPage(props: { status?: AppStatus }): ReactElement {
         {session.recordError ? <StatusItem label="错误信息" value={session.recordError} /> : null}
       </div>
       {sizeMissed ? <div className="status-warn">采集卡未接受设置页的分辨率，当前输出 {resolutionText(session.width, session.height)}</div> : null}
+      {fpsMissed ? <div className="status-warn">采集卡未接受设置页的帧率，当前输出 {Number(session.fps.toFixed(2))} fps</div> : null}
       <h3 className="section-title">连接</h3>
       <div className="status-grid">
         <StatusItem label="NSO 登录" value={stateNames[status?.nsoState || 'unbound']} />

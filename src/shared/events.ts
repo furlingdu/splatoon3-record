@@ -33,6 +33,8 @@ export const ipcNames = {
   detectFrame: 'detect:frame',
   stopDetect: 'detect:stop',
   copyText: 'clipboard:write',
+  listModes: 'capture:modes',
+  saveReport: 'report:save',
   openPreview: 'preview:open',
   togglePreviewFullscreen: 'preview:fullscreen',
   getRuntimeInfo: 'runtime:info',

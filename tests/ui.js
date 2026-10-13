@@ -591,6 +591,16 @@ async function main() {
   check('设置页垂直翻转即时保存', await page.evaluate(() => window.__ui.lastSettings?.flipVertical === true));
   check('设置页只有一处录制参数入口', await page.evaluate(() => document.querySelectorAll('mdui-select[name="width"]').length === 1 && document.querySelectorAll('mdui-switch[name="flipVertical"]').length === 1));
   check('设置页提供 NV12 采集开关', await page.evaluate(() => document.querySelectorAll('mdui-switch[name="nv12Capture"]').length === 1));
+  await page.evaluate(() => {
+    window.__ui.modes = {
+      'OBS Virtual Camera': [
+        { format: 'nv12', width: 3840, height: 2160, minFps: 24, maxFps: 30 },
+        { format: 'nv12', width: 1920, height: 1080, minFps: 24, maxFps: 60 },
+        { format: 'yuy2', width: 1920, height: 1080, minFps: 24, maxFps: 50 },
+        { format: 'yuy2', width: 1280, height: 720, minFps: 50, maxFps: 60 },
+      ],
+    };
+  });
   await setChecked(page, 'mdui-switch[name="nv12Capture"]', true);
   await new Promise((resolve) => setTimeout(resolve, 200));
   check('设置页 NV12 采集开关即时保存', await page.evaluate(() => window.__ui.lastSettings?.nv12Capture === true));
@@ -599,6 +609,25 @@ async function main() {
   check('设置页 NV12 重启按钮通知主进程', await page.waitForFunction(() => (window.__ui.calls.relaunchApp || 0) > 0, { timeout: 5000 }).then(() => true).catch(() => false));
   await clickText(page, 'mdui-dialog mdui-button', '稍后重启');
   check('设置页 NV12 重启提示可稍后处理', await page.evaluate(() => !Array.from(document.querySelectorAll('mdui-dialog')).some((element) => element.open === true && (element.getAttribute('headline') || '').includes('需要重启应用'))));
+  check('设置页打开开关后提供采集格式下拉', await page.waitForFunction(() => {
+    const select = document.querySelector('mdui-select[name="captureFormat"]');
+    const values = Array.from(select?.querySelectorAll('mdui-menu-item') ?? []).map((item) => item.getAttribute('value'));
+    return Boolean(select) && values.join(',') === 'nv12,yuy2';
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  check('设置页 NV12 分辨率档位来自采集卡枚举', await page.waitForFunction(() => {
+    const values = Array.from(document.querySelectorAll('mdui-select[name="width"] mdui-menu-item')).map((item) => item.getAttribute('value'));
+    return values.includes('3840x2160') && !values.includes('2560x1440');
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  await setValue(page, 'mdui-select[name="captureFormat"]', 'yuy2');
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  check('设置页采集格式切换即时保存', await page.evaluate(() => window.__ui.lastSettings?.captureFormat === 'yuy2'));
+  check('设置页采集格式切换校正帧率到档位范围', await page.evaluate(() => window.__ui.lastSettings?.fps === 50));
+  check('设置页 YUY2 分辨率档位跟随枚举结果', await page.waitForFunction(() => {
+    const values = Array.from(document.querySelectorAll('mdui-select[name="width"] mdui-menu-item')).map((item) => item.getAttribute('value'));
+    return values.includes('1280x720') && !values.includes('3840x2160');
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  check('设置页采集格式切换提示重启', await page.waitForFunction(() => Array.from(document.querySelectorAll('mdui-dialog')).some((element) => element.open === true && (element.getAttribute('description') || '').includes('请重启应用程序')), { timeout: 10000 }).then(() => true).catch(() => false));
+  await clickText(page, 'mdui-dialog mdui-button', '稍后重启');
   check('设置页不提供缓存与分段编辑入口', await page.evaluate(() => !document.querySelector('mdui-slider[name="cacheMinutes"]')
     && !document.querySelector('mdui-slider[name="segmentSeconds"]')
     && !document.body.innerText.includes('缓存保留')));
@@ -686,16 +715,17 @@ async function main() {
     return url.hostname.endsWith('qlogo.cn') && url.searchParams.get('dst_uin') === '3648192311' && avatar.src !== logo.src;
   }));
   check('关于页显示 nxapi 致谢', await waitText(page, 'samuelthomas2774/nxapi'));
-  check('关于页提供设备信息复制按钮', await page.evaluate(() => Array.from(document.querySelectorAll('.about-card mdui-button')).some((element) => element.textContent?.includes('复制设备信息') && element.getAttribute('variant') === 'filled')));
-  const copiesBeforeDiagnostic = await page.evaluate(() => window.__ui.copied.length);
-  await clickText(page, '.about-card mdui-button', '复制设备信息');
-  check('关于页复制设备信息调用运行环境接口', await page.waitForFunction((before) => (window.__ui.calls.getRuntimeInfo || 0) === 1 && window.__ui.copied.length > before, { timeout: 5000 }, copiesBeforeDiagnostic).then(() => true).catch(() => false));
+  check('关于页提供设备信息保存按钮', await page.evaluate(() => Array.from(document.querySelectorAll('.about-card mdui-button')).some((element) => element.textContent?.includes('保存设备信息') && element.getAttribute('variant') === 'filled')));
+  await clickText(page, '.about-card mdui-button', '保存设备信息');
+  check('关于页保存设备信息调用运行环境接口', await page.waitForFunction(() => (window.__ui.calls.getRuntimeInfo || 0) === 1 && (window.__ui.calls.saveReport || 0) === 1, { timeout: 5000 }).then(() => true).catch(() => false));
   check('关于页诊断包含已选采集卡能力与硬件详情', await page.evaluate(() => {
-    const diagnostic = window.__ui.copied.at(-1) || '';
+    const diagnostic = window.__ui.reportText || '';
     return diagnostic.includes('已选采集卡：Camera 2')
       && diagnostic.includes('采集卡能力上限：1280x720 @ 30 fps')
       && diagnostic.includes('采集卡原生规格：1280x720 @ 30 fps')
       && diagnostic.includes('已选音频设备：Audio 1')
+      && diagnostic.includes('采集画面格式：YUY2')
+      && diagnostic.includes('采集档位：')
       && diagnostic.includes('GPU：NVIDIA / GeForce RTX 4060')
       && diagnostic.includes('硬件加速：已启用')
       && diagnostic.includes('GPU 功能：video_decode=enabled, video_encode=enabled')
