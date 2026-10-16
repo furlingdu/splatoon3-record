@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { avcCodec, hardwareModes, hardwareReady, hevcCodec, videoCodecs } from '../src/renderer/lib/encode.js';
+import { avcCodec, hardwareReady, hardwareTiers, hevcCodec, tierList, videoCodecs } from '../src/renderer/lib/encode.js';
 
 describe('hevcCodec', () => {
   it('按画幅帧率取足够的最低等级', () => {
@@ -21,10 +21,46 @@ describe('avcCodec', () => {
   });
 });
 
+describe('tierList', () => {
+  it('按负载降序且不超出采集卡上限', () => {
+    const list = tierList({ id: 'a', name: 'a', kind: 'video', maxWidth: 1920, maxHeight: 1080, maxFps: 60 });
+    expect(list[0]).toEqual({ width: 1920, height: 1080, fps: 60 });
+    expect(list.every((item) => item.width <= 1920 && item.height <= 1080 && item.fps <= 60)).toBe(true);
+  });
+
+  it('并入当前档位且不重复', () => {
+    const list = tierList(undefined, { width: 3440, height: 1440, fps: 60 });
+    expect(list.some((item) => item.width === 3440 && item.height === 1440 && item.fps === 60)).toBe(true);
+    expect(list.filter((item) => item.width === 3440).length).toBe(1);
+  });
+});
+
 describe('hardwareReady', () => {
+  it('探测硬件编码时不下发 framerate', async () => {
+    const configs: VideoEncoderConfig[] = [];
+    const stub = {
+      isConfigSupported: async (config: VideoEncoderConfig) => {
+        configs.push(config);
+        return { supported: true, config };
+      },
+    };
+    const host = globalThis as { VideoEncoder?: unknown };
+    host.VideoEncoder = stub;
+    try {
+      expect(await hardwareReady(3840, 2160, 60)).toBe(true);
+    } finally {
+      delete host.VideoEncoder;
+    }
+    expect(configs.length).toBeGreaterThan(0);
+    expect(configs.every((config) => config.framerate === undefined)).toBe(true);
+    expect(configs[0]?.hardwareAcceleration).toBe('prefer-hardware');
+    expect(configs[0]?.codec).toBe('hvc1.1.6.L156.B0');
+  });
+
   it('没有 WebCodecs 时判定为无硬件编码', async () => {
-    expect(await hardwareReady(3840, 2160, 60)).toBe(false);
-    expect(await hardwareModes([{ format: 'nv12', width: 3840, height: 2160, minFps: 30, maxFps: 60 }])).toEqual([]);
+    const device = { id: 'a', name: 'a', kind: 'video' as const, maxWidth: 1920, maxHeight: 1080, maxFps: 30 };
+    expect(await hardwareReady(1920, 1080, 30)).toBe(false);
+    expect(await hardwareTiers(device)).toEqual([]);
   });
 });
 

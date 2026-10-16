@@ -7,7 +7,7 @@ import { formatText, matchDevice, resolutionText } from '../../shared/capture.js
 import { durationText, kindNames, resultText, ruleName } from '../../shared/nso.js';
 import { useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
 import type { AppStatus } from '../../shared/types.js';
-import { hardwareModes } from '../lib/encode.js';
+import { hardwareTiers } from '../lib/encode.js';
 
 const stateNames: Record<string, string> = {
   unbound: '未绑定',
@@ -35,19 +35,17 @@ function statusPage(props: { status?: AppStatus }): ReactElement {
       return undefined;
     }
     const video = matchDevice(session.devices, 'video', settings.videoDevice);
-    if (!video?.name) return undefined;
     let alive = true;
     setAdvice(undefined);
-    void window.recordApi.listModes(video.name)
-      .then((list) => hardwareModes(list.filter((item) => item.format === settings.captureFormat)))
+    const load = session.width * session.height * session.fps;
+    void hardwareTiers(video, { width: session.width, height: session.height, fps: session.fps })
       .then((ready) => {
         if (!alive) return;
-        const load = session.width * session.height * session.fps;
         setAdvice(ready.filter((item) => item.width * item.height * item.fps < load).slice(0, 3).map((item) => `${item.width}x${item.height}@${item.fps}`));
       })
       .catch(() => { if (alive) setAdvice([]); });
     return () => { alive = false; };
-  }, [softwareSlow, settings?.videoDevice, settings?.captureFormat]);
+  }, [softwareSlow, settings?.videoDevice]);
 
   const exportDebug = (): void => {
     void window.recordApi.debugExportLast()

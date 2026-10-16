@@ -13,7 +13,7 @@ function encodeHint(props: { width: number; height: number; fps: number }): Reac
     return () => { alive = false; };
   }, [props.width, props.height, props.fps]);
   if (ready === undefined) return <span className="form-hint">录制编码：检测本机编码能力中……</span>;
-  if (ready) return <span className="form-hint">录制编码：硬件编码</span>;
+  if (ready) return null;
   return <span className="form-hint">录制编码：软件编码，该档位在本机没有硬件编码，录制会丢帧，建议改用有硬编的档位</span>;
 }
 

@@ -1,9 +1,8 @@
 import { defaultSettings } from '../../shared/constants.js';
 import { clampQuality } from '../../shared/bitrate.js';
-import type { CaptureFormat, RecordSettings } from '../../shared/types.js';
+import type { RecordSettings } from '../../shared/types.js';
 
 const encoderNames = new Set<RecordSettings['encoder']>(['auto', 'nvidia', 'amd', 'intel', 'software']);
-const captureFormats = new Set<CaptureFormat>(['nv12', 'yuy2']);
 const textLimit = 300;
 
 function pickNumber(value: unknown, min: number, max: number, fallback: number): number {
@@ -19,7 +18,6 @@ function pickText(value: unknown): string {
 export function sanitizeSettings(raw: unknown, current: RecordSettings): RecordSettings {
   const input = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const encoder = String(input.encoder ?? current.encoder) as RecordSettings['encoder'];
-  const captureFormat = String(input.captureFormat ?? current.captureFormat) as CaptureFormat;
   return {
     videoDevice: pickText(input.videoDevice ?? current.videoDevice),
     audioDevice: pickText(input.audioDevice ?? current.audioDevice),
@@ -27,8 +25,6 @@ export function sanitizeSettings(raw: unknown, current: RecordSettings): RecordS
     height: pickNumber(input.height, 180, 4320, current.height || defaultSettings.height),
     fps: pickNumber(input.fps, 1, 240, current.fps || defaultSettings.fps),
     flipVertical: Boolean(input.flipVertical ?? current.flipVertical),
-    nv12Capture: Boolean(input.nv12Capture ?? current.nv12Capture),
-    captureFormat: captureFormats.has(captureFormat) ? captureFormat : 'nv12',
     encoder: encoderNames.has(encoder) ? encoder : 'auto',
     quality: clampQuality(input.quality ?? current.quality),
     saveDir: pickText(input.saveDir ?? current.saveDir),
@@ -38,5 +34,7 @@ export function sanitizeSettings(raw: unknown, current: RecordSettings): RecordS
     blurNickname: Boolean(input.blurNickname ?? current.blurNickname),
     monitorAudio: Boolean(input.monitorAudio ?? current.monitorAudio),
     pollSeconds: pickNumber(input.pollSeconds, 10, 600, current.pollSeconds),
+    updateProxy: Boolean(input.updateProxy ?? current.updateProxy),
+    updateCheck: Boolean(input.updateCheck ?? current.updateCheck),
   };
 }

@@ -8,7 +8,7 @@ const blurFolderName = 'blur';
 const blurSuffix = '-昵称打码.mp4';
 
 export async function saveMatch(match: BattleMatch, folder: string): Promise<void> {
-  await writeFile(join(folder, `${safeName(match.matchId)}.json`), JSON.stringify(match, null, 2), 'utf8');
+  await writeFile(join(folder, `${safeName(match.matchId)}.json`), JSON.stringify({ ...match, blurCopy: undefined }, null, 2), 'utf8');
 }
 
 export async function listMatches(folder: string): Promise<BattleMatch[]> {
@@ -18,16 +18,20 @@ export async function listMatches(folder: string): Promise<BattleMatch[]> {
     try {
       const match = JSON.parse(await readFile(join(folder, name), 'utf8')) as BattleMatch;
       if (match.videoPath && !existsSync(match.videoPath)) match.videoPath = undefined;
+      match.blurCopy = Boolean(match.videoPath && existsSync(blurCopyPath(match.videoPath)));
       matches.push(match);
     } catch { continue; }
   }
   return matches.sort((a, b) => b.endAt - a.endAt);
 }
 
-export async function removeMatch(match: BattleMatch, folder: string): Promise<void> {
+export async function removeMatch(match: BattleMatch, folder: string, withBlur = false): Promise<void> {
   const names = new Set([safeName(match.matchId), legacyName(match.matchId)]);
   await Promise.all([...names].map((name) => unlink(join(folder, `${name}.json`)).catch(() => undefined)));
-  if (match.videoPath) await unlink(match.videoPath).catch(() => undefined);
+  if (match.videoPath) {
+    if (withBlur) await unlink(blurCopyPath(match.videoPath)).catch(() => undefined);
+    await unlink(match.videoPath).catch(() => undefined);
+  }
 }
 
 export async function purgeArchivedVideos(folder: string): Promise<number> {

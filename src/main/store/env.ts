@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
-import { livePortDefault, livePortRange, nsoBackendDefault, pushBitrateDefault, pushBitrateRange, pushCodecDefault, pushFileLimitMb, pushTargetMb } from '../../shared/constants.js';
+import { livePortDefault, livePortRange, nsoBackendDefault, pushBitrateDefault, pushBitrateRange, pushCodecDefault, pushFileLimitMb, pushTargetMb, updateProxyDefault } from '../../shared/constants.js';
 import { dataPath } from './path.js';
 import type { PushCodec } from '../../shared/types.js';
 
@@ -27,6 +27,10 @@ export interface LiveEnv {
 
 export interface NsoEnv {
   backendUrl: string;
+}
+
+export interface UpdateEnv {
+  proxyPrefix: string;
 }
 
 loadEnvFile();
@@ -57,6 +61,11 @@ export function liveEnv(): LiveEnv {
 export function nsoEnv(): NsoEnv {
   const raw = (process.env.NSO_BACKEND_URL ?? '').trim();
   return { backendUrl: isBackendUrl(raw) ? raw.replace(/\/+$/, '') : nsoBackendDefault };
+}
+
+export function updateEnv(): UpdateEnv {
+  const raw = (process.env.UPDATE_PROXY_PREFIX ?? '').trim() || updateProxyDefault;
+  return { proxyPrefix: raw.endsWith('/') ? raw : `${raw}/` };
 }
 
 export function publicEnv(): PublicEnv {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { activeStream, applySize, closeStream, listDevices, openStream, planSize, streamInfo } from './device.js';
+import { activeStream, applySize, closeStream, listDevices, openStream, planSize, probeFps, streamInfo } from './device.js';
+import { fpsOptions } from '../../shared/capture.js';
 import { clearRecord, planFormat, recordEncoder, recordError, recordFormat, recordState, setRecordQuality, startRecord, stopRecord } from './record.js';
 import type { AppStatus, CaptureDevice, RecordSettings, RecordState } from '../../shared/types.js';
 
@@ -90,8 +91,9 @@ async function reconcileSettings(): Promise<void> {
   emitView();
   let switched = false;
   try {
-    while (desire && settingsKey(desire) !== appliedKey) {
+    for (let pass = 0; pass < 4; pass += 1) {
       const target = desire;
+      if (!target || settingsKey(target) === appliedKey) break;
       const previous = applied;
       let rebuilt = false;
       if (!previous || previous.videoDevice !== target.videoDevice || previous.audioDevice !== target.audioDevice) switched = true;
@@ -101,10 +103,12 @@ async function reconcileSettings(): Promise<void> {
       } catch (cause) {
         error = messageOf(cause);
       }
-      applied = target;
-      appliedKey = settingsKey(target);
+      const negotiated = negotiatedSettings(target);
+      applied = negotiated.settings;
+      appliedKey = settingsKey(applied);
       if (!error && wanted && rebuilt) await beginRecord();
       refreshView();
+      if (negotiated.pending) break;
     }
   } finally {
     running = false;
@@ -119,25 +123,35 @@ async function openTarget(target: RecordSettings, previous?: RecordSettings): Pr
     await stopRecord();
     const stream = await openStream(target);
     planFormat(stream);
-    return settleSize(target);
+    if (!sizeMatched(target)) await applySize(target.width, target.height, target.fps);
+    await probeFps(fpsOptions);
+    if (!sizeMatched(target)) await applySize(target.width, target.height, target.fps);
+    return true;
   }
   if (previous.width === target.width && previous.height === target.height && previous.fps === target.fps) return false;
-  if (await applySize(target.width, target.height, target.fps)) return true;
+  if (await applySize(target.width, target.height, target.fps)) {
+    await probeFps(fpsOptions);
+    if (!sizeMatched(target)) await applySize(target.width, target.height, target.fps);
+    return true;
+  }
   await stopRecord();
-  return reopen(target);
-}
-
-async function settleSize(target: RecordSettings): Promise<boolean> {
-  if (!target.width || !target.height || sizeMatched(target)) return true;
-  if (await applySize(target.width, target.height, target.fps)) return true;
-  await stopRecord();
-  return reopen(target);
-}
-
-async function reopen(target: RecordSettings): Promise<boolean> {
-  const stream = await openStream(target, true).catch(() => openStream(target));
+  const stream = await openStream(target);
   planFormat(stream);
+  await probeFps(fpsOptions);
   return true;
+}
+
+function negotiatedSettings(target: RecordSettings): { settings: RecordSettings; pending: boolean } {
+  const info = streamInfo();
+  if (!info.width || !info.height || sizeMatched(target)) return { settings: target, pending: false };
+  const settled: RecordSettings = {
+    ...target,
+    width: info.width,
+    height: info.height,
+    fps: Math.round(info.fps) > 0 ? Math.round(info.fps) : target.fps,
+  };
+  void window.recordApi.saveSettings(settled);
+  return { settings: settled, pending: true };
 }
 
 function sizeMatched(target: RecordSettings): boolean {
@@ -218,7 +232,7 @@ export function closeSession(): void {
 const mediaErrors: Record<string, string> = {
   NotAllowedError: '系统未授权访问采集设备，请在系统隐私设置里允许摄像头与麦克风',
   NotFoundError: '未找到所选采集设备，请到设置页重新选择',
-  OverconstrainedError: '采集设备不支持当前分辨率或帧率，请到状态页调低后重试',
+  OverconstrainedError: '采集设备不支持当前分辨率或帧率，请到设置页更换档位后重试',
   NotReadableError: '采集设备正被其他程序占用，请关闭占用程序后重试',
   AbortError: '采集设备启动被中断，请重试',
 };

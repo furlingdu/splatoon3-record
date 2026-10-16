@@ -13,10 +13,11 @@ import { Layout } from './components/layout.js';
 import { PageView } from './routes.js';
 import { SetupApp } from './pages/setup.js';
 import { useSession } from './lib/session.js';
+import { sealNow } from './lib/record.js';
 import { previewStream } from './lib/device.js';
 import { setMonitorEnabled, syncMonitor } from './components/monitor.js';
 import { markSelectClick } from './lib/event.js';
-import type { AppStatus, PageName } from '../shared/types.js';
+import type { AppStatus, PageName, UpdateState } from '../shared/types.js';
 
 setColorScheme('#4285F4');
 
@@ -24,7 +25,12 @@ function useAppStatus(): AppStatus | undefined {
   const [status, setStatus] = useState<AppStatus>();
   useEffect(() => {
     void window.recordApi.getStatus().then(setStatus);
-    return window.recordApi.getEvents(setStatus);
+    const events = window.recordApi.getEvents(setStatus);
+    const seals = window.recordApi.onSeal(() => sealNow());
+    return () => {
+      events();
+      seals();
+    };
   }, []);
   return status;
 }
@@ -57,6 +63,16 @@ function mainApp(): React.ReactNode {
     if (state === 'connecting' && prevState.current !== 'connecting') snackbar({ message: '正在登录 Nintendo 账号…' });
     prevState.current = state;
   }, [status?.nsoState]);
+  useEffect(() => {
+    let notified = false;
+    const notify = (state: UpdateState): void => {
+      if (notified || !state.available) return;
+      notified = true;
+      snackbar({ message: `发现新版本 ${state.latest ?? ''}，请到更新页下载安装` });
+    };
+    void window.recordApi.updateState().then(notify, () => undefined);
+    return window.recordApi.onUpdate(notify);
+  }, []);
 
   return (
     <Layout page={page} onNavigate={setPage}>

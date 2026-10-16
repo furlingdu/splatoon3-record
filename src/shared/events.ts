@@ -1,5 +1,7 @@
 export const appEvent = 'app:status';
 export const liveViewersEvent = 'live:viewers';
+export const updateEvent = 'update:state';
+export const sealEvent = 'record:seal';
 export const ipcNames = {
   getStatus: 'status:get',
   saveSettings: 'settings:save',
@@ -16,6 +18,7 @@ export const ipcNames = {
   getVideoUrl: 'video:url',
   writeChunk: 'record:chunk',
   writeSegment: 'record:segment',
+  sealSegments: 'record:seal-now',
   reportCapture: 'record:report',
   debugExport: 'debug:export',
   openPath: 'path:open',
@@ -33,10 +36,12 @@ export const ipcNames = {
   detectFrame: 'detect:frame',
   stopDetect: 'detect:stop',
   copyText: 'clipboard:write',
-  listModes: 'capture:modes',
   saveReport: 'report:save',
+  updateState: 'update:get',
+  updateCheck: 'update:check',
+  updateDownload: 'update:download',
+  updateInstall: 'update:install',
   openPreview: 'preview:open',
   togglePreviewFullscreen: 'preview:fullscreen',
   getRuntimeInfo: 'runtime:info',
-  relaunchApp: 'app:relaunch',
 } as const;

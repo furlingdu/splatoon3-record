@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { appEvent, ipcNames, liveViewersEvent } from '../shared/events.js';
-import type { AppStatus, BridgeApi, CaptureReport, LiveChunk, LiveViewerEvent, RecordSettings, SegmentDraft } from '../shared/types.js';
+import { appEvent, ipcNames, liveViewersEvent, sealEvent, updateEvent } from '../shared/events.js';
+import type { AppStatus, BridgeApi, CaptureReport, LiveChunk, LiveViewerEvent, RecordSettings, SegmentDraft, UpdateState } from '../shared/types.js';
 
 const recordApi: BridgeApi = {
   getStatus: () => ipcRenderer.invoke(ipcNames.getStatus),
@@ -14,10 +14,16 @@ const recordApi: BridgeApi = {
   thumb: (matchId: string) => ipcRenderer.invoke(ipcNames.getThumb, matchId),
   openMatch: (matchId: string) => ipcRenderer.invoke(ipcNames.openMatch, matchId),
   saveMatch: (matchId: string) => ipcRenderer.invoke(ipcNames.saveMatch, matchId),
-  deleteMatch: (matchId: string) => ipcRenderer.invoke(ipcNames.deleteMatch, matchId),
+  deleteMatch: (matchId: string, withBlur = false) => ipcRenderer.invoke(ipcNames.deleteMatch, matchId, withBlur),
   getVideoUrl: (matchId: string) => ipcRenderer.invoke(ipcNames.getVideoUrl, matchId),
   writeChunk: (id: string, chunk: ArrayBuffer, offset: number) => ipcRenderer.invoke(ipcNames.writeChunk, id, chunk, offset),
   writeSegment: (draft: SegmentDraft) => ipcRenderer.invoke(ipcNames.writeSegment, draft),
+  sealSegments: () => ipcRenderer.invoke(ipcNames.sealSegments),
+  onSeal: (callback: () => void) => {
+    const listener = (): void => callback();
+    ipcRenderer.on(sealEvent, listener);
+    return () => ipcRenderer.removeListener(sealEvent, listener);
+  },
   reportCapture: (report: CaptureReport) => ipcRenderer.send(ipcNames.reportCapture, report),
   debugExportLast: () => ipcRenderer.invoke(ipcNames.debugExport),
   openPath: (targetPath: string) => ipcRenderer.invoke(ipcNames.openPath, targetPath),
@@ -26,7 +32,6 @@ const recordApi: BridgeApi = {
   finishSetup: () => ipcRenderer.invoke(ipcNames.finishSetup),
   openPreview: () => ipcRenderer.invoke(ipcNames.openPreview),
   togglePreviewFullscreen: () => ipcRenderer.invoke(ipcNames.togglePreviewFullscreen),
-  relaunchApp: () => ipcRenderer.invoke(ipcNames.relaunchApp),
   startLive: () => ipcRenderer.invoke(ipcNames.startLive),
   stopLive: () => ipcRenderer.invoke(ipcNames.stopLive),
   liveChunk: (chunk: LiveChunk) => { ipcRenderer.send(ipcNames.liveChunk, chunk); },
@@ -43,8 +48,16 @@ const recordApi: BridgeApi = {
   detectFrame: (frame: ArrayBuffer, width: number, height: number, conf: number) => ipcRenderer.invoke(ipcNames.detectFrame, frame, width, height, conf),
   stopDetect: () => ipcRenderer.invoke(ipcNames.stopDetect),
   copyText: (text: string) => ipcRenderer.invoke(ipcNames.copyText, text),
-  listModes: (device: string) => ipcRenderer.invoke(ipcNames.listModes, device),
   saveReport: (text: string) => ipcRenderer.invoke(ipcNames.saveReport, text),
+  updateState: () => ipcRenderer.invoke(ipcNames.updateState),
+  updateCheck: () => ipcRenderer.invoke(ipcNames.updateCheck),
+  updateDownload: () => ipcRenderer.invoke(ipcNames.updateDownload),
+  updateInstall: () => ipcRenderer.invoke(ipcNames.updateInstall),
+  onUpdate: (callback: (state: UpdateState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: UpdateState) => callback(state);
+    ipcRenderer.on(updateEvent, listener);
+    return () => ipcRenderer.removeListener(updateEvent, listener);
+  },
   getRuntimeInfo: () => ipcRenderer.invoke(ipcNames.getRuntimeInfo),
   getEvents: (callback: (status: AppStatus) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, status: AppStatus) => callback(status);

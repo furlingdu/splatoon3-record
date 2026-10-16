@@ -81,9 +81,9 @@ async function main() {
   await writeFile(join(dataDir, 'config.json'), JSON.stringify({
     settings: {
       videoDevice: '', audioDevice: '', width: 1280, height: 720, fps: 60, flipVertical: false,
-      nv12Capture: false, captureFormat: 'nv12',
       encoder: 'software', quality: 22, saveDir: videoDir,
       autoPush: false, autoRecord: false, autoLaunch: false, blurNickname: false, monitorAudio: false, pollSeconds: 10,
+      updateProxy: false, updateCheck: false,
     },
     pushEnabled: false,
     setupDone: true,
@@ -588,14 +588,15 @@ async function main() {
     }, 20000);
     check('开始录制后主进程记录录制状态', Boolean(recording));
 
+    await page.evaluate(() => window.recordApi.sealSegments());
     const rotated = await waitFor(async () => {
       const names = await readdir(cacheDir).catch(() => []);
       const name = names.find((item) => /^segment\d+p\d+\.(mp4|mkv|webm)$/.test(item));
       if (!name) return undefined;
       const info = await stat(join(cacheDir, name)).catch(() => undefined);
       return info && info.size > 0 ? { name, size: info.size } : undefined;
-    }, 40000);
-    check('录制过程中按时长轮转出完整分段', Boolean(rotated));
+    }, 30000);
+    check('录制中按需封存出完整分段并继续增量录制', Boolean(rotated));
     check('缓存分段写入非空数据', Boolean(rotated) && rotated.size > 0);
     if (!rotated) {
       const probe = await page.evaluate(async () => {
@@ -639,10 +640,10 @@ async function main() {
     check('分段记录采集规格与音频标记', Boolean(record) && record.width > 0 && record.height > 0 && record.fps > 0 && record.hasAudio === true);
     const ordered = Array.isArray(records) ? [...records].sort((a, b) => a.startAt - b.startAt) : [];
     const seam = ordered.length > 1 && ordered.slice(1).every((item, index) => {
-      const overlap = ordered[index].endAt - item.startAt;
-      return overlap > 0 && overlap <= 2000;
+      const gap = item.startAt - ordered[index].endAt;
+      return gap >= -50 && gap <= 50;
     });
-    check('轮转分段之间时间轴连续', seam);
+    check('封存分段之间时间轴首尾相接', seam);
 
     if (record && sealed) {
       const file = join(cacheDir, sealed);

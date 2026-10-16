@@ -6,6 +6,7 @@ let desiredSize: { width: number; height: number; fps: number } | undefined;
 let mediaQueue: Promise<unknown> = Promise.resolve();
 let revision = 0;
 const capsCache = new Map<string, DeviceCaps>();
+const fpsCache = new Map<string, number[]>();
 const capsPending = new Map<string, Promise<DeviceCaps | undefined>>();
 
 export interface StreamInfo {
@@ -20,9 +21,6 @@ interface DeviceCaps {
   maxWidth: number;
   maxHeight: number;
   maxFps: number;
-  nativeWidth: number;
-  nativeHeight: number;
-  nativeFps: number;
 }
 
 export function activeStream(): MediaStream | undefined {
@@ -45,6 +43,45 @@ export function previewStream(): MediaStream | undefined {
     previewView = tracks.length ? new MediaStream(tracks) : undefined;
   }
   return previewView;
+}
+
+export function probedFps(deviceId: string, width: number, height: number): number[] | undefined {
+  return fpsCache.get(fpsKey(deviceId, width, height));
+}
+
+export async function probeFps(candidates: number[]): Promise<number[]> {
+  const track = stream?.getVideoTracks()[0];
+  if (!track) return [];
+  const before = track.getSettings();
+  const deviceId = String(before.deviceId ?? '');
+  const width = Math.round(Number(before.width ?? 0));
+  const height = Math.round(Number(before.height ?? 0));
+  const keep = Number(before.frameRate ?? 0);
+  if (!deviceId || !width || !height || !candidates.length) return [];
+  const key = fpsKey(deviceId, width, height);
+  const cached = fpsCache.get(key);
+  if (cached) return cached;
+  const usable: number[] = [];
+  for (const fps of candidates) {
+    const applied = await applyRate(track, width, height, fps);
+    const reached = Math.round(Number(track.getSettings().frameRate ?? 0));
+    if (applied && reached > 0 && !usable.includes(reached)) usable.push(reached);
+  }
+  if (keep > 0) await applyRate(track, width, height, keep);
+  usable.sort((left, right) => left - right);
+  fpsCache.set(key, usable);
+  return usable;
+}
+
+async function applyRate(track: MediaStreamTrack, width: number, height: number, fps: number): Promise<boolean> {
+  return track
+    .applyConstraints({ width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: fps } })
+    .then(() => true)
+    .catch(() => false);
+}
+
+function fpsKey(deviceId: string, width: number, height: number): string {
+  return `${deviceId}|${Math.round(width)}x${Math.round(height)}`;
 }
 
 export function planSize(width: number, height: number, fps: number): void {
@@ -115,7 +152,6 @@ function trackCaps(track: MediaStreamTrack): DeviceCaps | undefined {
       return {};
     }
   })();
-  const settings = track.getSettings();
   const maxWidth = Math.round(Number(caps.width?.max ?? 0));
   const maxHeight = Math.round(Number(caps.height?.max ?? 0));
   if (!maxWidth || !maxHeight) return undefined;
@@ -123,16 +159,11 @@ function trackCaps(track: MediaStreamTrack): DeviceCaps | undefined {
     maxWidth,
     maxHeight,
     maxFps: Math.round(Number(caps.frameRate?.max ?? 0)),
-    nativeWidth: Math.round(Number(settings.width ?? 0)),
-    nativeHeight: Math.round(Number(settings.height ?? 0)),
-    nativeFps: Math.round(Number(settings.frameRate ?? 0)),
   };
 }
 
 function probeRequest(id: string): MediaTrackConstraints {
-  const base: MediaTrackConstraints = { deviceId: { exact: id } };
-  if (!desiredSize) return base;
-  return { ...base, width: { ideal: desiredSize.width }, height: { ideal: desiredSize.height }, frameRate: { ideal: desiredSize.fps } };
+  return { deviceId: { exact: id } };
 }
 
 async function grantLabels(): Promise<void> {
@@ -146,19 +177,18 @@ async function grantLabels(): Promise<void> {
   }
 }
 
-export function openStream(settings: RecordSettings, exactSize = false): Promise<MediaStream> {
-  return queueMedia(() => openDevice(settings, exactSize));
+export function openStream(settings: RecordSettings): Promise<MediaStream> {
+  return queueMedia(() => openDevice(settings));
 }
 
-async function openDevice(settings: RecordSettings, exactSize: boolean): Promise<MediaStream> {
+async function openDevice(settings: RecordSettings): Promise<MediaStream> {
   const videoId = await resolveDevice('videoinput', settings.videoDevice);
   const audioId = await resolveDevice('audioinput', settings.audioDevice);
   const video: MediaTrackConstraints | false = videoId
     ? {
       deviceId: { exact: videoId },
-      width: exactSize ? { exact: settings.width } : { ideal: settings.width },
-      height: exactSize ? { exact: settings.height } : { ideal: settings.height },
-      frameRate: exactSize ? { exact: settings.fps } : { ideal: settings.fps },
+      width: { ideal: settings.width },
+      height: { ideal: settings.height },
     }
     : false;
   const audio: MediaTrackConstraints | false = audioId
@@ -221,15 +251,8 @@ export async function applySize(width: number, height: number, fps: number): Pro
   const track = stream?.getVideoTracks()[0];
   if (!track) return false;
   desiredSize = { width, height, fps };
-  const attempts: MediaTrackConstraints[] = [
-    { width: { exact: width }, height: { exact: height }, frameRate: { exact: fps } },
-    { width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: fps } },
-  ];
-  for (const constraints of attempts) {
-    const applied = await track.applyConstraints(constraints).then(() => true).catch(() => false);
-    if (applied && sizeApplied(track, width, height, fps)) return true;
-  }
-  return false;
+  const applied = await track.applyConstraints({ width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: fps } }).then(() => true).catch(() => false);
+  return applied && sizeApplied(track, width, height, fps);
 }
 
 function sizeApplied(track: MediaStreamTrack, width: number, height: number, fps: number): boolean {
@@ -243,6 +266,7 @@ function sizeApplied(track: MediaStreamTrack, width: number, height: number, fps
 }
 
 export function closeStream(): void {
+  fpsCache.clear();
   if (!stream) return;
   stream.getTracks().forEach((track) => track.stop());
   stream = undefined;

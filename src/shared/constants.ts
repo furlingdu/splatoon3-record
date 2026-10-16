@@ -7,7 +7,7 @@ export const avatarUrl = 'https://q2.qlogo.cn/headimg_dl?dst_uin=3648192311&spec
 export const groupUrl = '';
 export const maxMatchSeconds = 360;
 export const cacheMinutesFixed = 10;
-export const segmentSecondsFixed = 30;
+export const segmentSecondsFixed = 600;
 export const pollSecondsFixed = 10;
 export const pushFileLimitMb = 100;
 export const pushTargetMb = 100;
@@ -17,11 +17,12 @@ export const pushCodecDefault = 'hevc';
 export const qualityTiers = [18, 22, 28];
 export const qualityDefault = 22;
 export const livePortDefault = 11567;
+export const updateProxyDefault = 'https://gh-proxy.com/';
 export const livePortRange = { min: 1024, max: 65535 };
 export const nsoBackendDefault = 'https://znca.furlingdu.com';
 export const localPortRange = { min: 10000, max: 65535 };
 export const liveTimesliceMs = 1000;
-export const blurConfidence = 0.7;
+export const blurConfidence = 0.2;
 export const blurRadius = 10;
 export const blurFeather = 4;
 export const blurBoxLimit = 10;
@@ -36,8 +37,6 @@ export const defaultSettings = {
   height: 1080,
   fps: 60,
   flipVertical: false,
-  nv12Capture: false,
-  captureFormat: 'nv12' as const,
   encoder: 'auto' as const,
   quality: qualityDefault,
   saveDir: '',
@@ -47,4 +46,6 @@ export const defaultSettings = {
   blurNickname: false,
   monitorAudio: false,
   pollSeconds: 10,
+  updateProxy: false,
+  updateCheck: true,
 };

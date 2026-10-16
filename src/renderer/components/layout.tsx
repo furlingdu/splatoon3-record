@@ -13,6 +13,7 @@ export const navItems: { page: PageName; label: string; icon: string }[] = [
   { page: 'gallery', label: '相册', icon: 'movie' },
   { page: 'live', label: '直播', icon: 'cast' },
   { page: 'settings', label: '设置', icon: 'settings' },
+  { page: 'update', label: '更新', icon: 'update' },
   { page: 'about', label: '关于', icon: 'info' },
 ];
 

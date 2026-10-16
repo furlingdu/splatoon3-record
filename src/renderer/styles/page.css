@@ -703,3 +703,23 @@ mdui-select::part(menu) {
     align-items: flex-start;
   }
 }
+
+.about-card > mdui-linear-progress {
+  display: block;
+  margin: 16px 0 8px;
+}
+
+.update-notes {
+  margin: 14px 0 0;
+  padding: 12px 16px;
+  max-height: 220px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: rgb(var(--mdui-color-surface-container));
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  color: rgb(var(--mdui-color-on-surface-variant));
+  white-space: pre-wrap;
+  word-break: break-word;
+}

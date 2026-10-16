@@ -1,31 +1,13 @@
 import { defaultSettings, segmentSecondsFixed } from '../../shared/constants.js';
 import type { SegmentDraft } from '../../shared/types.js';
-import { SegmentEncoder, type SegmentInfo, type SegmentSpec } from './segment.js';
+import { SegmentRecorder, type SegmentSeal, type SegmentSpec } from './segment.js';
 import { frameWall, seedOrigin } from './stamp.js';
-
-interface PendingSegment {
-  id: string;
-  startAt: number;
-  endAt?: number;
-  spec: SegmentSpec;
-}
-
-interface SegmentRun {
-  encoder: SegmentEncoder;
-  segment: PendingSegment;
-  rotateTimer?: number;
-  closeTimer?: number;
-  flushed: () => Promise<void>;
-}
+import { openVideoFeed, type VideoFeed } from './videofeed.js';
 
 const minSegmentMs = 5000;
-const boundaryDelayMs = 1000;
-const stopPadMs = 300;
-const rotateRetryMs = 1000;
 
 let source: MediaStream | undefined;
-let queue = Promise.resolve();
-let counter = 0;
+let writes: Promise<void> = Promise.resolve();
 let generation = 0;
 let active = false;
 let mime = '';
@@ -36,7 +18,11 @@ let stampOrigin: number | undefined;
 let recordQuality = defaultSettings.quality;
 let failure: string | undefined;
 let stopping = false;
-const live = new Set<SegmentRun>();
+let feed: VideoFeed | undefined;
+let recorder: SegmentRecorder | undefined;
+let rotateTimer: number | undefined;
+let openedAt = 0;
+let sealPending = false;
 
 export function setRecordQuality(quality: number): void {
   recordQuality = quality;
@@ -76,24 +62,48 @@ export async function startRecord(stream: MediaStream): Promise<void> {
   source = stream;
   active = true;
   generation += 1;
-  const run = await openEncoder(generation);
-  if (!run) {
+  const gen = generation;
+  const track = stream.getVideoTracks()[0];
+  if (track) feed = openVideoFeed(track);
+  const session = await openRecorder(gen);
+  if (!session) {
     const message = failure || '当前系统不支持可用的录制编码格式';
     source = undefined;
     active = false;
     throw new Error(message);
   }
+  recorder = session;
+  openedAt = Date.now();
+  scheduleRotate(gen);
+}
+
+export function sealNow(): void {
+  if (sealPending || stopping || !active || !recorder) return;
+  const gen = generation;
+  const wait = Math.max(0, minSegmentMs - (Date.now() - openedAt));
+  sealPending = true;
+  window.setTimeout(() => {
+    sealPending = false;
+    rotateFile(gen);
+  }, wait);
 }
 
 export async function stopRecord(): Promise<void> {
   stopping = true;
   generation += 1;
   active = false;
+  if (rotateTimer !== undefined) {
+    window.clearTimeout(rotateTimer);
+    rotateTimer = undefined;
+  }
   try {
     await closeRecorder();
-    await queue;
+    await writes;
   } finally {
+    feed?.stop();
+    feed = undefined;
     source = undefined;
+    recorder = undefined;
     stopping = false;
   }
 }
@@ -102,7 +112,20 @@ function evenSize(value: number): number {
   return Math.max(2, Math.floor(Math.round(Number(value) || 0) / 2) * 2);
 }
 
-async function openEncoder(gen: number): Promise<SegmentRun | undefined> {
+function rotateFile(gen: number): void {
+  if (stopping || gen !== generation || !recorder) return;
+  recorder.rotate();
+}
+
+function scheduleRotate(gen: number): void {
+  if (rotateTimer !== undefined) window.clearTimeout(rotateTimer);
+  rotateTimer = window.setTimeout(() => {
+    rotateTimer = undefined;
+    rotateFile(gen);
+  }, segmentMs);
+}
+
+async function openRecorder(gen: number): Promise<SegmentRecorder | undefined> {
   if (stopping || gen !== generation) return undefined;
   const stream = source;
   const track = stream?.getVideoTracks()[0];
@@ -115,38 +138,33 @@ async function openEncoder(gen: number): Promise<SegmentRun | undefined> {
     fps: Math.round(Number(size?.frameRate ?? 0)),
     hasAudio: Boolean(audioTrack && audioTrack.readyState === 'live'),
   };
-  const segment: PendingSegment = { id: nextId(), startAt: Date.now(), spec };
-  let pending = Promise.resolve();
   try {
-    const encoder = await SegmentEncoder.open(track, spec.hasAudio ? audioTrack : undefined, recordQuality, spec, {
+    const session = await SegmentRecorder.open(track, spec.hasAudio ? audioTrack : undefined, recordQuality, spec, {
       onError: (message) => { failure = message; },
-      onData: (data, position) => {
-        pending = pending
-          .then(() => window.recordApi.writeChunk(segment.id, partBytes(data), position))
-          .then((stored) => { if (!stored) failure = failure || '缓存写入失败，请检查磁盘空间'; })
-          .catch((cause) => { failure = failure || errorText(cause); });
+      onData: (id, data, position) => {
+        enqueue(() => window.recordApi.writeChunk(id, partBytes(data), position).then((stored) => {
+          if (!stored) failure = failure || '缓存写入失败，请检查磁盘空间';
+        }));
       },
-    });
+      onSeal: (seal) => { enqueue(() => sealSegment(seal)); },
+      onRotate: () => {
+        openedAt = Date.now();
+        scheduleRotate(gen);
+      },
+    }, feed);
     if (stopping || gen !== generation) {
-      await encoder.close().catch(() => undefined);
+      await session.close().catch(() => undefined);
       return undefined;
     }
-    const firstUs = encoder.firstTimestamp();
+    const firstUs = session.firstTimestamp();
     const now = Date.now();
     stampOrigin = seedOrigin(stampOrigin, now, firstUs);
-    segment.startAt = frameWall(stampOrigin, firstUs, now);
     failure = undefined;
-    const run: SegmentRun = { encoder, segment, flushed: () => pending };
-    const info = encoder.info();
-    live.add(run);
+    const info = session.info();
     mime = info.mime;
     planned = mime;
     codecText = `${info.mime.split('codecs=')[1] || info.codec} ${info.hardware ? '硬编' : '软编'}`;
-    run.rotateTimer = window.setTimeout(() => {
-      run.rotateTimer = undefined;
-      if (gen === generation) void rotateSegment(run, gen);
-    }, segmentMs);
-    return run;
+    return session;
   } catch (cause) {
     if (gen === generation && !stopping) failure = errorText(cause);
     return undefined;
@@ -159,81 +177,40 @@ function partBytes(data: Uint8Array): ArrayBuffer {
   return part.buffer;
 }
 
-async function rotateSegment(run: SegmentRun, gen: number): Promise<void> {
-  if (stopping || gen !== generation) return;
-  const next = await openEncoder(gen);
-  if (!next) {
-    if (stopping || gen !== generation) return;
-    run.rotateTimer = window.setTimeout(() => {
-      run.rotateTimer = undefined;
-      if (gen === generation) void rotateSegment(run, gen);
-    }, rotateRetryMs);
-    return;
-  }
-  const boundary = next.segment.startAt + boundaryDelayMs;
-  run.segment.endAt = boundary;
-  run.closeTimer = window.setTimeout(() => {
-    run.closeTimer = undefined;
-    void closeRun(run);
-  }, Math.max(0, boundary + stopPadMs - Date.now()));
-}
-
-async function closeRun(run: SegmentRun): Promise<void> {
-  if (run.rotateTimer !== undefined) {
-    window.clearTimeout(run.rotateTimer);
-    run.rotateTimer = undefined;
-  }
-  if (run.closeTimer !== undefined) {
-    window.clearTimeout(run.closeTimer);
-    run.closeTimer = undefined;
-  }
-  live.delete(run);
-  const endAt = run.segment.endAt ?? Date.now();
-  const info = run.encoder.info();
-  try {
-    await run.encoder.close();
-    await run.flushed();
-  } catch (cause) {
-    failure = failure || errorText(cause);
-    return;
-  }
-  queue = queue
-    .then(() => sealSegment(run.segment, endAt, info))
-    .catch((error) => {
-      failure = errorText(error);
-    });
+async function sealSegment(seal: SegmentSeal): Promise<void> {
+  const now = Date.now();
+  const draft: SegmentDraft = {
+    id: seal.id,
+    ext: seal.info.ext,
+    startAt: frameWall(stampOrigin, seal.firstUs, now),
+    endAt: seal.endUs === undefined ? now : frameWall(stampOrigin, seal.endUs, now),
+    width: seal.spec.width,
+    height: seal.spec.height,
+    fps: seal.spec.fps,
+    hasAudio: seal.spec.hasAudio,
+    encoder: seal.info.codec,
+  };
+  await window.recordApi.writeSegment(draft).catch(() => undefined);
 }
 
 async function closeRecorder(): Promise<void> {
-  const runs = [...live].sort((a, b) => a.segment.startAt - b.segment.startAt);
-  const now = Date.now();
-  for (const run of runs) {
-    if (run.segment.endAt === undefined || run.segment.endAt > now) run.segment.endAt = now;
+  const session = recorder;
+  recorder = undefined;
+  if (!session) return;
+  try {
+    await session.close();
+  } catch (cause) {
+    failure = failure || errorText(cause);
   }
-  await Promise.all(runs.map((run) => closeRun(run)));
 }
 
-async function sealSegment(segment: PendingSegment, endAt: number, info: SegmentInfo): Promise<void> {
-  const draft: SegmentDraft = {
-    id: segment.id,
-    ext: info.ext,
-    startAt: segment.startAt,
-    endAt,
-    width: segment.spec.width,
-    height: segment.spec.height,
-    fps: segment.spec.fps,
-    hasAudio: segment.spec.hasAudio,
-    encoder: info.codec,
-  };
-  await window.recordApi.writeSegment(draft).catch(() => undefined);
+function enqueue(task: () => Promise<unknown>): void {
+  writes = writes.then(task).then(() => undefined).catch((cause) => {
+    failure = failure || errorText(cause);
+  });
 }
 
 function errorText(cause: unknown): string {
   const detail = cause as { error?: { message?: string; name?: string }; message?: string; name?: string };
   return detail?.message || detail?.error?.message || detail?.error?.name || detail?.name || '录制中断';
-}
-
-function nextId(): string {
-  counter += 1;
-  return `seg${Date.now().toString(36)}${counter.toString(36)}`.toLowerCase();
 }

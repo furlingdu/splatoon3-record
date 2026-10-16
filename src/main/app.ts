@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, protocol, screen, shell } from 'electron';
 import { release } from 'node:os';
 import { initPath, matchPath, saveFolder } from './store/path.js';
-import { getConfig, loadConfig, saveConfig, saveSettings, startupBackend } from './store/config.js';
+import { getConfig, loadConfig, saveConfig, saveSettings } from './store/config.js';
 import { createWindow, createSetup } from './window.js';
 import { registerIpc } from './ipc.js';
 import { SegmentStore } from './capture/segment.js';
@@ -19,7 +19,7 @@ import { makeQuery } from './nso/query.js';
 import { BattlePoller } from './nso/poll.js';
 import { loadSecret } from './store/secret.js';
 import { pushEnv } from './store/env.js';
-import { pollSecondsFixed, segmentSecondsFixed } from '../shared/constants.js';
+import { pollSecondsFixed } from '../shared/constants.js';
 import { clipRange, matchClock } from './match/clock.js';
 import { diskShortage, failureReason } from './match/notice.js';
 import { QqBot } from './qq/bot.js';
@@ -27,17 +27,17 @@ import { QqLogin } from './qq/login.js';
 import { afterBaseline, coveredMatch, dedupeMatches, mergeHandled, retryMatch } from './match/detect.js';
 import { purgeArchivedVideos, saveMatch, listMatches } from './match/archive.js';
 import { logApp } from './store/log.js';
-import { appEvent, liveViewersEvent } from '../shared/events.js';
+import { checkForUpdate, setUpdateNotifier } from './update/service.js';
+import { appEvent, liveViewersEvent, sealEvent, updateEvent } from '../shared/events.js';
 import { registerVideoProtocol } from './protocol.js';
 import type { AppStatus, BattleMatch, CaptureReport, LinkState, RecordSettings, RuntimeInfo, SegmentDraft, SetupResult, VideoRecord } from '../shared/types.js';
 
 const nsoRetryInterval = 300000;
+const sealWaitMs = 15000;
 const sweepInterval = 60000;
 const recordStates = new Set(['idle', 'starting', 'recording', 'error']);
 
-const captureBackend = startupBackend();
-app.commandLine.appendSwitch('enable-features', captureBackend === 'mf' ? 'PlatformHEVCEncoderSupport,MediaFoundationVideoCapture' : 'PlatformHEVCEncoderSupport');
-if (captureBackend !== 'mf') app.commandLine.appendSwitch('disable-features', 'MediaFoundationVideoCapture');
+app.commandLine.appendSwitch('enable-features', 'PlatformHEVCEncoderSupport,MediaFoundationVideoCapture');
 
 let mainWindow: BrowserWindow | undefined;
 let liveViewers = 0;
@@ -108,6 +108,7 @@ export async function bootApp(): Promise<void> {
     setSettings,
     writeChunk: (id, chunk, offset) => writer.writeChunk(id, chunk, offset),
     sealSegment,
+    sealSegments: () => requestSeal(),
     reportCapture: setCapture,
     finishSetup,
     debugExport,
@@ -136,6 +137,10 @@ export async function bootApp(): Promise<void> {
   const restored = nso.restore();
   const qqStart = qq.start();
   mainWindow = createWindow();
+  setUpdateNotifier((state) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(updateEvent, state);
+  });
+  if (config.settings.updateCheck) void checkForUpdate(config.settings.updateProxy);
   mainWindow.webContents.on('preload-error', (_event, path, error) => console.error('[preload-error]', path, error));
   mainWindow.webContents.on('did-fail-load', (_event, code, desc, url) => console.error('[did-fail-load]', code, desc, url));
   mainWindow.webContents.on('render-process-gone', (_event, details) => console.error('[render-process-gone]', details.reason));
@@ -208,12 +213,11 @@ function runtimeInfo(): Promise<RuntimeInfo> {
       gpu,
       gpuStatus: Object.fromEntries(Object.entries(app.getGPUFeatureStatus()).map(([key, value]) => [key, String(value)])),
       hardwareAcceleration: !app.commandLine.hasSwitch('disable-gpu'),
-      captureBackend,
       displays: screen.getAllDisplays().map((item) => `${Math.round(item.size.width)}x${Math.round(item.size.height)}@${Math.round(item.scaleFactor * 100)}%`),
     };
   }).catch(() => ({
     appVersion: app.getVersion(), electronVersion: process.versions.electron ?? '', chromeVersion: process.versions.chrome ?? '', nodeVersion: process.versions.node ?? '',
-    platform: process.platform, arch: process.arch, osRelease: release(), gpu: [], gpuStatus: {}, hardwareAcceleration: !app.commandLine.hasSwitch('disable-gpu'), captureBackend, displays: [],
+    platform: process.platform, arch: process.arch, osRelease: release(), gpu: [], gpuStatus: {}, hardwareAcceleration: !app.commandLine.hasSwitch('disable-gpu'), displays: [],
   }));
 }
 
@@ -377,14 +381,18 @@ async function schedulePush(match: BattleMatch): Promise<void> {
 }
 
 async function waitForMatch(match: BattleMatch): Promise<VideoRecord[]> {
-  const limit = Math.max(5000, segmentSecondsFixed * 1000 + 5000);
-  const deadline = Date.now() + limit;
+  const deadline = Date.now() + sealWaitMs;
+  requestSeal();
   let records = store.records();
   while (!clipCovered(match, records) && Date.now() < deadline) {
     await sleepMs(1000);
     records = store.records();
   }
   return records;
+}
+
+function requestSeal(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(sealEvent);
 }
 
 function clipCovered(match: BattleMatch, records: VideoRecord[]): boolean {

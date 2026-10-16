@@ -21,7 +21,7 @@ const mockDevices = [
 ];
 
 const mockMatches = [
-  { matchId: 'vs-100', kind: 'regular', mode: 'REGULAR', rule: 'TURF_WAR', startAt: 1, endAt: 2, duration: 180000, result: 'WIN', isDisconnected: false, isSalmon: false, videoPath: 'D:/v/a.mp4', rawData: {} },
+  { matchId: 'vs-100', kind: 'regular', mode: 'REGULAR', rule: 'TURF_WAR', startAt: 1, endAt: 2, duration: 180000, result: 'WIN', isDisconnected: false, isSalmon: false, videoPath: 'D:/v/a.mp4', blurCopy: true, rawData: {} },
   { matchId: 'coop-9', kind: 'salmon', mode: 'COOP', rule: 'COOP_GROUP', startAt: 1, endAt: 2, duration: 300000, result: '', isDisconnected: true, isSalmon: true, videoPath: undefined, rawData: {} },
   { matchId: 'vs-200', kind: 'regular', mode: 'REGULAR', rule: 'TURF_WAR', startAt: 1, endAt: 2, duration: 180000, result: 'LOSE', isDisconnected: true, isSalmon: false, videoPath: 'D:/v/b.mp4', rawData: {} },
   { matchId: 'vs-300', kind: 'xBattle', mode: 'X_MATCH', rule: 'X_MATCH', startAt: 1, endAt: 2, duration: 180000, result: 'WIN', isDisconnected: false, isSalmon: false, videoPath: undefined, rawData: {} },
@@ -63,9 +63,9 @@ function createMockStatus(overrides = {}) {
     pushState: 'idle',
     settings: {
       videoDevice: 'obs1', audioDevice: 'audio1', width: 1920, height: 1080, fps: 60, flipVertical: false,
-      nv12Capture: false, captureFormat: 'nv12',
       encoder: 'auto', quality: 22, saveDir: 'D:/videos',
       autoPush: true, autoRecord: false, autoLaunch: false, blurNickname: false, monitorAudio: false, pollSeconds: 10,
+      updateProxy: false, updateCheck: true,
     },
     pushOptions: { cap: 2, codec: 'hevc', targetMb: 100 },
     liveState: 'idle',
@@ -100,8 +100,9 @@ async function installMock(page, status, matches) {
     const state = {
       unknown: [], chunks: [], segments: [], reports: [], links: [], calls: {}, lastSettings: null,
       baseSettings: initialStatus.settings, settingsWrites: [],
-      missingDevice: null, statusListeners: [], mediaListeners: {}, audioReady: false, pipElement: null, pipOpens: 0, pipExits: 0,
-      liveStarted: 0, blurStart: null, blurChunks: 0, copied: [], modes: {}, reportText: null,
+      missingDevice: null, statusListeners: [], sealListeners: [], mediaListeners: {}, audioReady: false, pipElement: null, pipOpens: 0, pipExits: 0,
+      liveStarted: 0, blurStart: null, blurChunks: 0, copied: [], reportText: null,
+      deleted: [], updateListeners: [], update: { current: '2.2.2', available: false, phase: 'idle', progress: 0, received: 0, total: 0 },
       liveChunks: 0, liveViewerListeners: [],
     };
     window.__ui = state;
@@ -229,7 +230,7 @@ async function installMock(page, status, matches) {
           appVersion: '2.2.2', electronVersion: '38.0.0', chromeVersion: '140.0.0.0', nodeVersion: '22.0.0',
           platform: 'win32', arch: 'x64', osRelease: '10.0.26100', gpu: ['NVIDIA / GeForce RTX 4060'],
           gpuStatus: { video_decode: 'enabled', video_encode: 'enabled' }, hardwareAcceleration: true,
-          captureBackend: 'dshow', displays: ['1920x1080@100%'],
+          displays: ['1920x1080@100%'],
         };
       },
       saveSettings: async (settings) => {
@@ -250,7 +251,10 @@ async function installMock(page, status, matches) {
       openMatch: async () => mark('openMatch'),
       openPath: async (targetPath) => { mark('openPath'); state.lastOpenedPath = targetPath; },
       saveMatch: async () => 'D:/saved.mp4',
-      deleteMatch: async () => mark('deleteMatch'),
+      deleteMatch: async (matchId, withBlur) => {
+        mark('deleteMatch');
+        state.deleted.push({ matchId, withBlur });
+      },
       getVideoUrl: async (matchId) => (initialMatches.some((item) => item.matchId === matchId && item.videoPath) ? `s3r-video://match/${encodeURIComponent(matchId)}` : undefined),
       writeChunk: async (id, chunk, offset) => {
         state.chunks.push({ id, size: chunk.byteLength, offset });
@@ -261,7 +265,29 @@ async function installMock(page, status, matches) {
         mark('writeSegment');
         return { filePath: `cache/${draft.id}.${draft.ext}`, startAt: draft.startAt, endAt: draft.endAt, width: draft.width, height: draft.height, fps: draft.fps, encoder: draft.encoder, hasAudio: draft.hasAudio, flip: false };
       },
-      reportCapture: (report) => { state.reports.push(report); },
+      sealSegments: async () => {
+        mark('sealSegments');
+        state.sealListeners.forEach((callback) => callback());
+      },
+      onSeal: (callback) => {
+        state.sealListeners.push(callback);
+        return () => { state.sealListeners = state.sealListeners.filter((item) => item !== callback); };
+      },
+      reportCapture: (report) => {
+        state.reports.push(report);
+        latest = {
+          ...latest,
+          recordState: report.recordState,
+          recordError: report.error,
+          streamWidth: report.width,
+          streamHeight: report.height,
+          streamFps: report.fps,
+          streamFormat: report.format,
+          streamEncoder: report.encoder,
+          streamAudio: report.hasAudio,
+        };
+        state.statusListeners.forEach((callback) => callback(latest));
+      },
       startLive: async () => {
         state.liveStarted += 1;
         mark('startLive');
@@ -314,9 +340,28 @@ async function installMock(page, status, matches) {
         mark('copyText');
         return true;
       },
-      listModes: async (device) => {
-        mark('listModes');
-        return state.modes?.[device] || [];
+      updateState: async () => {
+        mark('updateState');
+        return state.update;
+      },
+      updateCheck: async () => {
+        mark('updateCheck');
+        state.update = { ...state.update, latest: state.updateLatest || '2.3.0', available: state.updateAvailable !== false, phase: 'idle', error: undefined, notes: '本次更新修复了采集卡协商问题。' };
+        state.updateListeners.forEach((callback) => callback(state.update));
+        return state.update;
+      },
+      updateDownload: async () => {
+        mark('updateDownload');
+        state.update = { ...state.update, phase: 'ready', progress: 1, received: 10485760, total: 10485760, path: 'C:/Users/test/.splatoon3record/update/setup.exe' };
+        state.updateListeners.forEach((callback) => callback(state.update));
+        return state.update;
+      },
+      updateInstall: async () => {
+        mark('updateInstall');
+      },
+      onUpdate: (callback) => {
+        state.updateListeners.push(callback);
+        return () => { state.updateListeners = state.updateListeners.filter((item) => item !== callback); };
       },
       saveReport: async (text) => {
         state.reportText = text;
@@ -328,7 +373,6 @@ async function installMock(page, status, matches) {
       openLink: async (url) => { state.links.push(url); },
       openPreview: async () => { mark('openPreview'); },
       togglePreviewFullscreen: async () => { mark('togglePreviewFullscreen'); return true; },
-      relaunchApp: async () => { mark('relaunchApp'); },
       finishSetup: async () => {
         mark('finishSetup');
         if (state.finishError) return { success: false, error: state.finishError };
@@ -357,6 +401,10 @@ async function installMock(page, status, matches) {
     };
     window.__patchSettings = (patch) => {
       window.__patchStatus({ settings: { ...latest.settings, ...patch } });
+    };
+    window.__pushUpdate = (next) => {
+      state.update = { ...state.update, ...next };
+      state.updateListeners.forEach((callback) => callback(state.update));
     };
     Object.defineProperty(document, 'pictureInPictureElement', { configurable: true, get: () => state.pipElement });
     HTMLVideoElement.prototype.requestPictureInPicture = function requestPictureInPicture() {

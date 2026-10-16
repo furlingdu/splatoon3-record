@@ -18,12 +18,15 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string>();
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [deleteIds, setDeleteIds] = useState<string[]>([]);
+  const [deleteBlur, setDeleteBlur] = useState(false);
   const viewerRef = useRef<HTMLElement | null>(null);
   const deleteRef = useRef<HTMLElement | null>(null);
   const blurRef = useRef<HTMLElement | null>(null);
   const selectRef = useSelectChange((value) => setKind(value as KindFilter));
   const filterRef = useElementEvent<HTMLElement>('change', (event) => setHideUnrecorded(targetChecked(event)));
   const viewerCloseRef = useElementEvent<HTMLElement>('close', () => setViewerOpen(false));
+  const deleteBlurRef = useElementEvent<HTMLElement>('change', (event) => setDeleteBlur(targetChecked(event)));
   const blur = useBlurJob();
   const settings: RecordSettings | undefined = props.status?.settings;
 
@@ -33,6 +36,7 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
   const visible = matches.filter((match) => (kind === 'all' || match.kind === kind) && (!hideUnrecorded || Boolean(match.videoPath)));
   const kinds = [...new Set(matches.map((match) => match.kind))];
   const pickedList = visible.filter((match) => picked.has(match.matchId) && match.videoPath);
+  const deleteTargets = matches.filter((match) => deleteIds.includes(match.matchId));
 
   useEffect(() => {
     for (const match of visible) {
@@ -65,11 +69,34 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
     setViewerOpen(false);
     if (viewerRef.current) (viewerRef.current as HTMLDialogElement).open = false;
   };
-  const openDelete = (): void => {
+  const openDelete = (ids: string[]): void => {
+    if (!ids.length) return;
     closeViewer();
+    setDeleteIds(ids);
+    setDeleteBlur(false);
     if (deleteRef.current) (deleteRef.current as HTMLDialogElement).open = true;
   };
   const closeDelete = (): void => { if (deleteRef.current) (deleteRef.current as HTMLDialogElement).open = false; };
+  const openBatchDelete = (): void => {
+    const ids = pickedList.map((match) => match.matchId);
+    if (!ids.length) {
+      snackbar({ message: '请先勾选需要删除的对局' });
+      return;
+    }
+    openDelete(ids);
+  };
+  const confirmDelete = (): void => {
+    const ids = deleteIds;
+    const withBlur = deleteBlur;
+    setDeleteIds([]);
+    setDeleteBlur(false);
+    ids.forEach(removeThumb);
+    closeDelete();
+    void Promise.all(ids.map((id) => window.recordApi.deleteMatch(id, withBlur))).then(() => {
+      setPicked(new Set());
+      reload();
+    });
+  };
   const openBlurDialog = (): void => {
     closeViewer();
     if (blurRef.current) (blurRef.current as HTMLDialogElement).open = true;
@@ -143,6 +170,10 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
           <mdui-icon slot="icon" dangerouslySetInnerHTML={{ __html: iconSvg('blur') }} />
           批量打码 {pickedList.length || ''}
         </mdui-button>
+        <mdui-button variant="tonal" disabled={!pickedList.length} onClick={openBatchDelete}>
+          <mdui-icon slot="icon" dangerouslySetInnerHTML={{ __html: iconSvg('delete') }} />
+          批量删除 {pickedList.length || ''}
+        </mdui-button>
       </div>
       {visible.length ? (
         <div className="gallery-grid">
@@ -180,7 +211,7 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
               <mdui-icon slot="icon" dangerouslySetInnerHTML={{ __html: iconSvg('folder') }} />
               打开位置
             </mdui-button>
-            <mdui-button slot="action" variant="text" onClick={openDelete}>
+            <mdui-button slot="action" variant="text" onClick={() => { if (current) openDelete([current.matchId]); }}>
               <mdui-icon slot="icon" dangerouslySetInnerHTML={{ __html: iconSvg('delete') }} />
               删除
             </mdui-button>
@@ -217,13 +248,12 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
             )}
           </mdui-dialog>
 
-          <mdui-dialog ref={deleteRef} headline="删除录像" description="将同时删除归档视频与比赛记录，确定删除？">
+          <mdui-dialog className="delete-dialog" ref={deleteRef} headline="删除录像" description="将同时删除归档视频与比赛记录，确定删除？">
+            {deleteTargets.some((match) => match.blurCopy) ? (
+              <mdui-checkbox checked={deleteBlur} ref={deleteBlurRef}>同步删除打码后的视频</mdui-checkbox>
+            ) : null}
             <mdui-button slot="action" variant="text" onClick={closeDelete}>取消</mdui-button>
-            <mdui-button slot="action" variant="filled" onClick={() => {
-              if (current) removeThumb(current.matchId);
-              closeDelete();
-              void window.recordApi.deleteMatch(current?.matchId || '').then(reload);
-            }}>删除</mdui-button>
+            <mdui-button slot="action" variant="filled" onClick={confirmDelete}>删除</mdui-button>
           </mdui-dialog>
         </>,
       )}

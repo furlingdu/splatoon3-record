@@ -1,12 +1,13 @@
-import { app, clipboard, dialog, ipcMain, shell, BrowserWindow } from 'electron';
+import { clipboard, dialog, ipcMain, shell, BrowserWindow } from 'electron';
 import { copyFile, mkdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
 import { ipcNames } from '../shared/events.js';
 import { blurConfidence } from '../shared/constants.js';
 import { clearSecret } from './store/secret.js';
+import { getConfig } from './store/config.js';
 import { matchPath } from './store/path.js';
-import { listModes } from './capture/modes.js';
 import { saveReport } from './store/report.js';
+import { checkForUpdate, downloadUpdate, installUpdate, updateState } from './update/service.js';
 import { removeMatch } from './match/archive.js';
 import { getThumb, dropThumb } from './media/thumbs.js';
 import { makeVideoUrl } from './media/video.js';
@@ -25,6 +26,7 @@ export interface IpcContext {
   setSettings: (raw: unknown) => Promise<AppStatus>;
   writeChunk: (id: string, chunk: Uint8Array, offset: number) => Promise<boolean>;
   sealSegment: (draft: SegmentDraft) => Promise<VideoRecord | undefined>;
+  sealSegments: () => void;
   reportCapture: (report: CaptureReport) => void;
   finishSetup: () => Promise<SetupResult>;
   debugExport: () => Promise<string | undefined>;
@@ -56,10 +58,11 @@ export function registerIpc(context: IpcContext): void {
   ipcMain.handle(ipcNames.getThumb, (_event, id: string) => getThumb(context.getMatches(), textArg(id)));
   ipcMain.handle(ipcNames.openMatch, (_event, id: string) => openMatch(context.getMatches(), textArg(id)));
   ipcMain.handle(ipcNames.saveMatch, (_event, id: string) => saveMatchFile(context.getMatches(), textArg(id)));
-  ipcMain.handle(ipcNames.deleteMatch, (_event, id: string) => deleteMatch(context.getMatches(), textArg(id)));
+  ipcMain.handle(ipcNames.deleteMatch, (_event, id: string, withBlur: unknown) => deleteMatch(context.getMatches(), textArg(id), withBlur === true));
   ipcMain.handle(ipcNames.getVideoUrl, (_event, id: string) => videoUrl(context.getMatches(), textArg(id)));
   ipcMain.handle(ipcNames.writeChunk, (_event, id: string, chunk: ArrayBuffer, offset: number) => writeChunk(context, id, chunk, offset));
   ipcMain.handle(ipcNames.writeSegment, (_event, draft: SegmentDraft) => context.sealSegment(draft));
+  ipcMain.handle(ipcNames.sealSegments, () => { context.sealSegments(); });
   ipcMain.on(ipcNames.reportCapture, (_event, report: CaptureReport) => context.reportCapture(report));
   ipcMain.handle(ipcNames.debugExport, () => context.debugExport());
   ipcMain.handle(ipcNames.openPath, (_event, targetPath: string) => openPathItem(textArg(targetPath)));
@@ -80,17 +83,14 @@ export function registerIpc(context: IpcContext): void {
   ipcMain.handle(ipcNames.detectFrame, (_event, frame: ArrayBuffer, width: number, height: number, conf: number) => context.detectFrame(chunkBytes(frame), sizeArg(width), sizeArg(height), rateArg(conf)));
   ipcMain.handle(ipcNames.stopDetect, () => { context.stopDetect(); });
   ipcMain.handle(ipcNames.copyText, (_event, text: string) => { clipboard.writeText(copyTextArg(text)); });
-  ipcMain.handle(ipcNames.listModes, (_event, device: string) => listModes(textArg(device)));
   ipcMain.handle(ipcNames.saveReport, (_event, text: string) => saveReportFile(reportArg(text)));
+  ipcMain.handle(ipcNames.updateState, () => updateState());
+  ipcMain.handle(ipcNames.updateCheck, () => checkForUpdate(getConfig().settings.updateProxy));
+  ipcMain.handle(ipcNames.updateDownload, () => downloadUpdate(getConfig().settings.updateProxy));
+  ipcMain.handle(ipcNames.updateInstall, () => installUpdate());
   ipcMain.handle(ipcNames.openPreview, (event) => context.isMainSource(event.sender.id) ? context.openPreview() : undefined);
   ipcMain.handle(ipcNames.togglePreviewFullscreen, (event) => context.togglePreviewFullscreen(event.sender.id));
   ipcMain.handle(ipcNames.getRuntimeInfo, () => context.getRuntimeInfo());
-  ipcMain.handle(ipcNames.relaunchApp, () => relaunchApp());
-}
-
-function relaunchApp(): void {
-  app.relaunch();
-  app.quit();
 }
 
 function sizeArg(value: unknown): number {
@@ -214,10 +214,12 @@ async function saveMatchFile(matches: BattleMatch[], id: string): Promise<string
   return result.filePath;
 }
 
-async function deleteMatch(matches: BattleMatch[], id: string): Promise<void> {
-  const match = matches.find((item) => item.matchId === id);
+async function deleteMatch(matches: BattleMatch[], id: string, withBlur: boolean): Promise<void> {
+  const index = matches.findIndex((item) => item.matchId === id);
+  const match = matches[index];
   if (!match) return;
-  await removeMatch(match, matchPath);
+  await removeMatch(match, matchPath, withBlur);
+  matches.splice(index, 1);
   dropThumb(id);
 }
 

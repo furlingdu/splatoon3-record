@@ -115,7 +115,7 @@ async function main() {
     if (!page) throw new Error('未找到主窗口页面');
     await page.waitForSelector('mdui-top-app-bar', { timeout: 30000 });
     await page.evaluate(() => {
-      document.querySelectorAll('mdui-navigation-drawer mdui-list-item')[6]?.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+      document.querySelectorAll('mdui-navigation-drawer mdui-list-item')[7]?.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
     });
     const aboutReady = await waitFor(() => page.evaluate(() => Boolean(document.querySelector('.about-avatar[alt="澪度"]'))), 10000);
     check('打包版关于页渲染作者头像', Boolean(aboutReady));

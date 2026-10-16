@@ -1,4 +1,4 @@
-export type PageName = 'status' | 'live' | 'binding' | 'matches' | 'gallery' | 'settings' | 'about';
+export type PageName = 'status' | 'live' | 'binding' | 'matches' | 'gallery' | 'settings' | 'update' | 'about';
 export type RecordState = 'idle' | 'starting' | 'recording' | 'error';
 export type LiveState = 'idle' | 'live' | 'error';
 export type LinkState = 'unbound' | 'connecting' | 'connected' | 'expired' | 'error';
@@ -11,19 +11,6 @@ export interface CaptureDevice {
   maxWidth?: number;
   maxHeight?: number;
   maxFps?: number;
-  nativeWidth?: number;
-  nativeHeight?: number;
-  nativeFps?: number;
-}
-
-export type CaptureFormat = 'nv12' | 'yuy2';
-
-export interface CaptureMode {
-  format: CaptureFormat;
-  width: number;
-  height: number;
-  minFps: number;
-  maxFps: number;
 }
 
 export interface CaptureReport {
@@ -44,8 +31,6 @@ export interface RecordSettings {
   height: number;
   fps: number;
   flipVertical?: boolean;
-  nv12Capture: boolean;
-  captureFormat: CaptureFormat;
   encoder: 'auto' | 'nvidia' | 'amd' | 'intel' | 'software';
   quality: number;
   saveDir: string;
@@ -55,11 +40,11 @@ export interface RecordSettings {
   blurNickname: boolean;
   monitorAudio: boolean;
   pollSeconds: number;
+  updateProxy: boolean;
+  updateCheck: boolean;
 }
 
 export type PushCodec = 'hevc' | 'h264' | 'av1';
-
-export type CaptureBackend = 'dshow' | 'mf';
 
 export interface PushOptions {
   cap: number;
@@ -113,6 +98,28 @@ export interface LiveViewerEvent {
   key: boolean;
 }
 
+export interface UpdateAsset {
+  name: string;
+  url: string;
+  size: number;
+}
+
+export type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'ready' | 'installing' | 'error';
+
+export interface UpdateState {
+  current: string;
+  latest?: string;
+  notes?: string;
+  asset?: UpdateAsset;
+  path?: string;
+  available: boolean;
+  phase: UpdatePhase;
+  progress: number;
+  received: number;
+  total: number;
+  error?: string;
+}
+
 export interface RuntimeInfo {
   appVersion: string;
   electronVersion: string;
@@ -124,7 +131,6 @@ export interface RuntimeInfo {
   gpu: string[];
   gpuStatus: Record<string, string>;
   hardwareAcceleration: boolean;
-  captureBackend: CaptureBackend;
   displays: string[];
 }
 
@@ -167,6 +173,7 @@ export interface BattleMatch {
   isDisconnected: boolean;
   isSalmon: boolean;
   videoPath?: string;
+  blurCopy?: boolean;
   rawData: unknown;
 }
 
@@ -248,10 +255,12 @@ export interface BridgeApi {
   thumb: (matchId: string) => Promise<string>;
   openMatch: (matchId: string) => Promise<void>;
   saveMatch: (matchId: string) => Promise<string | undefined>;
-  deleteMatch: (matchId: string) => Promise<void>;
+  deleteMatch: (matchId: string, withBlur?: boolean) => Promise<void>;
   getVideoUrl: (matchId: string) => Promise<string | undefined>;
   writeChunk: (id: string, chunk: ArrayBuffer, offset: number) => Promise<boolean>;
   writeSegment: (draft: SegmentDraft) => Promise<VideoRecord | undefined>;
+  sealSegments: () => Promise<void>;
+  onSeal: (callback: () => void) => () => void;
   reportCapture: (report: CaptureReport) => void;
   debugExportLast: () => Promise<string | undefined>;
   openPath: (targetPath: string) => Promise<void>;
@@ -260,7 +269,6 @@ export interface BridgeApi {
   finishSetup: () => Promise<SetupResult>;
   openPreview: () => Promise<void>;
   togglePreviewFullscreen: () => Promise<boolean>;
-  relaunchApp: () => Promise<void>;
   startLive: () => Promise<AppStatus>;
   stopLive: () => Promise<AppStatus>;
   liveChunk: (chunk: LiveChunk) => void;
@@ -273,8 +281,12 @@ export interface BridgeApi {
   detectFrame: (frame: ArrayBuffer, width: number, height: number, conf: number) => Promise<DetectReply>;
   stopDetect: () => Promise<void>;
   copyText: (text: string) => Promise<void>;
-  listModes: (device: string) => Promise<CaptureMode[]>;
   saveReport: (text: string) => Promise<string | undefined>;
+  updateState: () => Promise<UpdateState>;
+  updateCheck: () => Promise<UpdateState>;
+  updateDownload: () => Promise<UpdateState>;
+  updateInstall: () => Promise<void>;
+  onUpdate: (callback: (state: UpdateState) => void) => () => void;
   getRuntimeInfo: () => Promise<RuntimeInfo>;
   getEvents: (callback: (status: AppStatus) => void) => () => void;
 }

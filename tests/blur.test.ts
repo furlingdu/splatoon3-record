@@ -7,8 +7,8 @@ function box(x: number, y: number, width: number, height: number): { x: number; 
 }
 
 describe('打码推理参数', () => {
-  it('置信度固定 0.7', () => {
-    expect(blurConfidence).toBe(0.7);
+  it('置信度固定 0.2', () => {
+    expect(blurConfidence).toBe(0.2);
   });
 
   it('送检画面宽度上限采用小尺寸 640', () => {

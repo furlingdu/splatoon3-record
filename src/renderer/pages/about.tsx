@@ -4,12 +4,11 @@ import { appName, authorName, avatarUrl, projectUrl, projectVersion, projectName
 import type { AppStatus, CaptureDevice, RuntimeInfo } from '../../shared/types.js';
 import { listDevices } from '../lib/device.js';
 import { liveView } from '../lib/live.js';
-import { formatLabel, matchDevice } from '../../shared/capture.js';
-import { hardwareModes, type ModeRate } from '../lib/encode.js';
+import { matchDevice } from '../../shared/capture.js';
+import { hardwareTiers, type ModeRate } from '../lib/encode.js';
 import { iconSvg } from '../lib/icons.js';
 import appLogo from '../assets/appIcon.png';
 import abxyLogo from '../assets/abxy.png';
-import type { CaptureFormat, CaptureMode } from '../../shared/types.js';
 
 const projectRepo = projectUrl.replace('https://github.com/', '');
 const nsoRepo = 'Cypas/splatoon3-nso';
@@ -20,12 +19,11 @@ function aboutPage(props: { status?: AppStatus }): ReactElement {
     try {
       const [runtime, devices] = await Promise.all([window.recordApi.getRuntimeInfo(), listDevices(props.status?.settings.videoDevice)]);
       const selected = matchDevice(devices, 'video', props.status?.settings.videoDevice);
-      const modes = selected ? await window.recordApi.listModes(selected.name).catch(() => []) : [];
-      const ready = await hardwareModes(modes);
-      const file = await window.recordApi.saveReport(diagnosticText(props.status, runtime, devices, modes, ready));
-      snackbar({ message: file ? `设备信息已保存到 ${file}` : '设备信息保存失败，请稍后重试。' });
+      const ready = await hardwareTiers(selected);
+      const file = await window.recordApi.saveReport(diagnosticText(props.status, runtime, devices, ready));
+      snackbar({ message: file ? `日志反馈内容已保存到 ${file}` : '日志反馈内容保存失败，请稍后重试。' });
     } catch {
-      snackbar({ message: '设备信息保存失败，请稍后重试。' });
+      snackbar({ message: '日志反馈内容保存失败，请稍后重试。' });
     }
   };
   return (
@@ -44,7 +42,7 @@ function aboutPage(props: { status?: AppStatus }): ReactElement {
           一款斯普拉遁3录制机，通过采集卡自动采集整局录像，并通过 QQBot 推送。
         </p>
         <div className="status-actions">
-          <mdui-button variant="filled" onClick={() => void saveInfo()}>保存设备信息</mdui-button>
+          <mdui-button variant="filled" onClick={() => void saveInfo()}>保存日志反馈内容</mdui-button>
         </div>
       </div>
 
@@ -114,7 +112,7 @@ function aboutPage(props: { status?: AppStatus }): ReactElement {
   );
 }
 
-function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, devices: CaptureDevice[], modes: CaptureMode[], ready: ModeRate[]): string {
+function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, devices: CaptureDevice[], ready: ModeRate[]): string {
   const video = devices.filter((item) => item.kind === 'video').map((item) => item.name).join('、') || '未检测到';
   const audio = devices.filter((item) => item.kind === 'audio').map((item) => item.name).join('、') || '未检测到';
   const selected = matchDevice(devices, 'video', status?.settings.videoDevice);
@@ -135,18 +133,12 @@ function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, dev
     `采集卡：${video}`,
     `已选采集卡：${selected?.name || '未选择'}`,
     `采集卡能力上限：${selected?.maxWidth || '未知'}x${selected?.maxHeight || '未知'} @ ${selected?.maxFps || '未知'} fps`,
-    `采集卡原生规格：${selected?.nativeWidth || '未知'}x${selected?.nativeHeight || '未知'} @ ${selected?.nativeFps || '未知'} fps`,
     `音频设备：${audio}`,
     `已选音频设备：${selectedAudio?.name || '未选择'}`,
-    `实际画幅：${status?.streamWidth || 0}x${status?.streamHeight || 0}`,
-    `实际帧率：${status?.streamFps || 0} fps`,
-    `采集格式：${status?.streamFormat || '未知'}`,
-    `录制编码：${status?.streamEncoder || '未知'}`,
+    `采集画面：${status?.streamWidth || 0}x${status?.streamHeight || 0} @ ${Number(status?.streamFps ?? 0).toFixed(2)} fps`,
+    `采集格式：${status?.streamEncoder || '未知'}（${status?.streamFormat || '未开始采集'}）`,
     `录制质量：${status?.settings.quality ?? '未知'}`,
-    `采集后端：${runtime.captureBackend === 'mf' ? 'Media Foundation' : 'DirectShow'}`,
-    `采集画面格式：${formatLabel(status?.settings.captureFormat ?? 'nv12')}`,
-    ...modeText(modes),
-    `硬编档位：${ready.length ? ready.map((item) => `${formatLabel(item.format)} ${item.width}x${item.height}@${item.fps}`).join('、') : '无'}`,
+    `硬编档位：${ready.length ? ready.map((item) => `${item.width}x${item.height}@${item.fps}`).join('、') : '无'}`,
     `采集音频：${status?.streamAudio ? '有' : '无'}`,
     `硬件解码档位：${status?.hwAccel || '未启用或未知'}`,
     `归档编码器：${status?.encoder || '未知'}`,
@@ -156,13 +148,6 @@ function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, dev
     `直播地址端口：${status?.liveOptions.port || '未知'}`,
     `推理状态：${status?.settings.blurNickname ? '已开启' : '未开启'}`,
   ].join('\n');
-}
-
-function modeText(modes: CaptureMode[]): string[] {
-  if (!modes.length) return ['采集档位：未获取'];
-  const formats: CaptureFormat[] = [];
-  for (const item of modes) if (!formats.includes(item.format)) formats.push(item.format);
-  return formats.map((format) => `${formatLabel(format)} 档位：${modes.filter((item) => item.format === format).map((item) => `${item.width}x${item.height}@${item.minFps}-${item.maxFps}`).join('、')}`);
 }
 
 export { aboutPage as AboutPage };

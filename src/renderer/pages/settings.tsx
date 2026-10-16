@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { snackbar } from 'mdui/functions/snackbar.js';
 import { useElementEvent, restoreSelect, targetChecked, targetValue } from '../lib/event.js';
 import { EncodeHint } from '../components/encodehint.js';
-import { dialogLayer } from '../lib/portal.js';
 import { iconSvg } from '../lib/icons.js';
 import { refreshDevices, useSession } from '../lib/session.js';
-import { clampModeFps, deviceLabel, formatLabel, fpsList, matchDevice, modeFormats, modeFpsList, modeResolutions, pickMode, resolutionKey, resolutionList, resolutionText } from '../../shared/capture.js';
+import { probedFps } from '../lib/device.js';
+import { deviceLabel, fpsList, matchDevice, resolutionKey, resolutionList, resolutionText } from '../../shared/capture.js';
 import { defaultSettings, qualityTiers } from '../../shared/constants.js';
-import type { AppStatus, CaptureFormat, CaptureMode, RecordSettings } from '../../shared/types.js';
+import type { AppStatus, RecordSettings } from '../../shared/types.js';
 
 const encoderOptions = [
   { value: 'auto', label: '自动选择' },
@@ -36,16 +36,11 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
   const session = useSession();
   const settings = status?.settings;
   const [loading, setLoading] = useState(false);
-  const [modes, setModes] = useState<CaptureMode[]>([]);
-  const [restartHint, setRestartHint] = useState('');
-  const restartRef = useRef<HTMLElement | null>(null);
   const videoDevice = matchDevice(session.devices, 'video', settings?.videoDevice);
   const audioDevice = matchDevice(session.devices, 'audio', settings?.audioDevice);
-  const captureFormat: CaptureFormat = settings?.captureFormat || defaultSettings.captureFormat;
-  const modeSizes = settings?.nv12Capture ? modeResolutions(modes, captureFormat) : [];
-  const resolutions = modeSizes.length ? modeSizes : resolutionList(videoDevice, settings ? { width: settings.width, height: settings.height } : undefined);
-  const modeRates = settings?.nv12Capture ? modeFpsList(modes, captureFormat, settings.width, settings.height, settings.fps) : [];
-  const sizes = modeRates.length ? modeRates : fpsList(videoDevice, settings?.fps);
+  const resolutions = resolutionList(videoDevice, settings ? { width: settings.width, height: settings.height } : undefined);
+  const probed = settings && videoDevice ? probedFps(videoDevice.id, settings.width, settings.height) : undefined;
+  const sizes = fpsList(videoDevice, settings?.fps, probed);
   const sizeMissed = Boolean(settings) && session.width > 0 && !session.applying && (session.width !== settings?.width || session.height !== settings?.height);
   const fpsMissed = Boolean(settings) && session.fps > 0 && !session.applying && Math.abs(session.fps - (settings?.fps || 0)) > 0.5;
 
@@ -53,31 +48,6 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
     setLoading(true);
     void refreshDevices().finally(() => setLoading(false));
   }, []);
-  useEffect(() => {
-    if (!settings?.nv12Capture || !videoDevice?.name) {
-      setModes([]);
-      return undefined;
-    }
-    let alive = true;
-    setModes([]);
-    void window.recordApi.listModes(videoDevice.name).then((list) => {
-      if (alive) setModes(list);
-    }).catch(() => {
-      if (alive) setModes([]);
-    });
-    return () => { alive = false; };
-  }, [settings?.nv12Capture, videoDevice?.name]);
-  useEffect(() => {
-    if (!settings || !modes.length) return;
-    const formatModes = modes.filter((item) => item.format === settings.captureFormat);
-    if (!formatModes.length) return;
-    if (formatModes.some((item) => item.width === settings.width && item.height === settings.height && settings.fps >= item.minFps && settings.fps <= item.maxFps)) return;
-    const pick = pickMode(modes, settings.captureFormat, settings.width, settings.height, settings.fps);
-    if (!pick) return;
-    const fps = clampModeFps(pick, settings.fps);
-    if (pick.width === settings.width && pick.height === settings.height && fps === settings.fps) return;
-    save({ width: pick.width, height: pick.height, fps });
-  }, [modes, settings]);
 
   const save = (part: Partial<RecordSettings>): void => {
     if (!settings) return;
@@ -122,29 +92,6 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
     if (!settings || Boolean((settings as unknown as Record<string, unknown>)[name]) === checked) return;
     save({ [name]: checked } as Partial<RecordSettings>);
   });
-  const nv12Ref = useElementEvent<HTMLElement>('change', (event) => {
-    const checked = targetChecked(event);
-    if (!settings || Boolean(settings.nv12Capture) === checked) return;
-    void window.recordApi.saveSettings({ ...settings, nv12Capture: checked }).then(() => {
-      setRestartHint(checked ? 'NV12、YUY2 采集支持已开启，请重启应用程序。' : 'NV12、YUY2 采集支持已关闭，请重启应用程序。');
-      if (restartRef.current) (restartRef.current as HTMLDialogElement).open = true;
-    }).catch(() => snackbar({ message: '保存设置失败' }));
-  });
-  const formatRef = useElementEvent<HTMLElement>('change', (event) => {
-    const value = targetValue(event) as CaptureFormat;
-    if (!settings || (value !== 'nv12' && value !== 'yuy2') || settings.captureFormat === value) return;
-    const part: Partial<RecordSettings> = { captureFormat: value };
-    const pick = modes.length ? pickMode(modes, value, settings.width, settings.height, settings.fps) : undefined;
-    if (pick) {
-      part.width = pick.width;
-      part.height = pick.height;
-      part.fps = clampModeFps(pick, settings.fps);
-    }
-    void window.recordApi.saveSettings({ ...settings, ...part }).then(() => {
-      setRestartHint(value === 'yuy2' ? '采集画面格式已切换为 YUY2，请重启应用程序。' : '采集画面格式已切换为 NV12，请重启应用程序。');
-      if (restartRef.current) (restartRef.current as HTMLDialogElement).open = true;
-    }).catch(() => snackbar({ message: '保存设置失败' }));
-  });
   const qualityRef = useElementEvent<HTMLElement>('change', (event) => {
     const value = Number(targetValue(event));
     if (!settings || !Number.isFinite(value) || settings.quality === value) return;
@@ -178,27 +125,13 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
               <mdui-menu-item value="">不录制音频</mdui-menu-item>
               {session.devices.filter((item) => item.kind === 'audio').map((device) => <mdui-menu-item key={device.id} value={device.id}>{deviceLabel(device)}</mdui-menu-item>)}
             </mdui-select>
-            {settings?.nv12Capture ? null : (
-              <mdui-button-icon disabled={loading} ref={reloadRef}>
-                <mdui-icon dangerouslySetInnerHTML={{ __html: iconSvg('refresh') }} />
-              </mdui-button-icon>
-            )}
+            <mdui-button-icon disabled={loading} ref={reloadRef}>
+              <mdui-icon dangerouslySetInnerHTML={{ __html: iconSvg('refresh') }} />
+            </mdui-button-icon>
           </div>
           {loading ? <mdui-linear-progress indeterminate className="device-loading" /> : null}
           <span className="form-hint">选择音频输入</span>
         </div>
-        {settings?.nv12Capture ? (
-          <div className="form-field">
-            <div className="select-icon-row">
-              <mdui-select label="采集画面格式" value={captureFormat} ref={formatRef} name="captureFormat">
-                {modeFormats(modes, settings.captureFormat).map((item) => <mdui-menu-item key={item} value={item}>{formatLabel(item)}</mdui-menu-item>)}
-              </mdui-select>
-              <mdui-button-icon disabled={loading} ref={reloadRef}>
-                <mdui-icon dangerouslySetInnerHTML={{ __html: iconSvg('refresh') }} />
-              </mdui-button-icon>
-            </div>
-          </div>
-        ) : null}
       </div>
       <h3 className="section-title">画质与编码</h3>
       <div className="form-grid">
@@ -218,10 +151,6 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
         <div className="form-switch form-field-wide">
           <span>垂直翻转画面<em className="form-note">画面上下颠倒时开启</em></span>
           <mdui-switch checked={Boolean(settings?.flipVertical)} ref={switchRef} name="flipVertical" />
-        </div>
-        <div className="form-switch form-field-wide">
-          <span>开启NV12、YUY2采集支持<em className="form-note">部分采集卡只在 NV12 或 YUY2 下输出高分辨率，开启后重启应用生效</em></span>
-          <mdui-switch checked={Boolean(settings?.nv12Capture)} ref={nv12Ref} name="nv12Capture" />
         </div>
         <div className="form-field">
           <mdui-select label="编码器" value={settings?.encoder || 'auto'} ref={encoderRef} name="encoder">
@@ -262,12 +191,6 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
           <mdui-switch checked={Boolean(settings?.autoLaunch)} ref={switchRef} name="autoLaunch" />
         </div>
       </div>
-      {dialogLayer(
-        <mdui-dialog ref={(element) => { restartRef.current = element; }} headline="需要重启应用" description={restartHint || 'NV12、YUY2 采集支持已变更，请重启应用程序。'}>
-          <mdui-button slot="action" variant="text" onClick={() => { if (restartRef.current) (restartRef.current as HTMLDialogElement).open = false; }}>稍后重启</mdui-button>
-          <mdui-button slot="action" variant="filled" onClick={() => { void window.recordApi.relaunchApp(); }}>立即重启</mdui-button>
-        </mdui-dialog>,
-      )}
     </div>
   );
 }

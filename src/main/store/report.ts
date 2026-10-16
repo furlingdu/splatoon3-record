@@ -5,7 +5,6 @@ import { logPath } from './path.js';
 const logFiles = ['app.log', 'loginDebug.log'];
 const tailLines = 300;
 
-// 把设备反馈信息与最近运行日志写成 txt，供用户提交反馈
 export async function saveReport(text: string): Promise<string | undefined> {
   const body = text.trim();
   if (!body) return undefined;
