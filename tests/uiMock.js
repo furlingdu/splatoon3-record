@@ -102,7 +102,7 @@ async function installMock(page, status, matches) {
       baseSettings: initialStatus.settings, settingsWrites: [],
       missingDevice: null, statusListeners: [], sealListeners: [], mediaListeners: {}, audioReady: false, pipElement: null, pipOpens: 0, pipExits: 0,
       liveStarted: 0, blurStart: null, blurChunks: 0, copied: [], reportText: null,
-      deleted: [], updateListeners: [], update: { current: '2.2.2', available: false, phase: 'idle', progress: 0, received: 0, total: 0 },
+      deleted: [], updateListeners: [], update: { current: '2.3.0', available: false, phase: 'idle', progress: 0, received: 0, total: 0 },
       liveChunks: 0, liveViewerListeners: [],
     };
     window.__ui = state;
@@ -227,7 +227,7 @@ async function installMock(page, status, matches) {
       getRuntimeInfo: async () => {
         mark('getRuntimeInfo');
         return {
-          appVersion: '2.2.2', electronVersion: '38.0.0', chromeVersion: '140.0.0.0', nodeVersion: '22.0.0',
+          appVersion: '2.3.0', electronVersion: '38.0.0', chromeVersion: '140.0.0.0', nodeVersion: '22.0.0',
           platform: 'win32', arch: 'x64', osRelease: '10.0.26100', gpu: ['NVIDIA / GeForce RTX 4060'],
           gpuStatus: { video_decode: 'enabled', video_encode: 'enabled' }, hardwareAcceleration: true,
           displays: ['1920x1080@100%'],

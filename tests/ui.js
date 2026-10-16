@@ -713,7 +713,7 @@ async function main() {
 
   await clickNav(page, 7);
   check('关于页显示项目名', await waitText(page, 'Splatoon3Record'));
-  check('关于页显示版本', await waitText(page, '2.2.2'));
+  check('关于页显示版本', await waitText(page, '2.3.0'));
   check('关于页显示作者简介', await waitText(page, '巨齿刮水刀'));
   check('作者头像指向作者 QQ 头像并与应用图标区分', await page.evaluate(() => {
     const logo = document.querySelector('.about-logo');
@@ -746,7 +746,7 @@ async function main() {
   check('关于页诊断包含已选采集卡能力与硬件详情', diagnosticMissing.length === 0 && diagnosticBanned.length === 0 && diagnosticFormat);
   check('关于页只调用白名单桥接方法', await page.evaluate(() => window.__ui.unknown.length === 0));
 
-  await page.evaluate(() => { window.__ui.update = { current: '2.2.2', available: false, phase: 'idle', progress: 0, received: 0, total: 0 }; });
+  await page.evaluate(() => { window.__ui.update = { current: '2.3.0', available: false, phase: 'idle', progress: 0, received: 0, total: 0 }; });
   await clickNav(page, 6);
   check('更新页进入后自动检查并下载更新包', await page.waitForFunction(() => (window.__ui.calls.updateCheck || 0) > 0 && (window.__ui.calls.updateDownload || 0) > 0, { timeout: 10000 }).then(() => true).catch(() => false));
   check('更新页展示新版本与安装入口', (await waitText(page, '发现新版本 2.3.0')) && await page.evaluate(() => Array.from(document.querySelectorAll('.about-card mdui-button')).some((element) => element.textContent?.includes('立即安装'))));
@@ -758,7 +758,7 @@ async function main() {
   await setChecked(page, 'mdui-switch[name="updateCheck"]', false);
   await new Promise((resolve) => setTimeout(resolve, 200));
   check('更新页自动检查开关即时保存', await page.evaluate(() => window.__ui.lastSettings?.updateCheck === false));
-  await page.evaluate(() => { window.__ui.updateAvailable = false; window.__ui.update = { current: '2.2.2', available: false, phase: 'idle', progress: 0, received: 0, total: 0 }; });
+  await page.evaluate(() => { window.__ui.updateAvailable = false; window.__ui.update = { current: '2.3.0', available: false, phase: 'idle', progress: 0, received: 0, total: 0 }; });
   await clickText(page, '.about-card mdui-button', '检查更新');
   check('更新页无新版本时提示已是最新', (await waitText(page, '已是最新版本')) && await page.evaluate(() => !document.body.innerText.includes('本次更新修复了采集卡协商问题')));
   check('更新页无新版本时不显示安装入口', await page.evaluate(() => !Array.from(document.querySelectorAll('.about-card mdui-button')).some((element) => element.textContent?.includes('立即安装'))));
