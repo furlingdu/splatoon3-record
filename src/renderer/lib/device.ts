@@ -2,6 +2,9 @@ import { cleanNames, matchDevice } from '../../shared/capture.js';
 import type { CaptureDevice, RecordSettings } from '../../shared/types.js';
 
 let stream: MediaStream | undefined;
+let recordTrack: MediaStreamTrack | undefined;
+let extraStreams: MediaStream[] = [];
+let mixContext: AudioContext | undefined;
 let desiredSize: { width: number; height: number; fps: number } | undefined;
 let mediaQueue: Promise<unknown> = Promise.resolve();
 let revision = 0;
@@ -25,6 +28,11 @@ interface DeviceCaps {
 
 export function activeStream(): MediaStream | undefined {
   return stream;
+}
+
+export function recordAudioTrack(): MediaStreamTrack | undefined {
+  const track = recordTrack;
+  return track && track.readyState === 'live' ? track : undefined;
 }
 
 let previewView: MediaStream | undefined;
@@ -184,6 +192,7 @@ export function openStream(settings: RecordSettings): Promise<MediaStream> {
 async function openDevice(settings: RecordSettings): Promise<MediaStream> {
   const videoId = await resolveDevice('videoinput', settings.videoDevice);
   const audioId = await resolveDevice('audioinput', settings.audioDevice);
+  const micId = settings.micAudio ? await resolveDevice('audioinput', settings.micDevice ?? '') : undefined;
   const video: MediaTrackConstraints | false = videoId
     ? {
       deviceId: { exact: videoId },
@@ -197,10 +206,72 @@ async function openDevice(settings: RecordSettings): Promise<MediaStream> {
   if (!video && !audio) throw new Error('未选择采集设备');
   desiredSize = { width: settings.width, height: settings.height, fps: settings.fps };
   closeStream();
-  stream = await openCamera({ video, audio });
+  const camera = await openCamera({ video, audio });
+  try {
+    recordTrack = await openRecordTrack(camera, settings, micId);
+  } catch (cause) {
+    camera.getTracks().forEach((track) => track.stop());
+    recordTrack = undefined;
+    stopExtras();
+    throw cause;
+  }
+  stream = camera;
   revision += 1;
   if (videoId) liveCaps(videoId);
   return stream;
+}
+
+async function openRecordTrack(camera: MediaStream, settings: RecordSettings, micId?: string): Promise<MediaStreamTrack | undefined> {
+  const sources: MediaStreamTrack[] = [];
+  if (settings.desktopAudio) {
+    sources.push(await openDesktopTrack());
+  } else {
+    const base = camera.getAudioTracks()[0];
+    if (base) sources.push(base);
+  }
+  if (micId) {
+    sources.push(await openMicTrack(micId));
+  }
+  if (!sources.length) return undefined;
+  if (sources.length === 1) return sources[0];
+  return mixTracks(sources);
+}
+
+async function openDesktopTrack(): Promise<MediaStreamTrack> {
+  const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+  display.getVideoTracks().forEach((track) => track.stop());
+  const track = display.getAudioTracks()[0];
+  if (!track) {
+    display.getTracks().forEach((item) => item.stop());
+    throw new Error('未捕获到电脑声音，请确认系统有可用的播放设备');
+  }
+  extraStreams.push(display);
+  return track;
+}
+
+async function openMicTrack(id: string): Promise<MediaStreamTrack> {
+  const mic = await navigator.mediaDevices.getUserMedia({
+    audio: { deviceId: { exact: id }, channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  });
+  extraStreams.push(mic);
+  return mic.getAudioTracks()[0];
+}
+
+function mixTracks(tracks: MediaStreamTrack[]): MediaStreamTrack {
+  const context = new AudioContext({ sampleRate: 48000 });
+  mixContext = context;
+  const destination = context.createMediaStreamDestination();
+  for (const track of tracks) context.createMediaStreamSource(new MediaStream([track])).connect(destination);
+  void context.resume().catch(() => undefined);
+  return destination.stream.getAudioTracks()[0];
+}
+
+function stopExtras(): void {
+  for (const item of extraStreams) item.getTracks().forEach((track) => track.stop());
+  extraStreams = [];
+  const context = mixContext;
+  mixContext = undefined;
+  if (context) void context.close().catch(() => undefined);
 }
 
 async function openCamera(constraints: MediaStreamConstraints): Promise<MediaStream> {
@@ -267,6 +338,8 @@ function sizeApplied(track: MediaStreamTrack, width: number, height: number, fps
 
 export function closeStream(): void {
   fpsCache.clear();
+  recordTrack = undefined;
+  stopExtras();
   if (!stream) return;
   stream.getTracks().forEach((track) => track.stop());
   stream = undefined;

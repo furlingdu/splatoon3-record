@@ -6,12 +6,14 @@ const state = vi.hoisted(() => ({
   opened: 0,
   rotated: 0,
   drafts: [] as SegmentDraft[],
+  audio: undefined as unknown,
 }));
 
 vi.mock('../src/renderer/lib/segment.js', () => ({
   SegmentRecorder: {
-    open: async (_video: unknown, _audio: unknown, _quality: number, spec: SegmentSpec, sink: SegmentSink) => {
+    open: async (_video: unknown, audio: unknown, _quality: number, spec: SegmentSpec, sink: SegmentSink) => {
       state.opened += 1;
+      state.audio = audio;
       const info = { codec: 'hevc', ext: 'mp4', mime: 'video/mp4;codecs=hvc1', hardware: true };
       return {
         info: () => info,
@@ -69,10 +71,17 @@ afterEach(async () => {
 });
 
 describe('recordSegment', () => {
+  it('录制使用传入的音轨而不是采集流音轨', async () => {
+    const audio = { readyState: 'live' } as unknown as MediaStreamTrack;
+    await startRecord(streamStub(trackStub()), audio);
+    expect(state.audio).toBe(audio);
+    await stopRecord();
+  });
+
   it('整场只建一个编码器，按时长增量封存且分段首尾相接', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1000000);
-    await startRecord(streamStub(trackStub()));
+    await startRecord(streamStub(trackStub()), undefined);
     expect(state.opened).toBe(1);
     expect(state.drafts.length).toBe(0);
 

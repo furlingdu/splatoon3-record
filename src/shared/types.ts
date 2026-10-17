@@ -28,6 +28,9 @@ export interface CaptureReport {
 export interface RecordSettings {
   videoDevice: string;
   audioDevice: string;
+  desktopAudio?: boolean;
+  micAudio?: boolean;
+  micDevice?: string;
   width: number;
   height: number;
   fps: number;

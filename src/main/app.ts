@@ -5,6 +5,7 @@ import { getConfig, loadConfig, saveConfig, saveSettings } from './store/config.
 import { createWindow, createSetup } from './window.js';
 import { registerIpc } from './ipc.js';
 import { SegmentStore } from './capture/segment.js';
+import { setDesktopAudioHandler } from './capture/desktop.js';
 import { SegmentWriter } from './capture/recorder.js';
 import { sanitizeSettings } from './capture/settings.js';
 import { cropVideo } from './match/crop.js';
@@ -73,6 +74,7 @@ protocol.registerSchemesAsPrivileged([{
 
 export async function bootApp(): Promise<void> {
   Menu.setApplicationMenu(null);
+  setDesktopAudioHandler();
   recordBaselineAt = Date.now();
   await initPath();
   logApp('app start');

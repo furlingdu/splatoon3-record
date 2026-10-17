@@ -22,6 +22,7 @@ let audioNotice: ((state: string, detail?: string) => void) | undefined;
 let stopping = false;
 let feed: VideoFeed | undefined;
 let recorder: SegmentRecorder | undefined;
+let recordSource: MediaStreamTrack | undefined;
 let rotateTimer: number | undefined;
 let openedAt = 0;
 let sealPending = false;
@@ -60,7 +61,7 @@ export function clearRecord(): void {
   failure = undefined;
 }
 
-export async function startRecord(stream: MediaStream, onAudio?: (state: string, detail?: string) => void): Promise<void> {
+export async function startRecord(stream: MediaStream, audio: MediaStreamTrack | undefined, onAudio?: (state: string, detail?: string) => void): Promise<void> {
   await stopRecord();
   segmentMs = Math.max(minSegmentMs, segmentSecondsFixed * 1000);
   stampOrigin = undefined;
@@ -68,6 +69,7 @@ export async function startRecord(stream: MediaStream, onAudio?: (state: string,
   audioState = undefined;
   audioNotice = onAudio;
   source = stream;
+  recordSource = audio;
   active = true;
   generation += 1;
   const gen = generation;
@@ -111,6 +113,7 @@ export async function stopRecord(): Promise<void> {
     feed?.stop();
     feed = undefined;
     source = undefined;
+    recordSource = undefined;
     recorder = undefined;
     stopping = false;
   }
@@ -137,17 +140,17 @@ async function openRecorder(gen: number): Promise<SegmentRecorder | undefined> {
   if (stopping || gen !== generation) return undefined;
   const stream = source;
   const track = stream?.getVideoTracks()[0];
-  const audioTrack = stream?.getAudioTracks()[0];
+  const audioTrack = recordSource && recordSource.readyState === 'live' ? recordSource : undefined;
   if (!stream || !track) return undefined;
   const size = track.getSettings();
   const spec: SegmentSpec = {
     width: evenSize(size?.width ?? 0),
     height: evenSize(size?.height ?? 0),
     fps: Math.round(Number(size?.frameRate ?? 0)),
-    hasAudio: Boolean(audioTrack && audioTrack.readyState === 'live'),
+    hasAudio: Boolean(audioTrack),
   };
   try {
-    const session = await SegmentRecorder.open(track, spec.hasAudio ? audioTrack : undefined, recordQuality, spec, {
+    const session = await SegmentRecorder.open(track, audioTrack, recordQuality, spec, {
       onError: (message) => { failure = message; },
       onAudio: (state, detail) => {
         audioState = detail ? `${state}:${detail}` : state;

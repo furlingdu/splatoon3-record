@@ -33,6 +33,9 @@ export const detectWorkers = 4;
 export const defaultSettings = {
   videoDevice: '',
   audioDevice: '',
+  desktopAudio: false,
+  micAudio: false,
+  micDevice: '',
   width: 1920,
   height: 1080,
   fps: 60,

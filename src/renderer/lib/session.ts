@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { activeStream, applySize, closeStream, listDevices, openStream, planSize, probeFps, streamInfo } from './device.js';
+import { activeStream, applySize, closeStream, listDevices, openStream, planSize, probeFps, recordAudioTrack, streamInfo } from './device.js';
 import { fpsOptions } from '../../shared/capture.js';
 import { clearRecord, planFormat, recordAudio, recordEncoder, recordError, recordFormat, recordState, setRecordQuality, startRecord, stopRecord } from './record.js';
 import type { AppStatus, CaptureDevice, RecordSettings, RecordState } from '../../shared/types.js';
@@ -119,7 +119,8 @@ async function reconcileSettings(): Promise<void> {
 }
 
 async function openTarget(target: RecordSettings, previous?: RecordSettings): Promise<boolean> {
-  const deviceChanged = !previous || previous.videoDevice !== target.videoDevice || previous.audioDevice !== target.audioDevice;
+  const deviceChanged = !previous || previous.videoDevice !== target.videoDevice || previous.audioDevice !== target.audioDevice
+    || previous.desktopAudio !== target.desktopAudio || previous.micAudio !== target.micAudio || previous.micDevice !== target.micDevice;
   if (deviceChanged || !activeStream()) {
     await stopRecord();
     const stream = await openStream(target);
@@ -166,7 +167,7 @@ async function beginRecord(): Promise<void> {
   if (!stream) return;
   clearRecord();
   try {
-    await startRecord(stream, () => refreshView());
+    await startRecord(stream, recordAudioTrack(), () => refreshView());
   } catch (cause) {
     error = messageOf(cause);
   }
@@ -245,5 +246,5 @@ function messageOf(cause: unknown): string {
 }
 
 function settingsKey(settings: RecordSettings): string {
-  return `${settings.videoDevice}:${settings.audioDevice}:${settings.width}x${settings.height}@${settings.fps}`;
+  return `${settings.videoDevice}:${settings.audioDevice}:${settings.width}x${settings.height}@${settings.fps}:${settings.desktopAudio ? 1 : 0}:${settings.micAudio ? 1 : 0}:${settings.micDevice ?? ''}`;
 }

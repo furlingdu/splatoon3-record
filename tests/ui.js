@@ -604,6 +604,28 @@ async function main() {
     const items = Array.from(document.querySelectorAll('mdui-select[name="audioDevice"] mdui-menu-item')).map((item) => item.textContent || '');
     return items.includes('不录制音频') && items.some((text) => text.includes('Audio 1'));
   }, { timeout: 5000 }).then(() => true).catch(() => false));
+  check('设置页提供电脑声音与麦克风录制开关', await page.waitForFunction(() => {
+    const text = document.body.innerText;
+    return Boolean(document.querySelector('mdui-switch[name="desktopAudio"]'))
+      && Boolean(document.querySelector('mdui-switch[name="micAudio"]'))
+      && text.includes('开启后，将同时捕获电脑输出声音并录制。')
+      && text.includes('开启后，将同时捕获麦克风输出声音并录制。');
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  check('设置页录音开关在采集设备下拉框之后且默认不显示麦克风设备', await page.evaluate(() => {
+    const audioField = document.querySelector('mdui-select[name="audioDevice"]')?.closest('.form-field');
+    return Boolean(audioField?.nextElementSibling?.querySelector('mdui-switch[name="desktopAudio"]')) && !document.querySelector('mdui-select[name="micDevice"]');
+  }));
+  await setChecked(page, 'mdui-switch[name="micAudio"]', true);
+  check('开启麦克风录制后出现麦克风设备下拉框', await page.waitForFunction(() => {
+    const field = document.querySelector('mdui-select[name="micDevice"]')?.closest('.form-field');
+    return Boolean(field)
+      && field?.previousElementSibling === document.querySelector('mdui-select[name="audioDevice"]')?.closest('.form-field')
+      && Boolean(field?.textContent?.includes('选择麦克风输入'));
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  check('麦克风录制开关写回设置', await page.waitForFunction(() => window.__ui.lastSettings?.micAudio === true, { timeout: 5000 }).then(() => true).catch(() => false));
+  await setChecked(page, 'mdui-switch[name="micAudio"]', false);
+  check('关闭麦克风录制后隐藏麦克风设备下拉框', await page.waitForFunction(() => !document.querySelector('mdui-select[name="micDevice"]'), { timeout: 5000 }).then(() => true).catch(() => false));
+  await new Promise((resolve) => setTimeout(resolve, 300));
   check('设置页提供分辨率与帧率选择', await page.waitForFunction(() => {
     const size = document.querySelector('mdui-select[name="width"]');
     const fps = document.querySelector('mdui-select[name="fps"]');

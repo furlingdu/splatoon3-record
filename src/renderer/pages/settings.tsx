@@ -38,6 +38,7 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
   const [loading, setLoading] = useState(false);
   const videoDevice = matchDevice(session.devices, 'video', settings?.videoDevice);
   const audioDevice = matchDevice(session.devices, 'audio', settings?.audioDevice);
+  const micDevice = matchDevice(session.devices, 'audio', settings?.micDevice);
   const resolutions = resolutionList(videoDevice, settings ? { width: settings.width, height: settings.height } : undefined);
   const probed = settings && videoDevice ? probedFps(videoDevice.id, settings.width, settings.height) : undefined;
   const sizes = fpsList(videoDevice, settings?.fps, probed);
@@ -58,10 +59,11 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
     const name = nameOf(event);
     const value = targetValue(event);
     if (!settings) return;
-    const current = name === 'videoDevice' ? videoDevice?.id : audioDevice?.id;
+    const current = name === 'videoDevice' ? videoDevice?.id : name === 'micDevice' ? micDevice?.id : audioDevice?.id;
     if (value === '' && restoreSelect(event)) return;
     if (current === value) return;
     if (name === 'videoDevice') save({ videoDevice: value, width: defaultSettings.width, height: defaultSettings.height, fps: defaultSettings.fps });
+    else if (name === 'micDevice') save({ micDevice: value });
     else save({ audioDevice: value });
   });
   const sizeRef = useElementEvent<HTMLElement>('change', (event) => {
@@ -131,6 +133,23 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
           </div>
           {loading ? <mdui-linear-progress indeterminate className="device-loading" /> : null}
           <span className="form-hint">选择音频输入</span>
+        </div>
+        {settings?.micAudio ? (
+          <div className="form-field">
+            <mdui-select label="麦克风设备" value={micDevice?.id || ''} ref={deviceRef} name="micDevice">
+              <mdui-menu-item value="">未选择</mdui-menu-item>
+              {session.devices.filter((item) => item.kind === 'audio').map((device) => <mdui-menu-item key={device.id} value={device.id}>{deviceLabel(device)}</mdui-menu-item>)}
+            </mdui-select>
+            <span className="form-hint">选择麦克风输入</span>
+          </div>
+        ) : null}
+        <div className="form-switch form-field-wide">
+          <span>电脑声音录制<em className="form-note">开启后，将同时捕获电脑输出声音并录制。</em></span>
+          <mdui-switch checked={Boolean(settings?.desktopAudio)} ref={switchRef} name="desktopAudio" />
+        </div>
+        <div className="form-switch form-field-wide">
+          <span>麦克风声音录制<em className="form-note">开启后，将同时捕获麦克风输出声音并录制。</em></span>
+          <mdui-switch checked={Boolean(settings?.micAudio)} ref={switchRef} name="micAudio" />
         </div>
       </div>
       <h3 className="section-title">画质与编码</h3>

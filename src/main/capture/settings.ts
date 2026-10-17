@@ -21,6 +21,9 @@ export function sanitizeSettings(raw: unknown, current: RecordSettings): RecordS
   return {
     videoDevice: pickText(input.videoDevice ?? current.videoDevice),
     audioDevice: pickText(input.audioDevice ?? current.audioDevice),
+    desktopAudio: Boolean(input.desktopAudio ?? current.desktopAudio),
+    micAudio: Boolean(input.micAudio ?? current.micAudio),
+    micDevice: pickText(input.micDevice ?? current.micDevice),
     width: pickNumber(input.width, 320, 7680, current.width || defaultSettings.width),
     height: pickNumber(input.height, 180, 4320, current.height || defaultSettings.height),
     fps: pickNumber(input.fps, 1, 240, current.fps || defaultSettings.fps),
