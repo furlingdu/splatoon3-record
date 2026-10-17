@@ -427,6 +427,7 @@ function setCapture(raw: CaptureReport): void {
     format: typeof raw?.format === 'string' ? raw.format.slice(0, 40) : undefined,
     encoder: typeof raw?.encoder === 'string' ? raw.encoder.slice(0, 40) : undefined,
     hasAudio: Boolean(raw?.hasAudio),
+    audio: typeof raw?.audio === 'string' ? raw.audio.slice(0, 60) : undefined,
   };
   const brief = captureBrief();
   if (brief !== previous) logApp(`capture ${brief}${capture.error ? ` error=${capture.error}` : ''}`);
@@ -435,7 +436,7 @@ function setCapture(raw: CaptureReport): void {
 }
 
 function captureBrief(): string {
-  return `${capture.recordState} ${capture.width}x${capture.height}@${capture.fps} ${capture.format ?? ''} ${capture.encoder ?? ''}`.trim();
+  return `${capture.recordState} ${capture.width}x${capture.height}@${capture.fps} ${capture.format ?? ''} ${capture.encoder ?? ''}${capture.audio ? ` audio=${capture.audio}` : ''}`.trim();
 }
 
 async function handleCaptureShortage(raw: CaptureReport): Promise<void> {

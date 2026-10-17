@@ -25,11 +25,14 @@ export interface SegmentSeal {
   info: SegmentInfo;
 }
 
+export type AudioState = 'ok' | 'probe-failed' | 'lost' | 'recovered';
+
 export interface SegmentSink {
   onError: (message: string) => void;
   onData: (id: string, data: Uint8Array, position: number) => void;
   onSeal: (seal: SegmentSeal) => void;
   onRotate: () => void;
+  onAudio?: (state: AudioState, detail?: string) => void;
 }
 
 interface VideoChoice {
@@ -44,11 +47,6 @@ interface AudioChoice {
   sampleRate: number;
 }
 
-interface AudioProbe {
-  reader: ReadableStreamDefaultReader<AudioData>;
-  choice: AudioChoice;
-}
-
 interface FileRun {
   id: string;
   muxer: Muxer<StreamTarget>;
@@ -57,6 +55,7 @@ interface FileRun {
   pendingVideo: number;
   pendingAudio: number;
   chunks: number;
+  audioChunks: number;
   bytes: number;
   retired: boolean;
   sealed: boolean;
@@ -66,6 +65,9 @@ interface FileRun {
 const keyframeGapUs = 2000000;
 const queueLimit = 8;
 const audioWaitMs = 1000;
+const audioProbeAttempts = 3;
+const audioProbeWaitMs = 2000;
+const audioRetryMs = 500;
 const firstFrameWaitMs = 1000;
 const sealWaitMs = 2000;
 const nominalBps = 8000000;
@@ -77,8 +79,10 @@ export class SegmentRecorder {
   private current!: FileRun;
   private boundary?: FileRun;
   private audioChoice?: AudioChoice;
+  private audioTrack?: MediaStreamTrack;
+  private audioRuns = new Map<AudioEncoder, string[]>();
+  private audioLost = false;
   private videoQueue: string[] = [];
-  private audioQueue: string[] = [];
   private videoEncoder?: VideoEncoder;
   private audioEncoder?: AudioEncoder;
   private videoConfig?: VideoDecoderConfig;
@@ -103,11 +107,17 @@ export class SegmentRecorder {
     if (!choice) throw new Error('当前系统不支持可用的录制编码格式');
     const probe = audio ? await probeAudio(audio) : undefined;
     const recorder = new SegmentRecorder(choice, spec, sink);
-    recorder.audioChoice = probe?.choice;
+    recorder.audioChoice = probe;
     recorder.openFile();
     recorder.startVideo();
     if (feed) recorder.release = feed.subscribe((frame) => recorder.pushFrame(frame));
-    if (probe) recorder.startAudio(probe.reader, probe.choice);
+    if (audio && probe) {
+      sink.onAudio?.('ok');
+      recorder.startAudio(audio, probe);
+    } else if (audio) {
+      sink.onAudio?.('probe-failed', '音频探测超时');
+      recorder.startProbeRetry(audio);
+    }
     await recorder.waitFirstFrame();
     return recorder;
   }
@@ -194,14 +204,20 @@ export class SegmentRecorder {
     this.audioReader = undefined;
     if (reader) void reader.cancel().catch(() => undefined);
     try {
-      await this.videoEncoder?.flush();
-      await this.audioEncoder?.flush();
+      if (this.videoEncoder?.state === 'configured') await this.videoEncoder.flush();
+      if (this.audioEncoder?.state === 'configured') await this.audioEncoder.flush();
     } catch (cause) {
       this.fail(cause);
     }
     this.pumping = false;
+    this.audioTrack = undefined;
+    this.audioRuns.clear();
     this.videoEncoder?.close();
-    this.audioEncoder?.close();
+    try {
+      this.audioEncoder?.close();
+    } catch {
+      void 0;
+    }
     for (const file of [...this.files.values()]) {
       file.retired = true;
       this.finish(file);
@@ -229,6 +245,7 @@ export class SegmentRecorder {
       pendingVideo: 0,
       pendingAudio: 0,
       chunks: 0,
+      audioChunks: 0,
       bytes: 0,
       retired: false,
       sealed: false,
@@ -253,7 +270,7 @@ export class SegmentRecorder {
     this.files.delete(file.id);
     if (!file.chunks) return;
     file.muxer.finalize();
-    this.sink.onSeal({ id: file.id, firstUs: file.firstUs ?? this.firstUs ?? 0, endUs: file.endUs, spec: this.spec, info: this.info() });
+    this.sink.onSeal({ id: file.id, firstUs: file.firstUs ?? this.firstUs ?? 0, endUs: file.endUs, spec: { ...this.spec, hasAudio: file.audioChunks > 0 }, info: this.info() });
   }
 
   private startVideo(): void {
@@ -280,50 +297,124 @@ export class SegmentRecorder {
     this.videoEncoder = encoder;
   }
 
-  private startAudio(reader: ReadableStreamDefaultReader<AudioData>, choice: AudioChoice): void {
+  private startAudio(track: MediaStreamTrack, choice: AudioChoice): void {
+    this.audioTrack = track;
+    this.audioChoice = choice;
+    this.audioEncoderFor(choice);
+    void this.pumpAudio(choice);
+  }
+
+  private startProbeRetry(track: MediaStreamTrack): void {
+    void this.retryProbe(track);
+  }
+
+  private async retryProbe(track: MediaStreamTrack): Promise<void> {
+    while (!this.closed && this.pumping && !this.audioChoice) {
+      await sleepMs(audioProbeWaitMs);
+      if (this.closed || !this.pumping || track.readyState !== 'live') return;
+      const choice = await probeAudio(track, 1);
+      if (!choice) continue;
+      this.audioChoice = choice;
+      this.audioTrack = track;
+      this.rotate();
+      this.audioEncoderFor(choice);
+      void this.pumpAudio(choice);
+      this.sink.onAudio?.('recovered');
+      return;
+    }
+  }
+
+  private audioEncoderFor(choice: AudioChoice): AudioEncoder | undefined {
+    const running = this.audioEncoder;
+    if (running && running.state === 'configured') return running;
+    if (running && running.state !== 'closed') {
+      try {
+        running.close();
+      } catch {
+        void 0;
+      }
+    }
+    const queue: string[] = [];
     const encoder = new AudioEncoder({
       output: (chunk, meta) => {
         if (!this.pumping) return;
-        const id = this.audioQueue.shift();
+        const id = queue.shift();
         const file = id ? this.files.get(id) : undefined;
         if (!file) return;
         if (meta?.decoderConfig) this.audioConfig = meta.decoderConfig;
         file.pendingAudio -= 1;
+        file.audioChunks += 1;
         const info = file.chunks === 0 && !meta?.decoderConfig && this.audioConfig ? { ...meta, decoderConfig: this.audioConfig } : meta;
         file.muxer.addAudioChunk(chunk, info);
         this.settle(file);
       },
-      error: (cause) => this.fail(cause),
+      error: (cause) => {
+        this.audioRuns.delete(encoder);
+        this.noteAudioLost(errorText(cause));
+      },
     });
-    encoder.configure({ codec: choice.codec === 'aac' ? 'mp4a.40.2' : 'opus', sampleRate: choice.sampleRate, numberOfChannels: choice.channels, bitrate: recordAudioBps });
+    try {
+      encoder.configure({ codec: choice.codec === 'aac' ? 'mp4a.40.2' : 'opus', sampleRate: choice.sampleRate, numberOfChannels: choice.channels, bitrate: recordAudioBps });
+    } catch (cause) {
+      this.noteAudioLost(errorText(cause));
+      return undefined;
+    }
     this.audioEncoder = encoder;
-    this.audioReader = reader;
-    void this.pumpAudio(reader, encoder);
+    this.audioRuns.set(encoder, queue);
+    return encoder;
   }
 
-  private async pumpAudio(reader: ReadableStreamDefaultReader<AudioData>, encoder: AudioEncoder): Promise<void> {
+  private async pumpAudio(choice: AudioChoice): Promise<void> {
     for (;;) {
-      const step = await reader.read().catch(() => ({ done: true, value: undefined }) as ReadableStreamReadResult<AudioData>);
-      if (step.done || !step.value) return;
-      const data = step.value;
-      if (!this.pumping || this.closed) {
-        data.close();
+      if (!this.pumping || this.closed) return;
+      const track = this.audioTrack;
+      if (!track || track.readyState !== 'live') {
+        this.noteAudioLost('音频轨道已结束');
         return;
       }
-      const file = this.current;
-      try {
-        if (encoder.state === 'configured') {
-          encoder.encode(data);
-          file.pendingAudio += 1;
-          this.audioQueue.push(file.id);
+      const reader = new MediaStreamTrackProcessor<AudioData>({ track }).readable.getReader();
+      this.audioReader = reader;
+      for (;;) {
+        const step = await reader.read().catch(() => ({ done: true, value: undefined }) as ReadableStreamReadResult<AudioData>);
+        if (!this.pumping || this.closed) {
+          step.value?.close();
+          return;
         }
-      } catch (cause) {
-        data.close();
-        this.fail(cause);
-        return;
+        if (step.done || !step.value) break;
+        const data = step.value;
+        try {
+          if (this.audioLost) this.reopenAudioFile();
+          const encoder = this.audioEncoderFor(choice);
+          const file = this.current;
+          if (encoder && encoder.state === 'configured') {
+            encoder.encode(data);
+            file.pendingAudio += 1;
+            this.audioRuns.get(encoder)?.push(file.id);
+          }
+        } catch (cause) {
+          this.noteAudioLost(errorText(cause));
+        } finally {
+          data.close();
+        }
       }
-      data.close();
+      this.audioReader = undefined;
+      void reader.cancel().catch(() => undefined);
+      if (!this.pumping || this.closed) return;
+      this.noteAudioLost('音频数据流中断');
+      await sleepMs(audioRetryMs);
     }
+  }
+
+  private reopenAudioFile(): void {
+    this.audioLost = false;
+    this.sink.onAudio?.('recovered');
+    if (this.current.chunks > 0) this.rotate();
+  }
+
+  private noteAudioLost(detail: string): void {
+    if (this.audioLost || this.closed || !this.pumping) return;
+    this.audioLost = true;
+    this.sink.onAudio?.('lost', detail);
   }
 
   private fail(cause: unknown): void {
@@ -381,27 +472,28 @@ function videoConfig(codec: string, spec: SegmentSpec, quality: number, quantize
   return base;
 }
 
-async function probeAudio(track: MediaStreamTrack): Promise<AudioProbe | undefined> {
+async function probeAudio(track: MediaStreamTrack, attempts = audioProbeAttempts): Promise<AudioChoice | undefined> {
   if (typeof MediaStreamTrackProcessor === 'undefined' || typeof AudioEncoder === 'undefined') return undefined;
-  const reader = new MediaStreamTrackProcessor<AudioData>({ track }).readable.getReader();
-  const step = await Promise.race([
-    reader.read().catch(() => ({ done: true, value: undefined }) as ReadableStreamReadResult<AudioData>),
-    sleepMs(audioWaitMs).then(() => ({ done: true, value: undefined }) as ReadableStreamReadResult<AudioData>),
-  ]);
-  if (step.done || !step.value) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (track.readyState !== 'live') return undefined;
+    const reader = new MediaStreamTrackProcessor<AudioData>({ track }).readable.getReader();
+    const step = await Promise.race([
+      reader.read().catch(() => ({ done: true, value: undefined }) as ReadableStreamReadResult<AudioData>),
+      sleepMs(audioWaitMs).then(() => ({ done: true, value: undefined }) as ReadableStreamReadResult<AudioData>),
+    ]);
+    if (step.done || !step.value) {
+      void reader.cancel().catch(() => undefined);
+      continue;
+    }
+    const data = step.value;
+    const channels = Math.max(1, Math.min(2, data.numberOfChannels));
+    const sampleRate = data.sampleRate || 48000;
+    data.close();
     void reader.cancel().catch(() => undefined);
-    return undefined;
+    const codec = await pickAudioCodec(channels, sampleRate);
+    if (codec) return { codec, channels, sampleRate };
   }
-  const data = step.value;
-  const channels = Math.max(1, Math.min(2, data.numberOfChannels));
-  const sampleRate = data.sampleRate || 48000;
-  data.close();
-  const codec = await pickAudioCodec(channels, sampleRate);
-  if (!codec) {
-    void reader.cancel().catch(() => undefined);
-    return undefined;
-  }
-  return { reader, choice: { codec, channels, sampleRate } };
+  return undefined;
 }
 
 async function pickAudioCodec(channels: number, sampleRate: number): Promise<'aac' | 'opus' | undefined> {

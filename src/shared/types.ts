@@ -22,6 +22,7 @@ export interface CaptureReport {
   format?: string;
   encoder?: string;
   hasAudio: boolean;
+  audio?: string;
 }
 
 export interface RecordSettings {

@@ -17,6 +17,8 @@ let segmentMs = minSegmentMs;
 let stampOrigin: number | undefined;
 let recordQuality = defaultSettings.quality;
 let failure: string | undefined;
+let audioState: string | undefined;
+let audioNotice: ((state: string, detail?: string) => void) | undefined;
 let stopping = false;
 let feed: VideoFeed | undefined;
 let recorder: SegmentRecorder | undefined;
@@ -45,6 +47,10 @@ export function recordEncoder(): string {
   return codecText;
 }
 
+export function recordAudio(): string | undefined {
+  return audioState;
+}
+
 export function planFormat(stream: MediaStream): string {
   if (!mime) planned = stream.getVideoTracks().length ? 'video/mp4' : '';
   return recordFormat();
@@ -54,11 +60,13 @@ export function clearRecord(): void {
   failure = undefined;
 }
 
-export async function startRecord(stream: MediaStream): Promise<void> {
+export async function startRecord(stream: MediaStream, onAudio?: (state: string, detail?: string) => void): Promise<void> {
   await stopRecord();
   segmentMs = Math.max(minSegmentMs, segmentSecondsFixed * 1000);
   stampOrigin = undefined;
   failure = undefined;
+  audioState = undefined;
+  audioNotice = onAudio;
   source = stream;
   active = true;
   generation += 1;
@@ -141,6 +149,10 @@ async function openRecorder(gen: number): Promise<SegmentRecorder | undefined> {
   try {
     const session = await SegmentRecorder.open(track, spec.hasAudio ? audioTrack : undefined, recordQuality, spec, {
       onError: (message) => { failure = message; },
+      onAudio: (state, detail) => {
+        audioState = detail ? `${state}:${detail}` : state;
+        audioNotice?.(state, detail);
+      },
       onData: (id, data, position) => {
         enqueue(() => window.recordApi.writeChunk(id, partBytes(data), position).then((stored) => {
           if (!stored) failure = failure || '缓存写入失败，请检查磁盘空间';

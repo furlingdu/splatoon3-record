@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { activeStream, applySize, closeStream, listDevices, openStream, planSize, probeFps, streamInfo } from './device.js';
 import { fpsOptions } from '../../shared/capture.js';
-import { clearRecord, planFormat, recordEncoder, recordError, recordFormat, recordState, setRecordQuality, startRecord, stopRecord } from './record.js';
+import { clearRecord, planFormat, recordAudio, recordEncoder, recordError, recordFormat, recordState, setRecordQuality, startRecord, stopRecord } from './record.js';
 import type { AppStatus, CaptureDevice, RecordSettings, RecordState } from '../../shared/types.js';
 
 export interface SessionView {
@@ -64,6 +64,7 @@ function reportCapture(): void {
     format: view.format,
     encoder: view.encoder,
     hasAudio: view.hasAudio,
+    audio: recordAudio(),
   });
 }
 
@@ -165,7 +166,7 @@ async function beginRecord(): Promise<void> {
   if (!stream) return;
   clearRecord();
   try {
-    await startRecord(stream);
+    await startRecord(stream, () => refreshView());
   } catch (cause) {
     error = messageOf(cause);
   }
