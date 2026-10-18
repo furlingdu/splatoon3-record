@@ -117,6 +117,9 @@ function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, dev
   const audio = devices.filter((item) => item.kind === 'audio').map((item) => item.name).join('、') || '未检测到';
   const selected = matchDevice(devices, 'video', status?.settings.videoDevice);
   const selectedAudio = matchDevice(devices, 'audio', status?.settings.audioDevice);
+  const mic = matchDevice(devices, 'audio', status?.settings.micDevice);
+  const health = status?.streamAudioHealth;
+  const healthText = health ? `${health.fps}fps 最后帧=${health.ageMs}ms 回退=${health.rollbacks} 恢复=${health.recoveries} 切分=${health.cuts}` : '无';
   const gpuStatus = Object.entries(runtime.gpuStatus).map(([key, value]) => `${key}=${value}`).join(', ') || '无';
   const live = liveView();
   return [
@@ -136,10 +139,16 @@ function diagnosticText(status: AppStatus | undefined, runtime: RuntimeInfo, dev
     `音频设备：${audio}`,
     `已选音频设备：${selectedAudio?.name || '未选择'}`,
     `采集画面：${status?.streamWidth || 0}x${status?.streamHeight || 0} @ ${Number(status?.streamFps ?? 0).toFixed(2)} fps`,
-    `采集格式：${status?.streamEncoder || '未知'}（${status?.streamFormat || '未开始采集'}）`,
+    `所选采集画面格式：${status?.settings.captureFormat ? `${status.settings.captureFormat.toUpperCase()}（配置值，实际输入子类型未知）` : '未知'}`,
+    `录制编码格式：${status?.streamEncoder || '未知'}（${status?.streamFormat || '未开始采集'}）`,
     `录制质量：${status?.settings.quality ?? '未知'}`,
     `硬编档位：${ready.length ? ready.map((item) => `${item.width}x${item.height}@${item.fps}`).join('、') : '无'}`,
     `采集音频：${status?.streamAudio ? '有' : '无'}`,
+    `录音音频：${status?.streamAudioState || (status?.streamAudio ? 'ok' : '无')}`,
+    `录音音源：${status?.streamAudioSource || '未开始'}`,
+    `音频健康：${healthText}`,
+    `电脑声音录制：${status?.settings.desktopAudio ? '已开启' : '未开启'}`,
+    `麦克风录制：${status?.settings.micAudio ? `已开启${mic ? `（${mic.name}）` : ''}` : '未开启'}`,
     `硬件解码档位：${status?.hwAccel || '未启用或未知'}`,
     `归档编码器：${status?.encoder || '未知'}`,
     `直播编码器：${live.codec || '未开播'}`,

@@ -4,9 +4,9 @@ import { Preview } from '../components/preview.js';
 import { StatusItem } from '../components/item.js';
 import { startCapture, stopCapture, retryCapture, useSession } from '../lib/session.js';
 import { formatText, matchDevice, resolutionText } from '../../shared/capture.js';
-import { durationText, kindNames, resultText, ruleName } from '../../shared/nso.js';
+import { durationText, kindNames, matchKey, resultText, ruleName } from '../../shared/nso.js';
 import { useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
-import type { AppStatus } from '../../shared/types.js';
+import type { AppStatus, CaptureFormat } from '../../shared/types.js';
 import { hardwareTiers } from '../lib/encode.js';
 
 const stateNames: Record<string, string> = {
@@ -73,7 +73,8 @@ function statusPage(props: { status?: AppStatus }): ReactElement {
       <div className="status-grid">
         <StatusItem label="分辨率" value={session.width > 0 ? resolutionText(session.width, session.height) : '未开始采集'} />
         <StatusItem label="帧率" value={session.fps > 0 ? `${Number(session.fps.toFixed(2))} fps` : '未开始采集'} />
-        <StatusItem label="采集格式" value={formatText(session.format)} />
+        <StatusItem label="采集画面格式" value={captureFormatText(settings?.captureFormat)} />
+        <StatusItem label="录制格式" value={formatText(session.format)} />
         <StatusItem label="录制编码" value={session.encoder || '-'} />
         <StatusItem label="硬件加速" value={status?.hwAccel ? `${status.hwAccel} 硬件解码` : '未启用'} />
         <StatusItem label="编码器" value={status?.encoder || '-'} />
@@ -85,17 +86,19 @@ function statusPage(props: { status?: AppStatus }): ReactElement {
       <h3 className="section-title">连接</h3>
       <div className="status-grid">
         <StatusItem label="NSO 登录" value={stateNames[status?.nsoState || 'unbound']} />
+        <StatusItem label="当前账户" value={status?.nsoCurrentNickname || '未选择'} />
+        <StatusItem label="已绑定账户" value={`${status?.nsoAccounts?.length ?? 0} 个`} />
         {status?.nsoState === 'error' && status?.nsoError ? <StatusItem label="失败原因" value={status.nsoError} /> : null}
         <StatusItem label="QQBot 连接" value={stateNames[status?.qqState || 'unbound']} />
         <StatusItem label="自动推送" value={status?.settings.autoPush ? '已开启' : '已关闭'} />
       </div>
       {status?.nsoState === 'connecting' ? <mdui-linear-progress indeterminate className="connect-loading" /> : null}
-      <h3 className="section-title">最近一局</h3>
+      <h3 className="section-title">最近对局</h3>
       {recent.length ? (
         <div className="recent-grid">
           {recent.map((match) => (
-            <StatusItem key={match.matchId} label={kindNames[match.kind]}
-              value={`${ruleName(match.rule)} · ${new Date(match.endAt).toLocaleString('zh-CN')} · ${durationText(match.duration)} · ${match.isDisconnected ? '掉线' : resultText(match.result)} · ${processing.has(match.matchId) ? '正在保存' : match.videoPath ? '已归档' : '未录制'}`} />
+            <StatusItem key={matchKey(match)} label={`${match.accountNickname ? `${match.accountNickname} · ` : ''}${kindNames[match.kind]}`}
+              value={`${ruleName(match.rule)} · ${new Date(match.endAt).toLocaleString('zh-CN')} · ${durationText(match.duration)} · ${match.isDisconnected ? '掉线' : resultText(match.result)} · ${processing.has(matchKey(match)) ? '正在保存' : match.videoPath ? '已归档' : match.skipReason ? '账户冲突' : '未录制'}`} />
           ))}
         </div>
       ) : (
@@ -106,3 +109,8 @@ function statusPage(props: { status?: AppStatus }): ReactElement {
 }
 
 export { statusPage as StatusPage };
+
+function captureFormatText(format?: CaptureFormat): string {
+  if (!format) return '未知';
+  return format === 'nv12' ? 'NV12' : 'YUY2';
+}

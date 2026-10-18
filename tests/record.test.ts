@@ -18,6 +18,8 @@ vi.mock('../src/renderer/lib/segment.js', () => ({
       return {
         info: () => info,
         firstTimestamp: () => 5000000,
+        health: () => ({ fps: 0, ageMs: 0, rollbacks: 0, recoveries: 0, cuts: 0 }),
+        videoHealth: () => ({ inputFrames: 0, encodedFrames: 0, droppedFrames: 0, queuePeak: 0 }),
         rotate: () => {
           state.rotated += 1;
           sink.onSeal({ id: 'sega', firstUs: 5000000, endUs: 35011000, spec, info } as SegmentSeal);

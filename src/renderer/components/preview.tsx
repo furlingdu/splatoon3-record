@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { snackbar } from 'mdui/functions/snackbar.js';
 import { activeStream, previewStream } from '../lib/device.js';
+import { directViewReady, drawTrack } from '../lib/canvasview.js';
 import type { SessionView } from '../lib/session.js';
 import type { RecordSettings } from '../../shared/types.js';
 
@@ -8,14 +9,22 @@ function renderPreview(props: { session: SessionView; settings?: RecordSettings;
   const { session, settings } = props;
   const pip = props.pip !== false;
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [moved, setMoved] = useState(false);
   const live = Boolean(activeStream()) && !session.error;
   const flip = Boolean(settings?.flipVertical);
+  const direct = directViewReady();
 
   useEffect(() => {
     const element = videoRef.current;
     if (!element) return;
     element.srcObject = live ? previewStream() ?? null : null;
+  }, [live, session.revision, session.error]);
+
+  useEffect(() => {
+    const element = canvasRef.current;
+    if (!element) return undefined;
+    return drawTrack(element, live ? previewStream()?.getVideoTracks()[0] : undefined);
   }, [live, session.revision, session.error]);
 
   useEffect(() => {
@@ -49,6 +58,7 @@ function renderPreview(props: { session: SessionView; settings?: RecordSettings;
   return (
     <div className="preview-box" onDoubleClick={pip ? toggleWindow : undefined}>
       <video className="preview-video" ref={videoRef} style={{ transform: flip ? 'scaleY(-1)' : undefined }} muted playsInline autoPlay />
+      {direct ? <canvas className="preview-canvas" ref={canvasRef} style={{ transform: flip ? 'scaleY(-1)' : undefined }} /> : null}
       {moved ? <div className="preview-placeholder preview-moved">画面已转移到画中画窗口</div> : null}
       {!moved && hint ? <div className="preview-placeholder">{hint}</div> : null}
     </div>

@@ -1,8 +1,9 @@
 import type { BattleMatch, VideoRecord } from '../../shared/types.js';
 import { cacheMinutesFixed } from '../../shared/constants.js';
+import { matchKey } from '../../shared/nso.js';
 
 export function isNewMatch(match: BattleMatch, handledIds: string[]): boolean {
-  return !handledIds.includes(match.matchId);
+  return !handledIds.includes(matchKey(match));
 }
 
 export function freshRecords(records: VideoRecord[], now: number, cacheMinutes: number): { keep: VideoRecord[]; drop: VideoRecord[] } {
@@ -18,8 +19,9 @@ export function mergeHandled(handledIds: string[], matchId: string, limit = 200)
 export function dedupeMatches(matches: BattleMatch[], handledIds: string[]): BattleMatch[] {
   const seen = new Set<string>();
   return matches.filter((match) => {
-    if (handledIds.includes(match.matchId) || seen.has(match.matchId)) return false;
-    seen.add(match.matchId);
+    const key = matchKey(match);
+    if (handledIds.includes(key) || seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }

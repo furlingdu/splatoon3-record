@@ -144,8 +144,8 @@ async function main() {
   check('侧边栏可用鼠标真实点击切换页面', await clickNavReal(page, 1, '绑定'));
   await clickNav(page, 0);
   check('回到状态页', await page.waitForFunction(() => document.querySelector('.page-title')?.textContent === '状态', { timeout: 5000 }).then(() => true).catch(() => false));
-  await page.evaluate(() => window.__pushUpdate({ available: true, latest: '2.3.0', phase: 'idle' }));
-  check('后台检查发现新版本时提示到更新页', await waitText(page, '发现新版本 2.3.0'));
+  await page.evaluate(() => window.__pushUpdate({ available: true, latest: '2.4.0', phase: 'idle' }));
+  check('后台检查发现新版本时提示到更新页', await waitText(page, '发现新版本 2.4.0'));
 
   check('状态页预览绑定采集流', await live(page));
   check('采集流直接来自浏览器设备接口', await page.evaluate(() => {
@@ -268,9 +268,9 @@ async function main() {
   await page.evaluate(() => window.__patchSettings({ flipVertical: false }));
 
   await page.evaluate(() => window.__patchSettings({ videoDevice: 'cam2', width: 1920, height: 1080 }));
-  check('采集卡无法满足配置档位时回写实际档位', await page.waitForFunction(() => {
-    const settings = window.__ui.lastSettings || {};
-    return settings.videoDevice === 'cam2' && settings.width === 1280 && settings.height === 720 && settings.fps === 30;
+  check('采集卡无法满足配置档位时保留用户偏好', await page.waitForFunction(() => {
+    const settings = window.__getStatus().settings || {};
+    return settings.videoDevice === 'cam2' && settings.width === 1920 && settings.height === 1080;
   }, { timeout: 10000 }).then(() => true).catch(() => false));
   check('回写后上报采集卡实际画幅', await page.waitForFunction(() => {
     const report = window.__ui.reports[window.__ui.reports.length - 1];
@@ -482,18 +482,49 @@ async function main() {
   check('离开相册页后内嵌播放器销毁', await page.evaluate(() => document.querySelector('.viewer-video') === null));
   check('绑定页推送用户只显示绑定状态', (await waitText(page, '已绑定')) && !(await page.evaluate(() => document.body.innerText.includes('openid-owner'))));
   check('绑定页显示 id_token 第三方提示', await waitText(page, 'id_token'));
-  check('绑定页已绑定时按钮禁用', await page.evaluate(() => {
-    const buttons = Array.from(document.querySelectorAll('.bind-row mdui-button'));
-    const nso = buttons.find((element) => element.textContent?.includes('登录 Nintendo 账号'));
-    const qq = buttons.find((element) => element.textContent?.includes('获取绑定机器人二维码'));
-    return Boolean(nso && nso.disabled === true && qq && qq.disabled === true);
+  check('绑定页显示当前 NSO 账户昵称与账户列表', await page.evaluate(() => document.body.innerText.includes('当前 NSO 账户') && document.body.innerText.includes('澪度') && document.querySelectorAll('.account-row').length === 1));
+  check('绑定页只有一个账户时删除按钮禁用', await page.evaluate(() => {
+    const row = document.querySelector('.account-row');
+    const remove = Array.from(row?.querySelectorAll('mdui-button') ?? []).find((element) => element.textContent?.includes('删除'));
+    return Boolean(remove?.disabled);
   }));
-  await page.evaluate(() => window.__patchStatus({ nsoState: 'expired', qqState: 'unbound' }));
+  check('绑定页已连接时仍可添加账户', await page.evaluate(() => {
+    const add = Array.from(document.querySelectorAll('.bind-row mdui-button')).find((element) => element.textContent?.includes('添加 Nintendo 账号'));
+    return Boolean(add) && add.disabled === false;
+  }));
+  await page.evaluate(() => window.__patchStatus({
+    nsoState: 'expired', qqState: 'unbound',
+    nsoAccounts: [
+      { accountId: '1001', nickname: '澪度', state: 'connected', current: true },
+      { accountId: '1002', nickname: '小号', state: 'expired', error: '登录已过期' },
+    ],
+    nsoCurrentAccountId: '1001', nsoCurrentNickname: '澪度',
+  }));
   await new Promise((resolve) => setTimeout(resolve, 200));
-  await clickText(page, '.bind-row mdui-button', '登录 Nintendo 账号');
-  check('绑定页失效状态下 NSO 登录按钮可点击', await page.evaluate(() => window.__ui.calls.openNsoLogin === 1));
+  check('绑定页列出多个账户及各自状态', await page.evaluate(() => document.querySelectorAll('.account-row').length === 2 && document.body.innerText.includes('小号') && document.body.innerText.includes('登录已过期')));
+  await page.evaluate(() => {
+    const row = Array.from(document.querySelectorAll('.account-row')).find((element) => element.textContent?.includes('小号'));
+    Array.from(row?.querySelectorAll('mdui-button') ?? []).find((element) => element.textContent?.includes('设为当前'))?.click();
+  });
+  check('绑定页可切换当前 NSO 账户', await page.waitForFunction(() => window.__ui.selectedAccount === '1002', { timeout: 5000 }).then(() => true).catch(() => false));
+  await page.evaluate(() => {
+    const row = Array.from(document.querySelectorAll('.account-row')).find((element) => element.textContent?.includes('小号'));
+    Array.from(row?.querySelectorAll('mdui-button') ?? []).find((element) => element.textContent?.includes('重新登录'))?.click();
+  });
+  check('绑定页可单独重新登录某个账户', await page.waitForFunction(() => window.__ui.lastNsoLogin === '1002', { timeout: 5000 }).then(() => true).catch(() => false));
+  await page.evaluate(() => {
+    const row = Array.from(document.querySelectorAll('.account-row')).find((element) => element.textContent?.includes('小号'));
+    Array.from(row?.querySelectorAll('mdui-button') ?? []).find((element) => element.textContent?.includes('删除'))?.click();
+  });
+  check('绑定页删除非最后一个账户需要确认', await page.waitForFunction(() => Boolean(document.querySelector('mdui-dialog.delete-nso')), { timeout: 5000 }).then(() => true).catch(() => false));
+  await clickText(page, 'mdui-dialog.delete-nso mdui-button', '删除');
+  check('绑定页确认后删除账户', await page.waitForFunction(() => window.__ui.deletedAccounts.includes('1002'), { timeout: 5000 }).then(() => true).catch(() => false));
+  await page.evaluate(() => window.__patchStatus({ nsoState: 'unbound', qqState: 'unbound', nsoAccounts: [], nsoCurrentAccountId: undefined, nsoCurrentNickname: undefined }));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await clickText(page, '.bind-row mdui-button', '添加 Nintendo 账号');
+  check('绑定页未绑定状态下可添加 NSO 账户', await page.evaluate(() => (window.__ui.calls.openNsoLogin || 0) > 0));
   await clickText(page, '.bind-row mdui-button', '获取绑定机器人二维码');
-  check('绑定页未绑定时可重新获取二维码', await page.evaluate(() => window.__ui.calls.startQqLogin === 1));
+  check('绑定页未绑定时可重新获取二维码', await page.evaluate(() => (window.__ui.calls.startQqLogin || 0) === 1));
 
 
   await clickNav(page, 4);
@@ -616,11 +647,9 @@ async function main() {
     return Boolean(audioField?.nextElementSibling?.querySelector('mdui-switch[name="desktopAudio"]')) && !document.querySelector('mdui-select[name="micDevice"]');
   }));
   await setChecked(page, 'mdui-switch[name="micAudio"]', true);
-  check('开启麦克风录制后出现麦克风设备下拉框', await page.waitForFunction(() => {
+  check('麦克风录制设备按开关显隐', await page.waitForFunction(() => {
     const field = document.querySelector('mdui-select[name="micDevice"]')?.closest('.form-field');
-    return Boolean(field)
-      && field?.previousElementSibling === document.querySelector('mdui-select[name="audioDevice"]')?.closest('.form-field')
-      && Boolean(field?.textContent?.includes('选择麦克风输入'));
+    return Boolean(field) && Boolean(field?.textContent?.includes('选择麦克风输入'));
   }, { timeout: 5000 }).then(() => true).catch(() => false));
   check('麦克风录制开关写回设置', await page.waitForFunction(() => window.__ui.lastSettings?.micAudio === true, { timeout: 5000 }).then(() => true).catch(() => false));
   await setChecked(page, 'mdui-switch[name="micAudio"]', false);
@@ -631,7 +660,7 @@ async function main() {
     const fps = document.querySelector('mdui-select[name="fps"]');
     const sizes = Array.from(size?.querySelectorAll('mdui-menu-item') ?? []).map((item) => item.getAttribute('value'));
     const rates = Array.from(fps?.querySelectorAll('mdui-menu-item') ?? []).map((item) => item.getAttribute('value'));
-    return sizes.includes('3840x2160') && rates.includes('60');
+    return sizes.includes('2560x1440') && rates.includes('60');
   }, { timeout: 5000 }).then(() => true).catch(() => false));
   await setValue(page, 'mdui-select[name="width"]', '1920x1080');
   await new Promise((resolve) => setTimeout(resolve, 200));
@@ -647,7 +676,26 @@ async function main() {
   await new Promise((resolve) => setTimeout(resolve, 200));
   check('设置页垂直翻转即时保存', await page.evaluate(() => window.__ui.lastSettings?.flipVertical === true));
   check('设置页只有一处录制参数入口', await page.evaluate(() => document.querySelectorAll('mdui-select[name="width"]').length === 1 && document.querySelectorAll('mdui-switch[name="flipVertical"]').length === 1));
-  check('设置页不再提供采集后端开关与格式下拉', await page.evaluate(() => document.querySelectorAll('mdui-switch[name="nv12Capture"], mdui-select[name="captureFormat"]').length === 0 && !document.body.innerText.includes('开启NV12、YUY2采集支持')));
+  check('采集格式紧跟在采集卡后', await page.waitForFunction(() => {
+    const video = document.querySelector('mdui-select[name="videoDevice"]')?.closest('.form-field');
+    const format = document.querySelector('mdui-select[name="captureFormat"]')?.closest('.form-field');
+    return Boolean(video && format) && video?.nextElementSibling === format;
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  await setValue(page, 'mdui-select[name="captureFormat"]', 'yuy2');
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  check('格式切换后刷新对应档位', await page.waitForFunction(() => {
+    const size = document.querySelector('mdui-select[name="width"]');
+    const rates = Array.from(document.querySelectorAll('mdui-select[name="fps"] mdui-menu-item')).map((item) => item.getAttribute('value'));
+    return Array.from(size?.querySelectorAll('mdui-menu-item') ?? []).map((item) => item.getAttribute('value')).includes('1920x1080')
+      && rates.includes('60');
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  await page.evaluate(() => {
+    const target = { ...window.__ui.lastSettings, width: 2560, height: 1440, fps: 60 };
+    window.__ui.lastSettings = target;
+    window.__patchSettings(target);
+  });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  check('NV12 1440p60 保留为用户偏好', await page.evaluate(() => window.__ui.lastSettings?.width === 2560 && window.__ui.lastSettings?.fps === 60));
   check('设置页刷新按钮与音频设备同排', await page.evaluate(() => Boolean(document.querySelector('mdui-select[name="audioDevice"]')?.closest('.select-icon-row')?.querySelector('mdui-button-icon'))));
   check('设置页不提供缓存与分段编辑入口', await page.evaluate(() => !document.querySelector('mdui-slider[name="cacheMinutes"]')
     && !document.querySelector('mdui-slider[name="segmentSeconds"]')
@@ -682,9 +730,11 @@ async function main() {
     const values = Array.from(document.querySelectorAll('mdui-select[name="fps"] mdui-menu-item')).map((item) => item.getAttribute('value'));
     return values.includes('30') && !values.includes('60');
   }));
-  check('设置页在采集卡不接受档位时回写实际档位', await page.waitForFunction(() => {
+  check('采集卡未接受用户档位时显示实际画幅且不覆盖设置', await page.waitForFunction(() => {
     const settings = window.__ui.lastSettings || {};
-    return settings.videoDevice === 'cam2' && settings.width === 1280 && settings.height === 720 && settings.fps === 30;
+    const report = window.__ui.reports[window.__ui.reports.length - 1];
+    return settings.videoDevice === 'cam2' && settings.width === 1920 && settings.height === 1080
+      && Boolean(report) && report.width === 1280 && report.height === 720;
   }, { timeout: 10000 }).then(() => true).catch(() => false));
   check('设置页仅在软件编码时提示录制编码', await page.evaluate(() => {
     const hints = Array.from(document.querySelectorAll('.form-hint'))
@@ -725,17 +775,50 @@ async function main() {
   check('设置页开关即时保存', await page.evaluate(() => window.__ui.lastSettings?.autoPush === false));
 
   await page.evaluate(() => {
-    document.querySelectorAll('.select-icon-row mdui-button-icon')[1]?.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+    document.querySelector('mdui-text-field[readonly]')?.closest('.select-icon-row')?.querySelector('mdui-button-icon')?.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
   });
   await new Promise((resolve) => setTimeout(resolve, 200));
   check('设置页可挑选保存目录', await page.evaluate(() => window.__ui.lastSettings?.saveDir === 'D:/picked'));
   check('设置页无保存按钮', await page.evaluate(() => !document.body.innerText.includes('保存设置')));
   check('设置页不再提供直播与打码设置', await page.evaluate(() => !document.body.innerText.includes('直播与打码') && !document.querySelector('mdui-switch[name="blurNickname"]')));
   check('设置页保存设置并继续写入分段', await page.evaluate(() => (window.__ui.calls.saveSettings || 0) > 0 && window.__ui.calls.writeSegment > 0));
+  check('设置页底部提供外观设置', await page.evaluate(() => document.body.innerText.includes('外观') && document.body.innerText.includes('背景图片') && document.body.innerText.includes('MDUI 主题色')));
+  await clickText(page, '.appearance-actions mdui-button', '更换背景');
+  check('更换背景后保存路径并隐藏吉祥物', await page.waitForFunction(() => {
+    return window.__ui.lastSettings?.backgroundPath?.includes('background-1.png')
+      && Boolean(document.querySelector('.bg-layer.bg-custom')) && !document.querySelector('.mascot');
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  check('外观操作按钮各占一整行', await page.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll('.appearance-actions mdui-button'));
+    return buttons.length === 3 && buttons.every((button) => {
+      const parent = button.parentElement?.getBoundingClientRect();
+      return Boolean(parent) && Math.abs(button.getBoundingClientRect().width - parent.width) < 2;
+    });
+  }));
+  check('自定义背景可调整压黑程度', await page.waitForFunction(() => {
+    const slider = document.querySelector('mdui-slider[name="backgroundDim"]');
+    return Boolean(slider) && slider.disabled === false;
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  await page.evaluate(() => {
+    const slider = document.querySelector('mdui-slider[name="backgroundDim"]');
+    slider.value = 70;
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  check('背景压黑程度写回设置并应用', await page.waitForFunction(() => {
+    return window.__ui.lastSettings?.backgroundDim === 70
+      && (document.querySelector('.bg-layer')?.style.backgroundImage || '').includes('0.7');
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  await clickText(page, '.appearance-actions mdui-button', '恢复默认背景');
+  check('恢复默认背景后重新显示吉祥物', await page.waitForFunction(() => window.__ui.lastSettings?.backgroundPath === '' && Boolean(document.querySelector('.mascot')), { timeout: 5000 }).then(() => true).catch(() => false));
+  await clickText(page, '.appearance-actions mdui-button', '打开色板');
+  check('打开主题色板显示预设颜色与自定义颜色输入', await page.waitForFunction(() => Boolean(document.querySelector('mdui-dialog .color-palette .color-dot')) && Boolean(document.querySelector('mdui-dialog input[type="color"]')), { timeout: 5000 }).then(() => true).catch(() => false));
+  await page.evaluate(() => { document.querySelectorAll('mdui-dialog .color-dot')[2]?.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); });
+  await clickText(page, 'mdui-dialog mdui-button', '确定');
+  check('确认主题色后写回设置', await page.waitForFunction(() => window.__ui.lastSettings?.themeColor === '#9c27b0', { timeout: 5000 }).then(() => true).catch(() => false));
 
   await clickNav(page, 7);
   check('关于页显示项目名', await waitText(page, 'Splatoon3Record'));
-  check('关于页显示版本', await waitText(page, '2.3.0'));
+  check('关于页显示版本', await waitText(page, '2.4.0'));
   check('关于页显示作者简介', await waitText(page, '巨齿刮水刀'));
   check('作者头像指向作者 QQ 头像并与应用图标区分', await page.evaluate(() => {
     const logo = document.querySelector('.about-logo');
@@ -762,16 +845,16 @@ async function main() {
     '硬件解码档位：CUDA',
     '归档编码器：hevc_amf',
   ].filter((text) => !diagnostic.includes(text));
-  const diagnosticFormat = /采集格式：\S+ (硬编|软编)（video\/mp4/.test(diagnostic);
-  const diagnosticBanned = ['采集后端：', '采集画面格式：', '采集档位：', '采集卡原生规格：'].filter((text) => diagnostic.includes(text));
+  const diagnosticFormat = /录制编码格式：\S+ (硬编|软编)（video\/mp4/.test(diagnostic);
+  const diagnosticBanned = ['采集后端：', '采集档位：', '采集卡原生规格：'].filter((text) => diagnostic.includes(text));
   if (diagnosticMissing.length || diagnosticBanned.length || !diagnosticFormat) console.log('  诊断差异', JSON.stringify({ missing: diagnosticMissing, banned: diagnosticBanned, diagnostic }));
   check('关于页诊断包含已选采集卡能力与硬件详情', diagnosticMissing.length === 0 && diagnosticBanned.length === 0 && diagnosticFormat);
   check('关于页只调用白名单桥接方法', await page.evaluate(() => window.__ui.unknown.length === 0));
 
-  await page.evaluate(() => { window.__ui.update = { current: '2.3.0', available: false, phase: 'idle', progress: 0, received: 0, total: 0 }; });
+  await page.evaluate(() => { window.__ui.update = { current: '2.4.0', available: false, phase: 'idle', progress: 0, received: 0, total: 0 }; });
   await clickNav(page, 6);
   check('更新页进入后自动检查并下载更新包', await page.waitForFunction(() => (window.__ui.calls.updateCheck || 0) > 0 && (window.__ui.calls.updateDownload || 0) > 0, { timeout: 10000 }).then(() => true).catch(() => false));
-  check('更新页展示新版本与安装入口', (await waitText(page, '发现新版本 2.3.0')) && await page.evaluate(() => Array.from(document.querySelectorAll('.about-card mdui-button')).some((element) => element.textContent?.includes('立即安装'))));
+  check('更新页展示新版本与安装入口', (await waitText(page, '发现新版本 2.4.0')) && await page.evaluate(() => Array.from(document.querySelectorAll('.about-card mdui-button')).some((element) => element.textContent?.includes('立即安装'))));
   check('更新页下载完成后提示可安装', await waitText(page, '安装包已下载完成'));
   check('更新页提供网络加速与自动检查开关', await page.evaluate(() => document.querySelectorAll('mdui-switch[name="updateProxy"], mdui-switch[name="updateCheck"]').length === 2 && document.body.innerText.includes('开启后将使用加速源获取更新包')));
   await setChecked(page, 'mdui-switch[name="updateProxy"]', true);
@@ -780,7 +863,7 @@ async function main() {
   await setChecked(page, 'mdui-switch[name="updateCheck"]', false);
   await new Promise((resolve) => setTimeout(resolve, 200));
   check('更新页自动检查开关即时保存', await page.evaluate(() => window.__ui.lastSettings?.updateCheck === false));
-  await page.evaluate(() => { window.__ui.updateAvailable = false; window.__ui.update = { current: '2.3.0', available: false, phase: 'idle', progress: 0, received: 0, total: 0 }; });
+  await page.evaluate(() => { window.__ui.updateAvailable = false; window.__ui.update = { current: '2.4.0', available: false, phase: 'idle', progress: 0, received: 0, total: 0 }; });
   await clickText(page, '.about-card mdui-button', '检查更新');
   check('更新页无新版本时提示已是最新', (await waitText(page, '已是最新版本')) && await page.evaluate(() => !document.body.innerText.includes('本次更新修复了采集卡协商问题')));
   check('更新页无新版本时不显示安装入口', await page.evaluate(() => !Array.from(document.querySelectorAll('.about-card mdui-button')).some((element) => element.textContent?.includes('立即安装'))));

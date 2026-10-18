@@ -12,6 +12,7 @@ export const thumbPath = join(dataPath, 'thumbs');
 export const nsoPath = join(dataPath, 'nso');
 export const qqPath = join(dataPath, 'qq');
 export const logPath = join(dataPath, 'logs');
+export const backgroundDir = join(dataPath, 'backgrounds');
 
 export function insidePath(parent: string, child: string): boolean {
   if (!child || !isAbsolute(child)) return false;
@@ -24,5 +25,5 @@ export function saveFolder(saveDir: string): string {
 }
 
 export async function initPath(): Promise<void> {
-  await Promise.all([dataPath, cachePath, videoPath, matchPath, thumbPath, nsoPath, qqPath, logPath, blurPath].map((path) => mkdir(path, { recursive: true })));
+  await Promise.all([dataPath, cachePath, videoPath, matchPath, thumbPath, nsoPath, qqPath, logPath, blurPath, backgroundDir].map((path) => mkdir(path, { recursive: true })));
 }

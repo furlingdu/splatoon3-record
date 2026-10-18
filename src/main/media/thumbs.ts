@@ -5,6 +5,7 @@ import { runFFmpeg } from './ffmpeg.js';
 import { thumbPath } from '../store/path.js';
 import { legacyName, safeName } from './file.js';
 import type { BattleMatch } from '../../shared/types.js';
+import { matchKey } from '../../shared/nso.js';
 
 const cache = new Map<string, string>();
 let queue: Promise<unknown> = Promise.resolve();
@@ -24,7 +25,7 @@ export function dropThumb(matchId: string): void {
 }
 
 async function buildThumb(matches: BattleMatch[], matchId: string): Promise<string> {
-  const match = matches.find((item) => item.matchId === matchId);
+  const match = matches.find((item) => matchKey(item) === matchId) ?? matches.find((item) => item.matchId === matchId);
   if (!match?.videoPath) {
     cache.set(matchId, '');
     return '';

@@ -1,13 +1,14 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { snackbar } from 'mdui/functions/snackbar.js';
+import { setColorScheme } from 'mdui/functions/setColorScheme.js';
 import { useElementEvent, restoreSelect, targetChecked, targetValue } from '../lib/event.js';
 import { EncodeHint } from '../components/encodehint.js';
 import { iconSvg } from '../lib/icons.js';
 import { refreshDevices, useSession } from '../lib/session.js';
 import { probedFps } from '../lib/device.js';
-import { deviceLabel, fpsList, matchDevice, resolutionKey, resolutionList, resolutionText } from '../../shared/capture.js';
-import { defaultSettings, qualityTiers } from '../../shared/constants.js';
-import type { AppStatus, RecordSettings } from '../../shared/types.js';
+import { deviceLabel, clampModeFps, formatLabel, fpsList, matchDevice, modeFormats, modeFpsList, modeResolutions, pickMode, resolutionKey, resolutionList, resolutionText } from '../../shared/capture.js';
+import { defaultSettings, defaultThemeColor, qualityTiers } from '../../shared/constants.js';
+import type { AppStatus, CaptureFormat, CaptureMode, RecordSettings } from '../../shared/types.js';
 
 const encoderOptions = [
   { value: 'auto', label: '自动选择' },
@@ -31,17 +32,31 @@ const qualityLabels: Record<number, string> = {
   28: '低质量、存储占用小',
 };
 
+const themeColors = ['#4285f4', '#3f51b5', '#9c27b0', '#e91e63', '#f44336', '#ff9800', '#4caf50', '#009688', '#00bcd4', '#607d8b'];
+
 function settingsPage(props: { status?: AppStatus }): ReactElement {
   const status = props.status;
   const session = useSession();
   const settings = status?.settings;
   const [loading, setLoading] = useState(false);
+  const [modes, setModes] = useState<CaptureMode[]>([]);
+  const [restartHint, setRestartHint] = useState('');
+  const [restartOpen, setRestartOpen] = useState(false);
+  const [colorOpen, setColorOpen] = useState(false);
+  const [draftColor, setDraftColor] = useState(defaultThemeColor);
+  const colorCloseRef = useElementEvent<HTMLElement>('closed', () => {
+    setColorOpen(false);
+    setColorScheme(settings?.themeColor || defaultThemeColor);
+  });
   const videoDevice = matchDevice(session.devices, 'video', settings?.videoDevice);
   const audioDevice = matchDevice(session.devices, 'audio', settings?.audioDevice);
   const micDevice = matchDevice(session.devices, 'audio', settings?.micDevice);
-  const resolutions = resolutionList(videoDevice, settings ? { width: settings.width, height: settings.height } : undefined);
+  const captureFormat: CaptureFormat = settings?.captureFormat ?? defaultSettings.captureFormat;
+  const modeSizes = modeResolutions(modes, captureFormat);
+  const resolutions = modeSizes.length ? modeSizes : resolutionList(videoDevice, settings ? { width: settings.width, height: settings.height } : undefined);
+  const modeRates = settings ? modeFpsList(modes, captureFormat, settings.width, settings.height, settings.fps) : [];
   const probed = settings && videoDevice ? probedFps(videoDevice.id, settings.width, settings.height) : undefined;
-  const sizes = fpsList(videoDevice, settings?.fps, probed);
+  const sizes = modeRates.length ? modeRates : fpsList(videoDevice, settings?.fps, probed);
   const sizeMissed = Boolean(settings) && session.width > 0 && !session.applying && (session.width !== settings?.width || session.height !== settings?.height);
   const fpsMissed = Boolean(settings) && session.fps > 0 && !session.applying && Math.abs(session.fps - (settings?.fps || 0)) > 0.5;
 
@@ -49,6 +64,24 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
     setLoading(true);
     void refreshDevices().finally(() => setLoading(false));
   }, []);
+  useEffect(() => {
+    if (!settings || !videoDevice?.name) {
+      setModes([]);
+      return undefined;
+    }
+    let alive = true;
+    setModes([]);
+    void window.recordApi.listModes(videoDevice.name).then((list) => {
+      if (alive) setModes(list);
+    }).catch(() => {
+      if (alive) setModes([]);
+    });
+    return () => { alive = false; };
+  }, [settings?.videoDevice, videoDevice?.name]);
+  useEffect(() => {
+    if (colorOpen) setColorScheme(draftColor);
+    else setColorScheme(settings?.themeColor || defaultThemeColor);
+  }, [colorOpen, draftColor, settings?.themeColor]);
 
   const save = (part: Partial<RecordSettings>): void => {
     if (!settings) return;
@@ -94,6 +127,21 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
     if (!settings || Boolean((settings as unknown as Record<string, unknown>)[name]) === checked) return;
     save({ [name]: checked } as Partial<RecordSettings>);
   });
+  const formatRef = useElementEvent<HTMLElement>('change', (event) => {
+    const value = targetValue(event) as CaptureFormat;
+    if (!settings || (value !== 'nv12' && value !== 'yuy2') || captureFormat === value) return;
+    const part: Partial<RecordSettings> = { captureFormat: value };
+    const pick = pickMode(modes, value, settings.width, settings.height, settings.fps);
+    if (pick) {
+      part.width = pick.width;
+      part.height = pick.height;
+      part.fps = clampModeFps(pick, settings.fps);
+    }
+    void window.recordApi.saveSettings({ ...settings, ...part }).then(() => {
+      setRestartHint(`采集格式已切换为 ${formatLabel(value)}，请重启应用程序。`);
+      setRestartOpen(true);
+    }).catch(() => snackbar({ message: '保存设置失败' }));
+  });
   const qualityRef = useElementEvent<HTMLElement>('change', (event) => {
     const value = Number(targetValue(event));
     if (!settings || !Number.isFinite(value) || settings.quality === value) return;
@@ -108,6 +156,36 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
     setLoading(true);
     void refreshDevices().finally(() => setLoading(false));
   });
+  const pickBackground = (): void => {
+    void window.recordApi.pickBackground().then((path) => {
+      if (path) save({ backgroundPath: path });
+    }).catch((error) => snackbar({ message: errorText(error, '更换背景失败') }));
+  };
+  const resetBackground = (): void => save({ backgroundPath: '' });
+  const dimRef = useElementEvent<HTMLElement>('change', (event) => {
+    const value = Math.round(Number(targetValue(event)));
+    if (!settings || !Number.isFinite(value) || settings.backgroundDim === value) return;
+    save({ backgroundDim: Math.max(0, Math.min(100, value)) });
+  });
+  const openPalette = (): void => {
+    setDraftColor(settings?.themeColor || defaultThemeColor);
+    setColorOpen(true);
+  };
+  const applyColor = (): void => {
+    if (!settings) return;
+    const previous = settings.themeColor || defaultThemeColor;
+    void window.recordApi.saveSettings({ ...settings, themeColor: draftColor }).then(() => {
+      setColorOpen(false);
+    }).catch(() => {
+      setColorScheme(previous);
+      setColorOpen(false);
+      snackbar({ message: '保存主题颜色失败' });
+    });
+  };
+  const cancelColor = (): void => {
+    setColorScheme(settings?.themeColor || defaultThemeColor);
+    setColorOpen(false);
+  };
 
   return (
     <div className="page-body">
@@ -122,6 +200,11 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
           <span className="form-hint">选择采集卡</span>
         </div>
         <div className="form-field">
+          <mdui-select label="采集画面格式" value={captureFormat} ref={formatRef} name="captureFormat">
+            {modeFormats(modes, captureFormat).map((item) => <mdui-menu-item key={item} value={item}>{formatLabel(item)}</mdui-menu-item>)}
+          </mdui-select>
+        </div>
+        <div className="form-field">
           <div className="select-icon-row">
             <mdui-select label="音频录制设备" value={audioDevice?.id || ''} ref={deviceRef} name="audioDevice">
               <mdui-menu-item value="">不录制音频</mdui-menu-item>
@@ -134,6 +217,14 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
           {loading ? <mdui-linear-progress indeterminate className="device-loading" /> : null}
           <span className="form-hint">选择音频输入</span>
         </div>
+        <div className="form-switch form-field-wide">
+          <span>电脑声音录制<em className="form-note">开启后，将同时捕获电脑输出声音并录制。</em></span>
+          <mdui-switch checked={Boolean(settings?.desktopAudio)} ref={switchRef} name="desktopAudio" />
+        </div>
+        <div className="form-switch form-field-wide">
+          <span>麦克风声音录制<em className="form-note">开启后，将同时捕获麦克风输出声音并录制。</em></span>
+          <mdui-switch checked={Boolean(settings?.micAudio)} ref={switchRef} name="micAudio" />
+        </div>
         {settings?.micAudio ? (
           <div className="form-field">
             <mdui-select label="麦克风设备" value={micDevice?.id || ''} ref={deviceRef} name="micDevice">
@@ -143,14 +234,6 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
             <span className="form-hint">选择麦克风输入</span>
           </div>
         ) : null}
-        <div className="form-switch form-field-wide">
-          <span>电脑声音录制<em className="form-note">开启后，将同时捕获电脑输出声音并录制。</em></span>
-          <mdui-switch checked={Boolean(settings?.desktopAudio)} ref={switchRef} name="desktopAudio" />
-        </div>
-        <div className="form-switch form-field-wide">
-          <span>麦克风声音录制<em className="form-note">开启后，将同时捕获麦克风输出声音并录制。</em></span>
-          <mdui-switch checked={Boolean(settings?.micAudio)} ref={switchRef} name="micAudio" />
-        </div>
       </div>
       <h3 className="section-title">画质与编码</h3>
       <div className="form-grid">
@@ -210,6 +293,52 @@ function settingsPage(props: { status?: AppStatus }): ReactElement {
           <mdui-switch checked={Boolean(settings?.autoLaunch)} ref={switchRef} name="autoLaunch" />
         </div>
       </div>
+      <h3 className="section-title">外观</h3>
+      <div className="form-grid">
+        <div className="form-field form-field-wide">
+          <span className="form-label">背景图片</span>
+          <span className="form-hint">{settings?.backgroundPath ? '正在使用自定义背景，吉祥物已自动隐藏。' : '正在使用默认背景和吉祥物。'}</span>
+          <div className="appearance-actions">
+            <mdui-button full-width variant="filled" onClick={pickBackground}>更换背景</mdui-button>
+            <mdui-button full-width variant="outlined" disabled={!settings?.backgroundPath} onClick={resetBackground}>恢复默认背景</mdui-button>
+          </div>
+          <div className="slider-header background-dim-header">
+            <span className="form-label">背景压黑</span>
+            <span className="slider-value">{settings?.backgroundDim ?? defaultSettings.backgroundDim}%</span>
+          </div>
+          <mdui-slider ref={dimRef} name="backgroundDim" min={0} max={100} step={5} value={settings?.backgroundDim ?? defaultSettings.backgroundDim} disabled={!settings?.backgroundPath} />
+          <span className="form-hint">数值越高背景越暗，能避免背景图案影响文字阅读。</span>
+        </div>
+        <div className="form-field form-field-wide">
+          <span className="form-label">MDUI 主题色</span>
+          <div className="color-actions">
+            <span className="color-swatch" style={{ background: settings?.themeColor || defaultThemeColor }} />
+            <span className="form-hint">{settings?.themeColor || defaultThemeColor}</span>
+          </div>
+          <div className="appearance-actions">
+            <mdui-button full-width variant="outlined" onClick={openPalette}>打开色板</mdui-button>
+          </div>
+        </div>
+      </div>
+      <mdui-dialog ref={colorCloseRef} open={colorOpen} headline="选择主题颜色">
+        <div className="color-palette">
+          {themeColors.map((color) => (
+            <button key={color} type="button" aria-label={color} className={draftColor === color ? 'color-dot is-active' : 'color-dot'} style={{ background: color }} onClick={() => setDraftColor(color)} />
+          ))}
+        </div>
+        <div className="color-custom">
+          <input type="color" value={draftColor} onChange={(event) => setDraftColor(event.target.value)} />
+          <span className="form-hint">{draftColor}</span>
+        </div>
+        <mdui-button slot="action" variant="text" onClick={cancelColor}>取消</mdui-button>
+        <mdui-button slot="action" variant="filled" onClick={applyColor}>确定</mdui-button>
+      </mdui-dialog>
+      {restartOpen ? (
+        <mdui-dialog open headline="需要重启应用" description={restartHint}>
+          <mdui-button slot="action" variant="text" onClick={() => setRestartOpen(false)}>稍后重启</mdui-button>
+          <mdui-button slot="action" variant="filled" onClick={() => void window.recordApi.relaunchApp()}>立即重启</mdui-button>
+        </mdui-dialog>
+      ) : null}
     </div>
   );
 }
@@ -220,5 +349,10 @@ function nameOf(event: Event): string {
   const current = event.currentTarget as HTMLElement | undefined;
   const target = event.target as HTMLElement | undefined;
   return current?.getAttribute('name') || target?.getAttribute('name') || target?.closest?.('mdui-select')?.getAttribute('name') || target?.closest?.('mdui-slider')?.getAttribute('name') || '';
+}
+
+function errorText(error: unknown, fallback: string): string {
+  const text = (error instanceof Error ? error.message : String(error ?? '')).replace(/^Error invoking remote method '[^']*':\s*(Error:\s*)?/, '').trim();
+  return text || fallback;
 }
 

@@ -159,13 +159,19 @@ async function main() {
       return status.streamWidth > 0 ? status : undefined;
     }, 20000);
     check('主进程收到采集规格上报', Boolean(live) && live.streamWidth > 0 && live.streamHeight > 0);
-    check('采集格式来自浏览器录制编码', Boolean(live?.streamFormat) && /video\//.test(live.streamFormat) && live.streamAudio === true);
+    check('所选采集画面格式与录制编码分开展示', Boolean(live?.streamPixelFormat) && ['nv12', 'yuy2'].includes(live.streamPixelFormat) && Boolean(live?.streamFormat) && /video\//.test(live.streamFormat) && live.streamAudio === true);
 
     const previewPlaying = await page.waitForFunction(() => {
       const video = document.querySelector('.preview-video');
       return Boolean(video) && video.readyState >= 2 && !video.paused && video.videoWidth > 0;
     }, { timeout: 20000 }).then(() => true).catch(() => false);
     check('采集画面开始播放', previewPlaying);
+
+    const directPreview = await page.waitForFunction(() => {
+      const canvas = document.querySelector('.preview-canvas');
+      return Boolean(canvas) && canvas.width > 0 && canvas.height > 0;
+    }, { timeout: 10000 }).then(() => true).catch(() => false);
+    check('低延迟预览画布接收采集帧', directPreview);
 
     const pipPoint = await page.evaluate(() => {
       const rect = document.querySelector('.preview-box')?.getBoundingClientRect();

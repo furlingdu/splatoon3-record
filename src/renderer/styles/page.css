@@ -232,6 +232,59 @@
   color: rgb(var(--mdui-color-on-surface-variant));
 }
 
+.account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+.account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid rgb(var(--mdui-color-outline-variant));
+  border-radius: 14px;
+}
+
+.account-row.is-current {
+  border-color: rgb(var(--mdui-color-primary));
+}
+
+.account-main {
+  min-width: 0;
+}
+
+.account-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.account-current {
+  background: rgb(var(--mdui-color-primary-container));
+  color: rgb(var(--mdui-color-on-primary-container));
+}
+
+.account-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: rgb(var(--mdui-color-on-surface-variant));
+  overflow-wrap: anywhere;
+}
+
+.account-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgb(var(--mdui-color-error));
+  overflow-wrap: anywhere;
+}
+
 .notice-link {
   color: rgb(var(--mdui-color-primary));
   text-decoration: underline;
@@ -597,6 +650,81 @@ mdui-select::part(menu) {
   margin-top: 28px;
 }
 
+.color-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.appearance-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin: 4px 0;
+}
+
+.appearance-actions mdui-button {
+  width: 100%;
+}
+
+.background-dim-header {
+  margin-top: 8px;
+}
+
+.background-dim-header .form-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.color-swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgb(var(--mdui-color-outline-variant));
+  flex: none;
+}
+
+.color-palette {
+  display: grid;
+  grid-template-columns: repeat(5, 44px);
+  gap: 12px;
+  margin: 6px 0 16px;
+}
+
+.color-dot {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  outline: none;
+}
+
+.color-dot.is-active {
+  border-color: rgb(var(--mdui-color-on-surface));
+  box-shadow: 0 0 0 3px rgb(var(--mdui-color-surface));
+}
+
+.color-custom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.color-custom input[type="color"] {
+  width: 64px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid rgb(var(--mdui-color-outline-variant));
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
 .about-card {
   border: 1px solid rgb(var(--mdui-color-outline-variant));
   border-radius: 16px;
@@ -699,6 +827,11 @@ mdui-select::part(menu) {
   }
 
   .match-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .account-row {
     flex-direction: column;
     align-items: flex-start;
   }

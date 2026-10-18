@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { dialogLayer } from '../lib/portal.js';
 import { useElementEvent } from '../lib/event.js';
-import { matchTitle } from '../../shared/nso.js';
+import { matchKey, matchTitle } from '../../shared/nso.js';
 import type { BattleMatch } from '../../shared/types.js';
 
 function videoPlayer(props: { match?: BattleMatch; open: boolean; onClose: () => void }): ReactElement {
@@ -24,12 +24,12 @@ function videoPlayer(props: { match?: BattleMatch; open: boolean; onClose: () =>
       return;
     }
     let alive = true;
-    void window.recordApi.getVideoUrl(match.matchId).then((value) => { if (alive) setUrl(value); });
+    void window.recordApi.getVideoUrl(matchKey(match)).then((value) => { if (alive) setUrl(value); });
     return () => {
       alive = false;
       setUrl(undefined);
     };
-  }, [open, match?.matchId]);
+  }, [open, match?.key, match?.matchId]);
 
   return dialogLayer(
     <mdui-dialog className="player-dialog" ref={(element) => { dialogRef.current = element; closeRef(element); overlayRef(element); }} headline={match ? videoTitle(match) : ''} close-on-overlay-click>

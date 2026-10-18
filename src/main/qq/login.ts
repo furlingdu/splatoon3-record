@@ -1,5 +1,5 @@
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
-import { loadSecret, saveSecret } from '../store/secret.js';
+import { updateSecret } from '../store/secret.js';
 import type { AppStatus } from '../../shared/types.js';
 
 export interface QrEvents {
@@ -25,8 +25,10 @@ export class QqLogin {
 
   private async success(credential: { appId: string; appSecret: string } | undefined): Promise<void> {
     if (!credential) { this.events.state('error'); return; }
-    const old = await loadSecret();
-    await saveSecret({ ...old, qqAppId: credential.appId, qqSecret: credential.appSecret });
+    await updateSecret((secret) => {
+      secret.qqAppId = credential.appId;
+      secret.qqSecret = credential.appSecret;
+    });
     this.events.qr('');
     this.events.state('connected');
   }

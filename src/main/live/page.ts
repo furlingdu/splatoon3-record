@@ -14,7 +14,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden}
 <canvas id="view" width="1280" height="720"></canvas>
 <script>
 var view = document.getElementById('view');
-var ctx = view.getContext('2d');
+var ctx = view.getContext('2d', { desynchronized: true });
 var stats = { video: 0, audio: 0, key: 0, started: 0, width: 0, height: 0, bytes: 0, codec: '' };
 window.__liveStats = stats;
 var metaInfo = null;

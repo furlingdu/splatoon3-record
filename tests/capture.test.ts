@@ -1,8 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import { chooseMime, cleanNames, deviceKey, deviceLabel, deviceName, formatText, fpsList, matchDevice, mimeCandidates, resolutionKey, resolutionList, resolutionText } from '../src/shared/capture.js';
-import type { CaptureDevice } from '../src/shared/types.js';
+import { parseModes } from '../src/main/capture/modes.js';
+import { chooseMime, cleanNames, clampModeFps, deviceKey, deviceLabel, deviceName, formatText, fpsList, matchDevice, mimeCandidates, modeFpsList, modeFormats, modeResolutions, pickMode, resolutionKey, resolutionList, resolutionText } from '../src/shared/capture.js';
+import type { CaptureDevice, CaptureMode } from '../src/shared/types.js';
 
 const camera: CaptureDevice = { id: 'cam1', name: 'Camera', kind: 'video', maxWidth: 1920, maxHeight: 1080, maxFps: 30 };
+const modes: CaptureMode[] = [
+  { format: 'nv12', width: 2560, height: 1440, minFps: 30, maxFps: 60 },
+  { format: 'nv12', width: 1920, height: 1080, minFps: 30, maxFps: 60 },
+  { format: 'yuy2', width: 2560, height: 1440, minFps: 30, maxFps: 60 },
+];
+
+describe('capture modes', () => {
+  it('parses NV12 and YUY2 DirectShow tuples and ignores other formats', () => {
+    expect(parseModes([
+      '[dshow] pixel_format=nv12 min s=2560x1440 fps=30 max s=2560x1440 fps=60',
+      '[dshow] pixel_format=yuyv422 min s=2560x1440 fps=30 max s=2560x1440 fps=60',
+      '[dshow] pixel_format=mjpeg min s=3840x2160 fps=30 max s=3840x2160 fps=60',
+    ].join('\n'))).toEqual([
+      { format: 'nv12', width: 2560, height: 1440, minFps: 30, maxFps: 60 },
+      { format: 'yuy2', width: 2560, height: 1440, minFps: 30, maxFps: 60 },
+    ]);
+  });
+
+  it('filters resolution and fps choices by exact format tuple', () => {
+    expect(modeFormats(modes, 'nv12')).toEqual(['nv12', 'yuy2']);
+    expect(modeResolutions(modes, 'nv12')).toContainEqual({ width: 2560, height: 1440 });
+    expect(modeFpsList(modes, 'nv12', 2560, 1440)).toEqual([30, 60]);
+    expect(modeFpsList(modes, 'yuy2', 2560, 1440)).toEqual([30, 60]);
+  });
+
+  it('prefers requested 1440p60 tuple without changing it to 30 fps', () => {
+    const chosen = pickMode(modes, 'nv12', 2560, 1440, 60);
+    expect(chosen).toEqual(modes[0]);
+    expect(clampModeFps(chosen!, 60)).toBe(60);
+  });
+});
 
 describe('resolutionKey', () => {
   it('拼出画幅键', () => {

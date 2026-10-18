@@ -1,7 +1,9 @@
 import { Muxer, StreamTarget } from 'mp4-muxer';
 import { recordAudioBps, recordFallbackBps } from '../../shared/bitrate.js';
+import type { AudioHealth, VideoHealth } from '../../shared/types.js';
 import { videoCodecs } from './encode.js';
 import type { VideoFeed } from './videofeed.js';
+import { resumeRecordAudio } from './device.js';
 
 export interface SegmentSpec {
   width: number;
@@ -33,6 +35,7 @@ export interface SegmentSink {
   onSeal: (seal: SegmentSeal) => void;
   onRotate: () => void;
   onAudio?: (state: AudioState, detail?: string) => void;
+  onFatal?: (message: string) => void;
 }
 
 interface VideoChoice {
@@ -53,17 +56,83 @@ interface FileRun {
   firstUs?: number;
   endUs?: number;
   pendingVideo: number;
-  pendingAudio: number;
+  expectsAudio: boolean;
+  audioTimedOut: boolean;
   chunks: number;
   audioChunks: number;
   bytes: number;
   retired: boolean;
   sealed: boolean;
+  audioEndUs?: number;
   timer?: number;
 }
 
 const keyframeGapUs = 2000000;
 const queueLimit = 8;
+export const audioLimits = { checkMs: 1000, stallMs: 2000, recoveryLimit: 3, recoveryWindowMs: 60000, sampleMs: 1000 };
+
+export class AudioGuard {
+  private lastAt = 0;
+  private samples: number[] = [];
+  private runs: number[] = [];
+  private lastRecoveryAt = 0;
+  private rollbackCount = 0;
+  private recoveryCount = 0;
+  private cutCount = 0;
+
+  noteFrame(at = Date.now()): void {
+    this.lastAt = at;
+    this.samples.push(at);
+    if (this.samples.length > 240) this.samples.splice(0, this.samples.length - 240);
+  }
+
+  arm(at = Date.now()): void {
+    this.lastAt = at;
+  }
+
+  rollback(): void {
+    this.rollbackCount += 1;
+  }
+
+  stalled(at = Date.now()): boolean {
+    return this.lastAt > 0 && at - this.lastAt >= audioLimits.stallMs;
+  }
+
+  spend(at = Date.now()): boolean {
+    const since = at - audioLimits.recoveryWindowMs;
+    this.runs = this.runs.filter((item) => item > since);
+    if (this.runs.length >= audioLimits.recoveryLimit) return false;
+    this.runs.push(at);
+    this.lastRecoveryAt = at;
+    this.recoveryCount += 1;
+    return true;
+  }
+
+  cooling(at = Date.now()): boolean {
+    return this.lastRecoveryAt > 0 && at - this.lastRecoveryAt < audioLimits.stallMs;
+  }
+
+  markCut(): void {
+    this.cutCount += 1;
+  }
+
+  health(now = Date.now()): AudioHealth {
+    const since = now - audioLimits.sampleMs;
+    let fps = 0;
+    for (const item of this.samples) if (item > since) fps += 1;
+    return {
+      fps,
+      ageMs: this.lastAt ? Math.max(0, now - this.lastAt) : 0,
+      rollbacks: this.rollbackCount,
+      recoveries: this.recoveryCount,
+      cuts: this.cutCount,
+    };
+  }
+}
+
+export function audioTimestampValid(last: number | undefined, timestamp: number): boolean {
+  return Number.isFinite(timestamp) && timestamp >= 0 && (last === undefined || timestamp >= last);
+}
 const audioWaitMs = 1000;
 const audioProbeAttempts = 3;
 const audioProbeWaitMs = 2000;
@@ -80,11 +149,18 @@ export class SegmentRecorder {
   private boundary?: FileRun;
   private audioChoice?: AudioChoice;
   private audioTrack?: MediaStreamTrack;
-  private audioRuns = new Map<AudioEncoder, string[]>();
+  private lastAudioOutputUs?: number;
   private audioLost = false;
+  private audioTimer?: number;
+  private audioToken = 0;
+  private lossCut = false;
+  private fatalSent = false;
+  private guard = new AudioGuard();
+  private audioOutputGuard = new AudioGuard();
   private videoQueue: string[] = [];
   private videoEncoder?: VideoEncoder;
   private audioEncoder?: AudioEncoder;
+  private audioEncoderToken = 0;
   private videoConfig?: VideoDecoderConfig;
   private audioConfig?: AudioDecoderConfig;
   private audioReader?: ReadableStreamDefaultReader<AudioData>;
@@ -95,6 +171,7 @@ export class SegmentRecorder {
   private pendingKey = true;
   private lastKeyAt = 0;
   private chunks = 0;
+  private videoStats: VideoHealth = { inputFrames: 0, encodedFrames: 0, droppedFrames: 0, queuePeak: 0 };
   private counter = 0;
   private firstUs?: number;
   private firstWaiter?: () => void;
@@ -150,7 +227,11 @@ export class SegmentRecorder {
     if (previous.retired) return;
     previous.retired = true;
     this.boundary = previous;
-    previous.timer = window.setTimeout(() => this.finish(previous), sealWaitMs);
+    previous.timer = window.setTimeout(() => {
+      previous.timer = undefined;
+      previous.audioTimedOut = true;
+      this.settle(previous);
+    }, sealWaitMs);
     this.openFile();
     this.pendingKey = true;
     this.settle(previous);
@@ -168,7 +249,10 @@ export class SegmentRecorder {
     if (file.firstUs === undefined) file.firstUs = frame.timestamp;
     const encoder = this.videoEncoder;
     if (!encoder || encoder.state !== 'configured') return;
+    this.videoStats.inputFrames += 1;
+    this.videoStats.queuePeak = Math.max(this.videoStats.queuePeak, encoder.encodeQueueSize);
     if (encoder.encodeQueueSize > queueLimit) {
+      this.videoStats.droppedFrames += 1;
       this.dropped = true;
       return;
     }
@@ -177,6 +261,7 @@ export class SegmentRecorder {
       this.pendingKey = false;
       if (this.boundary) {
         this.boundary.endUs = frame.timestamp;
+        this.boundary.audioEndUs = frame.timestamp;
         this.boundary = undefined;
       }
     }
@@ -184,19 +269,26 @@ export class SegmentRecorder {
       this.dropped = false;
       this.lastKeyAt = frame.timestamp;
     }
+    this.videoQueue.push(file.id);
+    file.pendingVideo += 1;
     try {
       encoder.encode(frame, { keyFrame: key });
     } catch (cause) {
+      this.videoQueue.pop();
+      file.pendingVideo -= 1;
       this.fail(cause);
       return;
     }
-    file.pendingVideo += 1;
-    this.videoQueue.push(file.id);
   }
 
   async close(): Promise<void> {
     if (this.closed) throw new Error('录制已经关闭');
     this.closed = true;
+    if (this.audioTimer !== undefined) {
+      window.clearInterval(this.audioTimer);
+      this.audioTimer = undefined;
+    }
+    this.audioToken += 1;
     this.release?.();
     this.release = undefined;
     this.firstWaiter?.();
@@ -211,7 +303,7 @@ export class SegmentRecorder {
     }
     this.pumping = false;
     this.audioTrack = undefined;
-    this.audioRuns.clear();
+    this.lastAudioOutputUs = undefined;
     this.videoEncoder?.close();
     try {
       this.audioEncoder?.close();
@@ -243,12 +335,14 @@ export class SegmentRecorder {
         firstTimestampBehavior: 'offset',
       }),
       pendingVideo: 0,
-      pendingAudio: 0,
+      expectsAudio: Boolean(audio),
+      audioTimedOut: false,
       chunks: 0,
       audioChunks: 0,
       bytes: 0,
       retired: false,
       sealed: false,
+      audioEndUs: undefined,
     };
     this.files.set(id, run);
     this.current = run;
@@ -256,7 +350,8 @@ export class SegmentRecorder {
   }
 
   private settle(file: FileRun): void {
-    if (!file.retired || file.pendingVideo > 0 || file.pendingAudio > 0) return;
+    if (!file.retired || file.endUs === undefined || file.pendingVideo > 0) return;
+    if (file.expectsAudio && !file.audioTimedOut && (file.audioEndUs === undefined || this.lastAudioOutputUs === undefined || this.lastAudioOutputUs < file.audioEndUs)) return;
     this.finish(file);
   }
 
@@ -284,13 +379,14 @@ export class SegmentRecorder {
         file.pendingVideo -= 1;
         file.chunks += 1;
         this.chunks += 1;
+        this.videoStats.encodedFrames += 1;
         const info = file.chunks === 1 && !meta?.decoderConfig && this.videoConfig ? { ...meta, decoderConfig: this.videoConfig } : meta;
         file.muxer.addVideoChunk(chunk, info);
         this.settle(file);
       },
       error: (cause) => {
         resetVideoChoice();
-        this.fail(cause);
+        if (this.pumping) this.sink.onError(errorText(cause));
       },
     });
     encoder.configure(this.choice.config);
@@ -301,7 +397,102 @@ export class SegmentRecorder {
     this.audioTrack = track;
     this.audioChoice = choice;
     this.audioEncoderFor(choice);
-    void this.pumpAudio(choice);
+    this.openAudioPump(choice);
+    this.startAudioTimer();
+  }
+
+  private startAudioTimer(): void {
+    if (this.audioTimer !== undefined) return;
+    this.audioTimer = window.setInterval(() => this.checkAudio(), audioLimits.checkMs);
+  }
+
+  private openAudioPump(choice: AudioChoice): void {
+    const track = this.audioTrack;
+    if (!track || this.closed || !this.pumping) return;
+    const token = ++this.audioToken;
+    const reader = new MediaStreamTrackProcessor<AudioData>({ track }).readable.getReader();
+    this.audioReader = reader;
+    this.guard.arm();
+    this.audioOutputGuard.arm();
+    void this.pumpAudio(reader, token, choice);
+  }
+
+  private restartAudio(choice: AudioChoice): void {
+    const reader = this.audioReader;
+    this.audioReader = undefined;
+    this.audioToken += 1;
+    if (reader) void reader.cancel().catch(() => undefined);
+    const encoder = this.audioEncoder;
+    this.audioEncoder = undefined;
+    if (encoder && encoder.state !== 'closed') {
+      this.audioEncoderToken += 1;
+      try {
+        encoder.close();
+      } catch {
+        void 0;
+      }
+    }
+    this.lastAudioOutputUs = undefined;
+    this.openAudioPump(choice);
+  }
+
+  private checkAudio(): void {
+    if (this.closed || !this.pumping || this.fatalSent) return;
+    const track = this.audioTrack;
+    if (!track || track.readyState !== 'live') {
+      if (this.audioChoice) this.noteAudioLost('音频轨道已结束');
+      if (this.audioLost && !this.guard.spend()) this.fatal();
+      return;
+    }
+    if ((!this.guard.stalled() && !this.audioOutputGuard.stalled()) || this.guard.cooling()) return;
+    resumeRecordAudio();
+    this.noteAudioLost(this.guard.stalled() ? '音频帧停顿' : '音频编码输出停顿');
+    if (!this.guard.spend()) {
+      this.fatal();
+      return;
+    }
+    this.cutSegment();
+    const choice = this.audioChoice;
+    if (choice) this.restartAudio(choice);
+  }
+
+  private cutSegment(): void {
+    this.lossCut = true;
+    this.guard.markCut();
+    this.rotate();
+  }
+
+  private recoverAudio(): void {
+    if (!this.audioLost) return;
+    if (!this.lossCut) this.cutSegment();
+    this.audioLost = false;
+    this.lossCut = false;
+    this.sink.onAudio?.('recovered');
+  }
+
+  private handleAudioRollback(): void {
+    this.noteAudioLost('音频时间戳异常');
+    if (!this.guard.spend()) {
+      this.fatal();
+      return;
+    }
+    this.cutSegment();
+    const choice = this.audioChoice;
+    if (choice) this.restartAudio(choice);
+  }
+
+  private fatal(): void {
+    if (this.fatalSent) return;
+    this.fatalSent = true;
+    this.sink.onFatal?.('音频持续异常，录制已停止');
+  }
+
+  videoHealth(): VideoHealth {
+    return { ...this.videoStats };
+  }
+
+  health(): AudioHealth {
+    return this.guard.health();
   }
 
   private startProbeRetry(track: MediaStreamTrack): void {
@@ -318,7 +509,8 @@ export class SegmentRecorder {
       this.audioTrack = track;
       this.rotate();
       this.audioEncoderFor(choice);
-      void this.pumpAudio(choice);
+      this.openAudioPump(choice);
+      this.startAudioTimer();
       this.sink.onAudio?.('recovered');
       return;
     }
@@ -334,23 +526,37 @@ export class SegmentRecorder {
         void 0;
       }
     }
-    const queue: string[] = [];
+    const token = ++this.audioEncoderToken;
+    this.lastAudioOutputUs = undefined;
     const encoder = new AudioEncoder({
       output: (chunk, meta) => {
-        if (!this.pumping) return;
-        const id = queue.shift();
-        const file = id ? this.files.get(id) : undefined;
-        if (!file) return;
+        if (!this.pumping || token !== this.audioEncoderToken) return;
+        if (!audioTimestampValid(this.lastAudioOutputUs, chunk.timestamp)) {
+          this.guard.rollback();
+          this.handleAudioRollback();
+          return;
+        }
+        this.lastAudioOutputUs = chunk.timestamp;
         if (meta?.decoderConfig) this.audioConfig = meta.decoderConfig;
-        file.pendingAudio -= 1;
-        file.audioChunks += 1;
-        const info = file.chunks === 0 && !meta?.decoderConfig && this.audioConfig ? { ...meta, decoderConfig: this.audioConfig } : meta;
-        file.muxer.addAudioChunk(chunk, info);
-        this.settle(file);
+        // Audio encoders may combine or split PCM inputs; route packets by time, not input count.
+        const files = [...this.files.values()];
+        const file = files.find((item) => item.expectsAudio && (item.endUs === undefined || chunk.timestamp < item.endUs));
+        if (!file) return;
+        const firstAudio = file.audioChunks === 0;
+        const info = firstAudio && !meta?.decoderConfig && this.audioConfig ? { ...meta, decoderConfig: this.audioConfig } : meta;
+        try {
+          file.muxer.addAudioChunk(chunk, info);
+          file.audioChunks += 1;
+          this.audioOutputGuard.noteFrame();
+        } catch (cause) {
+          this.audioFailure(cause);
+          return;
+        }
+        for (const pending of files) this.settle(pending);
       },
       error: (cause) => {
-        this.audioRuns.delete(encoder);
-        this.noteAudioLost(errorText(cause));
+        if (token !== this.audioEncoderToken) return;
+        this.audioFailure(cause);
       },
     });
     try {
@@ -360,55 +566,46 @@ export class SegmentRecorder {
       return undefined;
     }
     this.audioEncoder = encoder;
-    this.audioRuns.set(encoder, queue);
     return encoder;
   }
 
-  private async pumpAudio(choice: AudioChoice): Promise<void> {
+  private async pumpAudio(reader: ReadableStreamDefaultReader<AudioData>, token: number, choice: AudioChoice): Promise<void> {
     for (;;) {
-      if (!this.pumping || this.closed) return;
-      const track = this.audioTrack;
-      if (!track || track.readyState !== 'live') {
-        this.noteAudioLost('音频轨道已结束');
+      const step = await reader.read().catch(() => ({ done: true, value: undefined }) as ReadableStreamReadResult<AudioData>);
+      if (!this.pumping || this.closed || token !== this.audioToken) {
+        step.value?.close();
         return;
       }
-      const reader = new MediaStreamTrackProcessor<AudioData>({ track }).readable.getReader();
-      this.audioReader = reader;
-      for (;;) {
-        const step = await reader.read().catch(() => ({ done: true, value: undefined }) as ReadableStreamReadResult<AudioData>);
-        if (!this.pumping || this.closed) {
-          step.value?.close();
-          return;
-        }
-        if (step.done || !step.value) break;
-        const data = step.value;
-        try {
-          if (this.audioLost) this.reopenAudioFile();
-          const encoder = this.audioEncoderFor(choice);
-          const file = this.current;
-          if (encoder && encoder.state === 'configured') {
-            encoder.encode(data);
-            file.pendingAudio += 1;
-            this.audioRuns.get(encoder)?.push(file.id);
-          }
-        } catch (cause) {
-          this.noteAudioLost(errorText(cause));
-        } finally {
-          data.close();
-        }
+      if (step.done || !step.value) break;
+      const data = step.value;
+      try {
+        if (this.audioLost) this.recoverAudio();
+        this.guard.noteFrame();
+        const encoder = this.audioEncoderFor(choice);
+        if (encoder && encoder.state === 'configured') encoder.encode(data);
+      } catch (cause) {
+        this.audioFailure(cause);
+      } finally {
+        data.close();
       }
-      this.audioReader = undefined;
-      void reader.cancel().catch(() => undefined);
-      if (!this.pumping || this.closed) return;
-      this.noteAudioLost('音频数据流中断');
-      await sleepMs(audioRetryMs);
     }
-  }
-
-  private reopenAudioFile(): void {
-    this.audioLost = false;
-    this.sink.onAudio?.('recovered');
-    if (this.current.chunks > 0) this.rotate();
+    this.audioReader = undefined;
+    void reader.cancel().catch(() => undefined);
+    if (!this.pumping || this.closed || token !== this.audioToken) return;
+    const track = this.audioTrack;
+    if (!track || track.readyState !== 'live') {
+      this.noteAudioLost('音频轨道已结束');
+      return;
+    }
+    this.noteAudioLost('音频数据流中断');
+    if (this.fatalSent) return;
+    if (!this.guard.spend()) {
+      this.fatal();
+      return;
+    }
+    await sleepMs(audioRetryMs);
+    if (!this.pumping || this.closed || token !== this.audioToken) return;
+    this.openAudioPump(choice);
   }
 
   private noteAudioLost(detail: string): void {
@@ -417,9 +614,22 @@ export class SegmentRecorder {
     this.sink.onAudio?.('lost', detail);
   }
 
+  private audioFailure(cause: unknown): void {
+    const detail = errorText(cause);
+    this.noteAudioLost(detail);
+    if (!this.guard.spend()) {
+      this.fatal();
+      return;
+    }
+    this.cutSegment();
+    const choice = this.audioChoice;
+    if (choice) this.restartAudio(choice);
+  }
+
   private fail(cause: unknown): void {
     if (!this.pumping) return;
     this.sink.onError(errorText(cause));
+    if (this.audioChoice && !this.closed && !this.fatalSent) this.audioFailure(cause);
   }
 }
 
@@ -459,7 +669,8 @@ function videoConfig(codec: string, spec: SegmentSpec, quality: number, quantize
     width: Math.max(2, spec.width),
     height: Math.max(2, spec.height),
     bitrate: nominalBps,
-    latencyMode: 'quality',
+    framerate: Math.max(1, spec.fps),
+    latencyMode: 'realtime',
   };
   if (codec.startsWith('avc')) base.avc = { format: 'avc' };
   if (quantizer) {

@@ -1,5 +1,5 @@
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
-import { loadSecret } from '../store/secret.js';
+import { readSecret } from '../store/secret.js';
 import { getConfig, saveConfig } from '../store/config.js';
 import { makeMessage, matchText, parseCommand } from './command.js';
 import { guestText, isOwner, resolveBind } from './bind.js';
@@ -19,7 +19,7 @@ export class QqBot {
   constructor(private source: BotSource) {}
 
   async start(): Promise<void> {
-    const secret = await loadSecret();
+    const secret = await readSecret();
     if (!secret.qqAppId || !secret.qqSecret) { this.state = 'unbound'; return; }
     this.bot?.stop();
     this.state = 'connecting'; this.source.changed();

@@ -42,6 +42,26 @@ function textValue(value: unknown): string {
   return '';
 }
 
+function durationMs(secondsValue: unknown, msValue: unknown): number {
+  const explicitMs = Number(msValue);
+  if (Number.isFinite(explicitMs) && explicitMs > 0) return Math.min(360000, Math.round(explicitMs));
+  const seconds = Number(secondsValue);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+  return Math.min(360000, Math.round(seconds <= 3600 ? seconds * 1000 : seconds));
+}
+
+function timeMs(value: unknown): number {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    return value > 1e12 ? value : Math.round(value * 1000);
+  }
+  if (typeof value !== 'string' || !value.trim()) return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric > 1e12 ? numeric : Math.round(numeric * 1000);
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function normalizeBattle(raw: unknown, salmon = false): BattleMatch | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const data = raw as Record<string, unknown>;
@@ -49,20 +69,19 @@ export function normalizeBattle(raw: unknown, salmon = false): BattleMatch | und
   const detail = (root.vsHistoryDetail ?? root.coopHistoryDetail ?? root) as Record<string, unknown>;
   const id = String(valueOf(detail, ['id', 'matchId', 'uuid']) ?? '');
   if (!id) return undefined;
-  const durationValue = Number(valueOf(detail, ['duration', 'durationMs']) ?? 0);
-  const duration = Number.isFinite(durationValue) ? (durationValue > 10000 ? durationValue : durationValue * 1000) : 0;
-  const played = valueOf(detail, ['playedTime', 'playedAt']);
-  const ended = valueOf(detail, ['endAt', 'endedAt']);
-  const playedAt = typeof played === 'number' ? played : Date.parse(String(played ?? ''));
-  const endedAt = typeof ended === 'number' ? ended : Date.parse(String(ended ?? ''));
-  const endAt = Number.isFinite(endedAt) ? endedAt : Number.isFinite(playedAt) ? playedAt + duration : Date.now();
-  const clock = matchClock(Number.isFinite(endAt) ? endAt : Date.now(), duration);
+  const playedAt = timeMs(valueOf(detail, ['playedTime', 'playedAt']));
+  const endedAt = timeMs(valueOf(detail, ['endAt', 'endedAt']));
+  let duration = durationMs(valueOf(detail, ['duration']), valueOf(detail, ['durationMs']));
+  if (!duration && playedAt && endedAt > playedAt) duration = Math.min(360000, Math.round(endedAt - playedAt));
+  const endAt = endedAt || (playedAt && duration ? playedAt + duration : 0);
+  const timeExact = Boolean(endAt && duration && endAt > playedAt);
+  const clock = timeExact ? matchClock(endAt, duration) : { startAt: 0, endAt: 0, duration: 0 };
   const mode = textValue(valueOf(detail, ['vsMode', 'mode', 'coopRule']));
   const rule = textValue(valueOf(detail, ['rule', 'vsRule', 'coopStage']));
   const bankara = valueOf(detail, ['bankaraMatch']) as Record<string, unknown> | undefined;
   const judgement = String(valueOf(detail, ['judgement', 'result', 'outcome']) ?? '');
   const disconnected = Boolean(valueOf(detail, ['isDisconnected', 'disconnected'])) || /DISCONNECT|EXEMPTED/i.test(judgement);
-  return { matchId: id, kind: battleKind(mode, rule, salmon, textValue(bankara)), mode, rule, startAt: clock.startAt, endAt: clock.endAt, duration: clock.duration, result: judgement, isDisconnected: disconnected, isSalmon: salmon || /COOP|SALMON/i.test(mode) || Boolean(detail.coopStage), rawData: raw };
+  return { matchId: id, kind: battleKind(mode, rule, salmon, textValue(bankara)), mode, rule, startAt: clock.startAt, endAt: clock.endAt, duration: clock.duration, result: judgement, isDisconnected: disconnected, isSalmon: salmon || /COOP|SALMON/i.test(mode) || Boolean(detail.coopStage), timeExact, rawData: raw };
 }
 
 export function normalizeList(raw: unknown): BattleMatch[] {

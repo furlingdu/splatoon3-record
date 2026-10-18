@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { activeStream, applySize, closeStream, listDevices, openStream, planSize, probeFps, recordAudioTrack, streamInfo } from './device.js';
+import { activeStream, applySize, closeStream, listDevices, openStream, planSize, probeFps, recordAudioSource, recordAudioTrack, streamInfo } from './device.js';
 import { fpsOptions } from '../../shared/capture.js';
-import { clearRecord, planFormat, recordAudio, recordEncoder, recordError, recordFormat, recordState, setRecordQuality, startRecord, stopRecord } from './record.js';
+import { clearRecord, planFormat, recordAudio, recordAudioHealth, recordEncoder, recordError, recordFormat, recordState, recordVideoHealth, setRecordQuality, startRecord, stopRecord } from './record.js';
 import type { AppStatus, CaptureDevice, RecordSettings, RecordState } from '../../shared/types.js';
 
 export interface SessionView {
@@ -29,6 +29,8 @@ let seeded = false;
 let running = false;
 const listeners = new Set<(view: SessionView) => void>();
 const deviceless: Promise<void> = Promise.resolve();
+let heartbeatUsers = 0;
+let heartbeatTimer: number | undefined;
 
 function captureView(): SessionView {
   const info = streamInfo();
@@ -62,15 +64,36 @@ function reportCapture(): void {
     height: view.height,
     fps: view.fps,
     format: view.format,
+    pixelFormat: desire?.captureFormat,
     encoder: view.encoder,
     hasAudio: view.hasAudio,
     audio: recordAudio(),
+    audioSource: recordAudioSource(),
+    audioHealth: recordAudioHealth(),
+    videoHealth: recordVideoHealth(),
   });
 }
 
 function refreshView(): void {
   emitView();
   reportCapture();
+}
+
+function stopCaptureHeartbeat(): void {
+  if (heartbeatTimer !== undefined) {
+    window.clearInterval(heartbeatTimer);
+    heartbeatTimer = undefined;
+  }
+}
+
+function updateCaptureHeartbeat(enabled: boolean): void {
+  heartbeatUsers += enabled ? 1 : -1;
+  if (heartbeatUsers > 0 && heartbeatTimer === undefined) {
+    heartbeatTimer = window.setInterval(reportCapture, 5000);
+  } else if (heartbeatUsers <= 0) {
+    heartbeatUsers = 0;
+    stopCaptureHeartbeat();
+  }
 }
 
 export function applySettings(next?: RecordSettings): Promise<void> {
@@ -104,12 +127,10 @@ async function reconcileSettings(): Promise<void> {
       } catch (cause) {
         error = messageOf(cause);
       }
-      const negotiated = negotiatedSettings(target);
-      applied = negotiated.settings;
-      appliedKey = settingsKey(applied);
+      applied = target;
+      appliedKey = settingsKey(target);
       if (!error && wanted && rebuilt) await beginRecord();
       refreshView();
-      if (negotiated.pending) break;
     }
   } finally {
     running = false;
@@ -120,40 +141,26 @@ async function reconcileSettings(): Promise<void> {
 
 async function openTarget(target: RecordSettings, previous?: RecordSettings): Promise<boolean> {
   const deviceChanged = !previous || previous.videoDevice !== target.videoDevice || previous.audioDevice !== target.audioDevice
-    || previous.desktopAudio !== target.desktopAudio || previous.micAudio !== target.micAudio || previous.micDevice !== target.micDevice;
+    || previous.desktopAudio !== target.desktopAudio || previous.micAudio !== target.micAudio || previous.micDevice !== target.micDevice
+    || previous.captureFormat !== target.captureFormat;
   if (deviceChanged || !activeStream()) {
     await stopRecord();
-    const stream = await openStream(target);
+    const stream = await openStream(target, true).catch(() => openStream(target));
     planFormat(stream);
     if (!sizeMatched(target)) await applySize(target.width, target.height, target.fps);
     await probeFps(fpsOptions);
-    if (!sizeMatched(target)) await applySize(target.width, target.height, target.fps);
     return true;
   }
   if (previous.width === target.width && previous.height === target.height && previous.fps === target.fps) return false;
   if (await applySize(target.width, target.height, target.fps)) {
     await probeFps(fpsOptions);
-    if (!sizeMatched(target)) await applySize(target.width, target.height, target.fps);
     return true;
   }
   await stopRecord();
-  const stream = await openStream(target);
+  const stream = await openStream(target, true).catch(() => openStream(target));
   planFormat(stream);
-  await probeFps(fpsOptions);
+  if (!sizeMatched(target)) await applySize(target.width, target.height, target.fps);
   return true;
-}
-
-function negotiatedSettings(target: RecordSettings): { settings: RecordSettings; pending: boolean } {
-  const info = streamInfo();
-  if (!info.width || !info.height || sizeMatched(target)) return { settings: target, pending: false };
-  const settled: RecordSettings = {
-    ...target,
-    width: info.width,
-    height: info.height,
-    fps: Math.round(info.fps) > 0 ? Math.round(info.fps) : target.fps,
-  };
-  void window.recordApi.saveSettings(settled);
-  return { settings: settled, pending: true };
 }
 
 function sizeMatched(target: RecordSettings): boolean {
@@ -214,6 +221,11 @@ export function useSession(status?: AppStatus, enabled = true): SessionView {
   }, [enabled, status?.settings]);
   useEffect(() => {
     if (!enabled) return;
+    updateCaptureHeartbeat(true);
+    return () => updateCaptureHeartbeat(false);
+  }, [enabled]);
+  useEffect(() => {
+    if (!enabled) return;
     void refreshDevices();
     const handler = (): void => {
       void refreshDevices();
@@ -246,5 +258,5 @@ function messageOf(cause: unknown): string {
 }
 
 function settingsKey(settings: RecordSettings): string {
-  return `${settings.videoDevice}:${settings.audioDevice}:${settings.width}x${settings.height}@${settings.fps}:${settings.desktopAudio ? 1 : 0}:${settings.micAudio ? 1 : 0}:${settings.micDevice ?? ''}`;
+  return `${settings.videoDevice}:${settings.audioDevice}:${settings.width}x${settings.height}@${settings.fps}:${settings.captureFormat}:${settings.desktopAudio ? 1 : 0}:${settings.micAudio ? 1 : 0}:${settings.micDevice ?? ''}`;
 }

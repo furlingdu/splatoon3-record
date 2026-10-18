@@ -5,6 +5,7 @@ let stream: MediaStream | undefined;
 let recordTrack: MediaStreamTrack | undefined;
 let extraStreams: MediaStream[] = [];
 let mixContext: AudioContext | undefined;
+let recordSourceLabel = '';
 let desiredSize: { width: number; height: number; fps: number } | undefined;
 let mediaQueue: Promise<unknown> = Promise.resolve();
 let revision = 0;
@@ -33,6 +34,15 @@ export function activeStream(): MediaStream | undefined {
 export function recordAudioTrack(): MediaStreamTrack | undefined {
   const track = recordTrack;
   return track && track.readyState === 'live' ? track : undefined;
+}
+
+export function recordAudioSource(): string | undefined {
+  return recordSourceLabel || undefined;
+}
+
+export function resumeRecordAudio(): void {
+  const context = mixContext;
+  if (context && context.state === 'suspended') void context.resume().catch(() => undefined);
 }
 
 let previewView: MediaStream | undefined;
@@ -171,7 +181,9 @@ function trackCaps(track: MediaStreamTrack): DeviceCaps | undefined {
 }
 
 function probeRequest(id: string): MediaTrackConstraints {
-  return { deviceId: { exact: id } };
+  const base: MediaTrackConstraints = { deviceId: { exact: id } };
+  if (!desiredSize) return base;
+  return { ...base, width: { ideal: desiredSize.width }, height: { ideal: desiredSize.height }, frameRate: { ideal: desiredSize.fps } };
 }
 
 async function grantLabels(): Promise<void> {
@@ -185,19 +197,20 @@ async function grantLabels(): Promise<void> {
   }
 }
 
-export function openStream(settings: RecordSettings): Promise<MediaStream> {
-  return queueMedia(() => openDevice(settings));
+export function openStream(settings: RecordSettings, exactSize = false): Promise<MediaStream> {
+  return queueMedia(() => openDevice(settings, exactSize));
 }
 
-async function openDevice(settings: RecordSettings): Promise<MediaStream> {
+async function openDevice(settings: RecordSettings, exactSize: boolean): Promise<MediaStream> {
   const videoId = await resolveDevice('videoinput', settings.videoDevice);
   const audioId = await resolveDevice('audioinput', settings.audioDevice);
   const micId = settings.micAudio ? await resolveDevice('audioinput', settings.micDevice ?? '') : undefined;
   const video: MediaTrackConstraints | false = videoId
     ? {
       deviceId: { exact: videoId },
-      width: { ideal: settings.width },
-      height: { ideal: settings.height },
+      width: exactSize ? { exact: settings.width } : { ideal: settings.width },
+      height: exactSize ? { exact: settings.height } : { ideal: settings.height },
+      frameRate: exactSize ? { exact: settings.fps } : { ideal: settings.fps },
     }
     : false;
   const audio: MediaTrackConstraints | false = audioId
@@ -209,9 +222,11 @@ async function openDevice(settings: RecordSettings): Promise<MediaStream> {
   const camera = await openCamera({ video, audio });
   try {
     recordTrack = await openRecordTrack(camera, settings, micId);
+    recordSourceLabel = sourceLabel(settings, micId, camera.getAudioTracks().length > 0);
   } catch (cause) {
     camera.getTracks().forEach((track) => track.stop());
     recordTrack = undefined;
+    recordSourceLabel = '';
     stopExtras();
     throw cause;
   }
@@ -255,6 +270,11 @@ async function openMicTrack(id: string): Promise<MediaStreamTrack> {
   });
   extraStreams.push(mic);
   return mic.getAudioTracks()[0];
+}
+
+function sourceLabel(settings: RecordSettings, micId: string | undefined, captureAudio: boolean): string {
+  const sources = [settings.desktopAudio ? '电脑声音' : captureAudio ? '采集卡音频' : '', micId ? '麦克风' : ''].filter(Boolean);
+  return sources.join('+') || '';
 }
 
 function mixTracks(tracks: MediaStreamTrack[]): MediaStreamTrack {
@@ -322,8 +342,15 @@ export async function applySize(width: number, height: number, fps: number): Pro
   const track = stream?.getVideoTracks()[0];
   if (!track) return false;
   desiredSize = { width, height, fps };
-  const applied = await track.applyConstraints({ width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: fps } }).then(() => true).catch(() => false);
-  return applied && sizeApplied(track, width, height, fps);
+  const attempts: MediaTrackConstraints[] = [
+    { width: { exact: width }, height: { exact: height }, frameRate: { exact: fps } },
+    { width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: fps } },
+  ];
+  for (const constraints of attempts) {
+    const applied = await track.applyConstraints(constraints).then(() => true).catch(() => false);
+    if (applied && sizeApplied(track, width, height, fps)) return true;
+  }
+  return false;
 }
 
 function sizeApplied(track: MediaStreamTrack, width: number, height: number, fps: number): boolean {
@@ -339,6 +366,7 @@ function sizeApplied(track: MediaStreamTrack, width: number, height: number, fps
 export function closeStream(): void {
   fpsCache.clear();
   recordTrack = undefined;
+  recordSourceLabel = '';
   stopExtras();
   if (!stream) return;
   stream.getTracks().forEach((track) => track.stop());

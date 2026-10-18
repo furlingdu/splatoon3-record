@@ -1,6 +1,6 @@
 export const appName = 'Splatoon3 Record';
 export const projectName = 'Splatoon3Record';
-export const projectVersion = '2.3.0';
+export const projectVersion = '2.4.0';
 export const projectUrl = 'https://github.com/furlingdu/splatoon3-record';
 export const authorName = '澪度';
 export const avatarUrl = 'https://q2.qlogo.cn/headimg_dl?dst_uin=3648192311&spec=640';
@@ -20,6 +20,8 @@ export const livePortDefault = 11567;
 export const updateProxyDefault = 'https://gh-proxy.com/';
 export const livePortRange = { min: 1024, max: 65535 };
 export const nsoBackendDefault = 'https://znca.furlingdu.com';
+export const nsoAccountLimit = 5;
+export const defaultThemeColor = '#4285f4';
 export const localPortRange = { min: 10000, max: 65535 };
 export const liveTimesliceMs = 1000;
 export const blurConfidence = 0.2;
@@ -36,6 +38,7 @@ export const defaultSettings = {
   desktopAudio: false,
   micAudio: false,
   micDevice: '',
+  captureFormat: 'nv12' as const,
   width: 1920,
   height: 1080,
   fps: 60,
@@ -51,4 +54,7 @@ export const defaultSettings = {
   pollSeconds: 10,
   updateProxy: false,
   updateCheck: true,
+  themeColor: defaultThemeColor,
+  backgroundPath: '',
+  backgroundDim: 40,
 };

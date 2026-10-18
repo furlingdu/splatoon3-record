@@ -64,4 +64,39 @@ describe('makeQuery', () => {
     await expect(makeQuery(client).getBattles()).rejects.toThrow('network down');
     expect(client.request).toHaveBeenCalledTimes(1);
   });
+
+  it('历史摘要缺少时间且详情失败时不返回可裁剪对局', async () => {
+    const summaries = Array.from({ length: 35 }, (_, index) => ({
+      vsHistoryDetail: { id: `history-${index}`, vsMode: 'BANKARA', rule: 'AREA' },
+    }));
+    const raw = { data: { latestBattleHistories: { historyGroups: { nodes: [{ historyDetails: { nodes: summaries } }] } } } };
+    const request = vi.fn(async (hash: string) => {
+      if (hash === queryHash.latest) return raw;
+      throw new Error('detail timeout');
+    });
+    const client = { request } as unknown as SplatnetClient;
+    const list = await makeQuery(client, { accountId: '1001', nickname: '小号' }, () => undefined).getBattles();
+    expect(list).toEqual([]);
+    const detailCalls = request.mock.calls.filter(([hash]) => hash === queryHash.detail);
+    expect(detailCalls).toHaveLength(3);
+  });
+
+  it('详情失败后不退回摘要，详情恢复后可以正常处理', async () => {
+    const summary = { vsHistoryDetail: { id: 'recover', vsMode: 'BANKARA', rule: 'AREA' } };
+    const raw = { data: { latestBattleHistories: { historyGroups: { nodes: [{ historyDetails: { nodes: [summary] } }] } } } };
+    let fail = true;
+    const request = vi.fn(async (hash: string) => {
+      if (hash === queryHash.latest) return raw;
+      if (fail) throw new Error('temporary');
+      return { data: { vsHistoryDetail: { id: 'recover', playedTime: '2026-01-01T00:55:00Z', duration: 180, vsMode: 'BANKARA', rule: 'AREA', judgement: 'WIN' } } };
+    });
+    vi.setSystemTime(Date.parse('2026-01-01T01:00:00Z'));
+    const query = makeQuery({ request } as unknown as SplatnetClient, { accountId: '1001', nickname: '小号' }, () => undefined);
+    expect(await query.getBattles()).toEqual([]);
+    fail = false;
+    vi.setSystemTime(Date.parse('2026-01-01T01:01:10Z'));
+    const list = await query.getBattles();
+    expect(list.map((match) => match.key)).toEqual(['1001:recover']);
+    expect(list[0].timeExact).toBe(true);
+  });
 });

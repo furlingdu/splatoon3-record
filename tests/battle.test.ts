@@ -65,6 +65,32 @@ describe('normalizeBattle', () => {
   it('缺少 id 时返回 undefined', () => {
     expect(normalizeBattle({ vsHistoryDetail: {} })).toBeUndefined();
   });
+
+  it('缺少时间和时长时不再补成当前时间', () => {
+    const before = Date.now();
+    const match = normalizeBattle({ vsHistoryDetail: { id: 'summary-only', vsMode: 'REGULAR', rule: 'TURF_WAR' } });
+    expect(match).toBeDefined();
+    expect(match?.timeExact).toBe(false);
+    expect(match?.endAt).toBe(0);
+    expect(match?.duration).toBe(0);
+    expect(match?.endAt).toBeLessThan(before + 1000);
+  });
+
+  it('只有开始时间但缺少时长时不可裁剪', () => {
+    const match = normalizeBattle({ vsHistoryDetail: { id: 'no-duration', playedTime: '2023-11-14T12:00:00Z' } });
+    expect(match?.timeExact).toBe(false);
+    expect(match?.endAt).toBe(0);
+  });
+
+  it('短时长按秒解析，不超过对局上限', () => {
+    const match = normalizeBattle({ vsHistoryDetail: { id: 'short', playedTime: '2023-11-14T12:00:00Z', duration: 3 } });
+    expect(match?.duration).toBe(3000);
+  });
+
+  it('durationMs 字段按毫秒解析', () => {
+    const match = normalizeBattle({ vsHistoryDetail: { id: 'ms', playedTime: '2023-11-14T12:00:00Z', durationMs: 5000 } });
+    expect(match?.duration).toBe(5000);
+  });
 });
 
 describe('normalizeList', () => {

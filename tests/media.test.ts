@@ -155,6 +155,14 @@ describe('cropVideo', () => {
 });
 
 describe('probeAudio', () => {
+  it('长分段只探测首包，不需要解码完整音轨', async () => {
+    await withTempDir('s3rProbeLongAudio', async (folder) => {
+      const source = join(folder, 'long.mp4');
+      await runFFmpeg(['-f', 'lavfi', '-i', 'sine=frequency=440:duration=600', '-c:a', 'aac', source]);
+      expect(await probeAudio(source)).toBe(true);
+    });
+  });
+
   it('区分有音轨与只有视频轨的文件', async () => {
     await withTempDir('s3rProbeAudio', async (folder) => {
       const voiced = join(folder, 'voiced.mp4');

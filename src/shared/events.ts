@@ -8,6 +8,9 @@ export const ipcNames = {
   openNsoLogin: 'nso:login',
   clearNsoLogin: 'nso:clear-login',
   unbindNso: 'nso:unbind',
+  deleteNsoAccount: 'nso:delete-account',
+  selectNsoAccount: 'nso:select-account',
+  pickBackground: 'background:pick',
   startQqLogin: 'qq:login',
   unbindQq: 'qq:unbind',
   listMatches: 'match:list',
@@ -36,6 +39,7 @@ export const ipcNames = {
   detectFrame: 'detect:frame',
   stopDetect: 'detect:stop',
   copyText: 'clipboard:write',
+  listModes: 'capture:modes',
   saveReport: 'report:save',
   updateState: 'update:get',
   updateCheck: 'update:check',
@@ -44,4 +48,5 @@ export const ipcNames = {
   openPreview: 'preview:open',
   togglePreviewFullscreen: 'preview:fullscreen',
   getRuntimeInfo: 'runtime:info',
+  relaunchApp: 'app:relaunch',
 } as const;

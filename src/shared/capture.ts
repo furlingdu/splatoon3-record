@@ -1,8 +1,55 @@
-import type { CaptureDevice } from './types.js';
+import type { CaptureDevice, CaptureFormat, CaptureMode } from './types.js';
 
 export interface Resolution {
   width: number;
   height: number;
+}
+
+export function formatLabel(format: CaptureFormat): string {
+  return format === 'yuy2' ? 'YUY2' : 'NV12';
+}
+
+export function modeFormats(modes: CaptureMode[], current?: CaptureFormat): CaptureFormat[] {
+  if (!modes.length) return current ? [current] : ['nv12', 'yuy2'];
+  const list: CaptureFormat[] = [];
+  for (const item of modes) if (!list.includes(item.format)) list.push(item.format);
+  if (current && !list.includes(current)) list.push(current);
+  return list;
+}
+
+export function modeResolutions(modes: CaptureMode[], format: CaptureFormat): Resolution[] {
+  const list: Resolution[] = [];
+  for (const item of modes) {
+    if (item.format === format && !list.some((hit) => hit.width === item.width && hit.height === item.height)) list.push({ width: item.width, height: item.height });
+  }
+  return list.sort((left, right) => right.width * right.height - left.width * left.height);
+}
+
+export function modeFpsList(modes: CaptureMode[], format: CaptureFormat, width: number, height: number, current?: number): number[] {
+  const list = new Set<number>();
+  for (const item of modes) {
+    if (item.format !== format || item.width !== width || item.height !== height) continue;
+    for (const fps of [...fpsOptions, item.minFps, item.maxFps, current ?? 0]) {
+      const rounded = Math.round(fps);
+      if (rounded >= item.minFps && rounded <= item.maxFps) list.add(rounded);
+    }
+  }
+  return [...list].sort((left, right) => left - right);
+}
+
+export function clampModeFps(mode: CaptureMode, fps: number): number {
+  return Math.min(mode.maxFps, Math.max(mode.minFps, Math.round(fps)));
+}
+
+export function pickMode(modes: CaptureMode[], format: CaptureFormat, width: number, height: number, fps: number): CaptureMode | undefined {
+  const candidates = modes.filter((item) => item.format === format);
+  if (!candidates.length) return undefined;
+  const ranked = candidates.slice().sort((left, right) => modeGap(left, width, height, fps) - modeGap(right, width, height, fps));
+  return ranked[0];
+}
+
+function modeGap(mode: CaptureMode, width: number, height: number, fps: number): number {
+  return Math.abs(mode.width * mode.height - width * height) * 1000 + Math.abs(mode.width - width) + Math.abs(mode.height - height) + Math.max(0, mode.minFps - fps, fps - mode.maxFps) * 100;
 }
 
 export interface MimeChoice {

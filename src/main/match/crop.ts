@@ -5,6 +5,7 @@ import { runFFmpeg } from '../media/ffmpeg.js';
 import { probeAudio } from '../media/video.js';
 import { matchFileName } from '../../shared/nso.js';
 import { tempPath, videoPath } from '../store/path.js';
+import { logApp } from '../store/log.js';
 import { cropParts, type CropPart } from './clock.js';
 import type { BattleMatch, RecordSettings, VideoRecord } from '../../shared/types.js';
 
@@ -28,13 +29,26 @@ export async function cropVideo(records: VideoRecord[], match: BattleMatch, fold
   const target = targetSize(parts[0].record, settings);
   const output = join(folder || videoPath, `${matchFileName(match)}.mp4`);
   await mkdir(folder || videoPath, { recursive: true }).catch(() => undefined);
-  const done = await runLadder(settings.encoder, { kind: 'quality', quality: settings.quality }, 'hevc', (rung) => renderParts(parts, rung, target, output));
+  const done = await runLadder(settings.encoder, { kind: 'quality', quality: settings.quality }, 'hevc', (rung) => {
+    const archiveRung = archivePreset(rung);
+    const presetIndex = archiveRung.encodeArgs.indexOf('-preset');
+    const preset = presetIndex >= 0 ? archiveRung.encodeArgs[presetIndex + 1] : 'default';
+    return cropStage(`render file=${basename(output)} parts=${parts.length} size=${target.width}x${target.height}@${target.fps} encode=${archiveRung.encode} decode=${archiveRung.decode ?? 'software'} preset=${preset ?? 'default'}`, () => renderParts(parts, archiveRung, target, output));
+  });
   if (!done) await rm(output, { force: true }).catch(() => undefined);
   return done;
 }
 
+function archivePreset(rung: AccelRung): AccelRung {
+  if (rung.encode !== 'hevc_nvenc') return rung;
+  const encodeArgs = [...rung.encodeArgs];
+  const preset = encodeArgs.indexOf('-preset');
+  if (preset >= 0) encodeArgs[preset + 1] = 'p3';
+  return { ...rung, encodeArgs };
+}
+
 async function renderParts(parts: CropPart[], rung: AccelRung, target: TargetSize, output: string): Promise<string> {
-  const audible = await Promise.all(parts.map((part) => partAudible(part.record)));
+  const audible = await cropStage(`audio-probe file=${basename(output)} parts=${parts.length}`, () => Promise.all(parts.map((part) => partAudible(part.record))));
   const wantAudio = audible.some(Boolean);
   if (parts.length === 1) {
     const silent = wantAudio && !audible[0];
@@ -57,7 +71,7 @@ async function renderParts(parts: CropPart[], rung: AccelRung, target: TargetSiz
     }
     const list = join(work, 'list.txt');
     await writeFile(list, pieces.map((name) => `file '${name}'`).join('\n'), 'utf8');
-    await runFFmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-tag:v', 'hvc1', '-movflags', '+faststart', output]);
+    await cropStage(`concat file=${basename(output)} parts=${parts.length}`, () => runFFmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-tag:v', 'hvc1', '-movflags', '+faststart', output]));
     return output;
   } catch (cause) {
     await rm(output, { force: true }).catch(() => undefined);
@@ -78,7 +92,20 @@ async function partAudible(record: VideoRecord): Promise<boolean> {
 }
 
 function renderPiece(part: CropPart, rung: AccelRung, target: TargetSize, output: string, wantAudio: boolean, silent: boolean, mp4: boolean): Promise<void> {
-  return runFFmpeg(pieceArgs(part, rung, target, output, wantAudio, silent, mp4));
+  return cropStage(`piece file=${basename(output)} duration=${part.duration.toFixed(3)} encode=${rung.encode} decode=${rung.decode ?? 'software'}`, () => runFFmpeg(pieceArgs(part, rung, target, output, wantAudio, silent, mp4)));
+}
+
+async function cropStage<T>(label: string, task: () => Promise<T>): Promise<T> {
+  const startedAt = performance.now();
+  logApp(`crop ${label} start`);
+  try {
+    const result = await task();
+    logApp(`crop ${label} done ms=${Math.round(performance.now() - startedAt)}`);
+    return result;
+  } catch (cause) {
+    logApp(`crop ${label} failed ms=${Math.round(performance.now() - startedAt)}`);
+    throw cause;
+  }
 }
 
 function pieceArgs(part: CropPart, rung: AccelRung, target: TargetSize, output: string, wantAudio: boolean, silent: boolean, mp4: boolean): string[] {

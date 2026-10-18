@@ -16,11 +16,25 @@ describe('对局归档', () => {
       await writeFile(join(folder, 'vs-100.json'), JSON.stringify(match), 'utf8');
       await saveMatch(match, folder);
       const names = await listMatches(folder);
-      expect(names).toHaveLength(2);
+      expect(names).toHaveLength(1);
       await removeMatch(match, folder);
       expect(await missing(join(folder, 'vs-100.json'))).toBe(true);
       const safe = safeName(match.matchId);
       expect(await missing(join(folder, `${safe}.json`))).toBe(true);
+    });
+  });
+
+  it('不同账户的同一对局 ID 分开归档', async () => {
+    await withTempDir('s3rArchive', async (folder) => {
+      const first = makeMatch({ matchId: 'same-id', accountId: '1001' });
+      const second = makeMatch({ matchId: 'same-id', accountId: '1002' });
+      await saveMatch(first, folder);
+      await saveMatch(second, folder);
+      const names = await listMatches(folder);
+      expect(names.map((item) => item.key).sort()).toEqual(['1001:same-id', '1002:same-id']);
+      await removeMatch(first, folder);
+      const left = await listMatches(folder);
+      expect(left.map((item) => item.key)).toEqual(['1002:same-id']);
     });
   });
 

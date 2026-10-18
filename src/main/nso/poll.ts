@@ -14,10 +14,12 @@ export class BattlePoller {
     if (!this.running) return;
     try {
       const matches = await this.query.getBattles();
+      if (!this.running) return;
       this.failures = 0;
       this.listed(matches);
       for (const match of [...matches].reverse()) if (!this.handled(match)) void this.received(match).catch((error) => this.failed(error instanceof Error ? error : new Error(String(error))));
     } catch (error) {
+      if (!this.running) return;
       this.failures += 1;
       this.failed(error instanceof Error ? error : new Error(String(error)));
     } finally {

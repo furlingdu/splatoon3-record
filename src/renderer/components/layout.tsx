@@ -4,7 +4,7 @@ import { useElementEvent } from '../lib/event.js';
 import { appName } from '../../shared/constants.js';
 import appLogo from '../assets/appIcon.png';
 import characterImg from '../assets/character/character.png';
-import type { PageName } from '../../shared/types.js';
+import type { PageName, RecordSettings } from '../../shared/types.js';
 
 export const navItems: { page: PageName; label: string; icon: string }[] = [
   { page: 'status', label: '状态', icon: 'monitor' },
@@ -28,17 +28,22 @@ function useNarrowViewport(): boolean {
   return narrow;
 }
 
-function renderLayout(props: { page: PageName; onNavigate: (page: PageName) => void; children: ReactNode }): ReactNode {
-  const { page, onNavigate, children } = props;
+function renderLayout(props: { page: PageName; onNavigate: (page: PageName) => void; settings?: RecordSettings; children: ReactNode }): ReactNode {
+  const { page, onNavigate, settings, children } = props;
   const narrow = useNarrowViewport();
   const [drawerOpen, setDrawerOpen] = useState(() => !window.matchMedia('(max-width: 767px)').matches);
   useEffect(() => { setDrawerOpen(!narrow); }, [narrow]);
   const drawerRef = useElementEvent<HTMLElement>('close', () => setDrawerOpen(false));
   const syncOpen = useElementEvent<HTMLElement>('open', () => setDrawerOpen(true));
   const drawerEvents = (element: HTMLElement | null): void => { drawerRef(element); syncOpen(element); };
+  const background = settings?.backgroundPath;
+  const dim = Math.max(0, Math.min(100, settings?.backgroundDim ?? 40)) / 100;
+  const backgroundStyle = background
+    ? { backgroundImage: `linear-gradient(rgba(0,0,0,${dim}), rgba(0,0,0,${dim})), url("s3r-bg://local/bg?v=${encodeURIComponent(background)}")` }
+    : undefined;
   return (
     <mdui-layout className="app-layout">
-      <div className="bg-layer" />
+      <div className={background ? 'bg-layer bg-custom' : 'bg-layer'} style={backgroundStyle} />
       <mdui-top-app-bar>
         <img className="bar-logo" src={appLogo} alt="菜单" title="打开/关闭菜单" onClick={() => setDrawerOpen(!drawerOpen)} />
         <div className="bar-title">{appName}</div>
@@ -54,7 +59,7 @@ function renderLayout(props: { page: PageName; onNavigate: (page: PageName) => v
         </mdui-list>
       </mdui-navigation-drawer>
         <mdui-layout-main className="page-host">{children}</mdui-layout-main>
-        <img className="mascot" src={characterImg} alt="" />
+        {background ? null : <img className="mascot" src={characterImg} alt="" />}
       </mdui-layout>
   );
 }

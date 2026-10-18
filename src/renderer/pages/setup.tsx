@@ -219,13 +219,16 @@ function setupApp(): ReactElement {
           <div>
             <h3 className="section-title">绑定 Nintendo 账号</h3>
             <NsoApiNotice />
-            <div className="bind-info">点击下方按钮登录 Nintendo 账号并授权鱿鱼圈 3 数据读取，登录成功后应用才能检测对局结果。</div>
+            <div className="bind-info">点击下方按钮登录 Nintendo 账号并授权鱿鱼圈 3 数据读取，登录成功后应用才能检测对局结果。每次登录前都会自动清除登录窗口的 cookies。</div>
             <div className="setup-actions">
               <mdui-button variant="filled" onClick={() => void window.recordApi.openNsoLogin()}>登录 Nintendo 账号</mdui-button>
-              <mdui-button variant="tonal" onClick={() => void window.recordApi.clearNsoLogin()}>清空账户凭证数据后登录</mdui-button>
             </div>
             <div className="status-grid">
               <StateRow label="当前状态" state={status?.nsoState} />
+              <div className="status-row">
+                <span className="status-label">已绑定账户</span>
+                <span className="status-value">{status?.nsoAccounts?.length ?? 0} 个</span>
+              </div>
             </div>
             {status?.nsoState === 'error' && status?.nsoError ? <div className="bind-info">{status.nsoError}</div> : null}
             {status?.nsoState === 'connecting' ? (

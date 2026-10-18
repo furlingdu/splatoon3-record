@@ -24,19 +24,31 @@ process.env.ZNCA_API_URL = backendUrl;
 
 let appVersion = '';
 
-export async function coralToken(sessionToken: string): Promise<NsoToken> {
+export interface CoralAccountToken {
+  token: NsoToken;
+  accountId: string;
+  nickname: string;
+}
+
+export async function coralToken(sessionToken: string): Promise<CoralAccountToken> {
   
   await writeZncaConfig();
   try {
     const { nso, data } = await CoralApi.createWithSessionToken(sessionToken, fUserAgent);
-    logLogin(`coral account login ok user=${String(data.nsoAccount.user.id)} country=${data.user.country} name=${data.user.nickname}`);
+    const accountId = String(data.nsoAccount?.user?.id ?? data.user?.id ?? '');
+    const nickname = String(data.user?.nickname ?? '');
+    logLogin(`coral account login ok user=${accountId} country=${data.user.country} name=${nickname}`);
     const service = await nso.getWebServiceToken(webServiceId);
     logLogin('coral webservice token ok');
     const s3 = await SplatNet3Api.loginWithWebServiceToken(service, data.user);
     const bulletToken = String(s3.bullet_token.bulletToken || '');
     if (!bulletToken) throw new Error('bullet token 获取失败');
     logLogin(`coral bullet token ok version=${s3.version}`);
-    return { gToken: service.accessToken, bulletToken, language: data.user.language, country: data.user.country, userAgent: splatnetUserAgent, expiresAt: Date.now() + 7200000 };
+    return {
+      accountId: accountId || `unknown-${Date.now()}`,
+      nickname: nickname || 'Nintendo 账号',
+      token: { gToken: service.accessToken, bulletToken, language: data.user.language, country: data.user.country, userAgent: splatnetUserAgent, expiresAt: Date.now() + 7200000 },
+    };
   } catch (error) {
     throw new Error(loginErrorText(error), { cause: error });
   }

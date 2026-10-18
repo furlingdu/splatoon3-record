@@ -15,11 +15,13 @@ import { SetupApp } from './pages/setup.js';
 import { useSession } from './lib/session.js';
 import { sealNow } from './lib/record.js';
 import { previewStream } from './lib/device.js';
+import { directViewReady, drawTrack } from './lib/canvasview.js';
 import { setMonitorEnabled, syncMonitor } from './components/monitor.js';
 import { markSelectClick } from './lib/event.js';
 import type { AppStatus, PageName, UpdateState } from '../shared/types.js';
+import { defaultThemeColor } from '../shared/constants.js';
 
-setColorScheme('#4285F4');
+setColorScheme(defaultThemeColor);
 
 function useAppStatus(): AppStatus | undefined {
   const [status, setStatus] = useState<AppStatus>();
@@ -53,6 +55,9 @@ function mainApp(): React.ReactNode {
   useEffect(() => {
     syncMonitor();
   }, [session.hasAudio, session.revision]);
+  useEffect(() => {
+    setColorScheme(status?.settings.themeColor || defaultThemeColor);
+  }, [status?.settings.themeColor]);
 
   useEffect(() => {
     document.addEventListener('click', markSelectClick, true);
@@ -75,7 +80,7 @@ function mainApp(): React.ReactNode {
   }, []);
 
   return (
-    <Layout page={page} onNavigate={setPage}>
+    <Layout page={page} onNavigate={setPage} settings={status?.settings}>
       <div key={page} className="page-transition-wrapper">
         <PageView page={page} status={status} />
       </div>
@@ -85,12 +90,15 @@ function mainApp(): React.ReactNode {
 
 const PreviewApp = (): React.ReactElement => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     const opener = window.opener as (Window & { previewSource?: () => MediaStream | undefined }) | null;
     const video = videoRef.current;
+    const canvas = canvasRef.current;
     if (!video) return undefined;
     let sourceTrack: MediaStreamTrack | undefined;
     let clone: MediaStreamTrack | undefined;
+    let stopDraw: (() => void) | undefined;
     const sync = (): void => {
       let next: MediaStreamTrack | undefined;
       try {
@@ -102,16 +110,20 @@ const PreviewApp = (): React.ReactElement => {
         if (video.paused) void video.play().catch(() => undefined);
         return;
       }
+      stopDraw?.();
+      stopDraw = undefined;
       clone?.stop();
       sourceTrack = next?.readyState === 'live' ? next : undefined;
       clone = sourceTrack?.clone();
       video.srcObject = clone ? new MediaStream([clone]) : null;
       if (clone) void video.play().catch(() => undefined);
+      if (canvas && clone) stopDraw = drawTrack(canvas, clone);
     };
     sync();
     const timer = window.setInterval(sync, 500);
     return () => {
       window.clearInterval(timer);
+      stopDraw?.();
       clone?.stop();
       video.srcObject = null;
     };
@@ -125,7 +137,12 @@ const PreviewApp = (): React.ReactElement => {
     window.addEventListener('keydown', toggleFullscreen);
     return () => window.removeEventListener('keydown', toggleFullscreen);
   }, []);
-  return <video ref={videoRef} muted playsInline autoPlay style={{ display: 'block', width: '100vw', height: '100vh', objectFit: 'contain', background: '#000' }} />;
+  return (
+    <>
+      <video ref={videoRef} muted playsInline autoPlay style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh', objectFit: 'contain', background: '#000' }} />
+      {directViewReady() ? <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh', objectFit: 'contain', pointerEvents: 'none' }} /> : null}
+    </>
+  );
 };
 const MainApp = mainApp;
 

@@ -11,6 +11,7 @@ export function makeSettings(overrides: Partial<RecordSettings> = {}): RecordSet
     width: 3840,
     height: 2160,
     fps: 60,
+    captureFormat: 'nv12',
     flipVertical: false,
     encoder: 'auto',
     quality: 22,
@@ -23,6 +24,9 @@ export function makeSettings(overrides: Partial<RecordSettings> = {}): RecordSet
     updateCheck: true,
     blurNickname: false,
     monitorAudio: false,
+    themeColor: '#4285f4',
+    backgroundPath: '',
+    backgroundDim: 40,
     ...overrides,
   };
 }

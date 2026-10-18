@@ -25,8 +25,26 @@ export async function saveSecret(data: SecretData): Promise<void> {
   await writeFile(secretFile, JSON.stringify({ encrypted, value: buffer.toString('base64') }), { mode: 0o600 });
 }
 
+let secretQueue: Promise<unknown> = Promise.resolve();
+
+export async function readSecret(): Promise<SecretData> {
+  await secretQueue.catch(() => undefined);
+  return loadSecret();
+}
+
+export function updateSecret<T>(mutate: (data: SecretData) => T | Promise<T>): Promise<T> {
+  const task = secretQueue.then(async () => {
+    const data = await loadSecret();
+    const result = await mutate(data);
+    await saveSecret(data);
+    return result;
+  });
+  secretQueue = task.then(() => undefined, () => undefined);
+  return task;
+}
+
 export async function clearSecret(keys: (keyof SecretData)[]): Promise<void> {
-  const data = await loadSecret();
-  for (const key of keys) delete data[key];
-  await saveSecret(data);
+  await updateSecret((data) => {
+    for (const key of keys) delete data[key];
+  });
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import { durationText, kindNames, paintText, resultText, ruleName } from '../../shared/nso.js';
+import { durationText, kindNames, matchKey, paintText, resultText, ruleName } from '../../shared/nso.js';
 import { VideoPlayer } from '../components/player.js';
 import { iconSvg } from '../lib/icons.js';
 import type { BattleKind, BattleMatch } from '../../shared/types.js';
@@ -64,7 +64,7 @@ function matchesPage(): ReactElement {
       </div>
       {matches.length ? (
         <div className="match-list">
-          {matches.map((match) => <MatchRow key={match.matchId} match={match} onPlay={setPlaying} />)}
+          {matches.map((match) => <MatchRow key={matchKey(match)} match={match} onPlay={setPlaying} />)}
         </div>
       ) : (
         <div className="empty-tip">暂无对局记录</div>
@@ -86,12 +86,13 @@ function matchRow(props: { match: BattleMatch; onPlay: (match: BattleMatch) => v
   const stats = personalStats(match);
   const title = viewTitle(match);
   const state = match.isDisconnected ? '掉线' : resultText(match.result);
+  const recordState = match.videoPath ? '已录制' : match.skipReason ? '账户冲突，未自动裁剪' : '未录制';
   return (
     <div className="match-row">
       <div className="match-main">
         <div className="match-title">{title}</div>
         <div className="match-sub">
-          {new Date(match.endAt).toLocaleString('zh-CN')} · {durationText(match.duration)} · {state} · {match.videoPath ? '已录制' : '未录制'}
+          {match.accountNickname ? `${match.accountNickname} · ` : ''}{new Date(match.endAt).toLocaleString('zh-CN')} · {durationText(match.duration)} · {state} · {recordState}
         </div>
         <div className="match-sub">
           个人 K/D {stats.death ? (stats.kill / stats.death).toFixed(2) : '-'} · 击杀 {stats.kill} · 死亡 {stats.death} · 大招 {stats.special} · 涂地 {paintText(stats.paint)}
@@ -99,8 +100,8 @@ function matchRow(props: { match: BattleMatch; onPlay: (match: BattleMatch) => v
       </div>
       <div className="match-actions">
         <mdui-button variant="text" disabled={!match.videoPath} onClick={() => onPlay(match)}>播放录像</mdui-button>
-        <mdui-button variant="text" disabled={!match.videoPath} onClick={() => void window.recordApi.openMatch(match.matchId)}>打开位置</mdui-button>
-        <mdui-button variant="text" disabled={!match.videoPath} onClick={() => void window.recordApi.saveMatch(match.matchId)}>保存录像</mdui-button>
+        <mdui-button variant="text" disabled={!match.videoPath} onClick={() => void window.recordApi.openMatch(matchKey(match))}>打开位置</mdui-button>
+        <mdui-button variant="text" disabled={!match.videoPath} onClick={() => void window.recordApi.saveMatch(matchKey(match))}>保存录像</mdui-button>
       </div>
     </div>
   );

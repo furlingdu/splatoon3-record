@@ -1,4 +1,3 @@
-import { loadSecret, saveSecret } from '../store/secret.js';
 import type { NsoToken } from '../../shared/types.js';
 
 export const splatnetUrl = 'https://api.lp1.av5ja.srv.nintendo.net';
@@ -14,7 +13,7 @@ export const queryHash = {
 
 export class SplatnetClient {
   private token?: NsoToken;
-  constructor(token?: NsoToken) { this.token = token; }
+  constructor(token?: NsoToken, private persist?: (token: NsoToken) => Promise<void>) { this.token = token; }
 
   async request(hash: string, variable?: Record<string, unknown>): Promise<unknown> {
     if (!this.token) throw new Error('SplatNet 未登录');
@@ -38,8 +37,7 @@ export class SplatnetClient {
     const body = await response.json() as { bulletToken?: string };
     if (!body.bulletToken) throw new Error('未获取到 bullet token');
     this.token = { ...this.token, bulletToken: body.bulletToken, expiresAt: Date.now() + 7200000 };
-    const secret = await loadSecret();
-    await saveSecret({ ...secret, nsoToken: this.token });
+    await this.persist?.(this.token);
     return this.token;
   }
 

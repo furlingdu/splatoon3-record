@@ -1,5 +1,16 @@
 import type { BattleKind } from './types.js';
 
+export interface MatchIdentity {
+  matchId: string;
+  accountId?: string;
+  key?: string;
+}
+
+export function matchKey(match: MatchIdentity): string {
+  if (match.key) return match.key;
+  return match.accountId ? `${match.accountId}:${match.matchId}` : match.matchId;
+}
+
 
 export const kindNames: Record<BattleKind, string> = {
   regular: '占地对战',
@@ -51,11 +62,18 @@ export function matchTitle(match: { kind: BattleKind; endAt: number }): string {
   return `${kindNames[match.kind] ?? kindNames.unknown}-${new Date(match.endAt).toLocaleString('zh-CN')}`;
 }
 
-export function matchFileName(match: { kind: BattleKind; endAt: number }): string {
+export function matchFileName(match: { kind: BattleKind; endAt: number; accountId?: string }): string {
   const date = new Date(match.endAt);
   const pad = (value: number): string => String(value).padStart(2, '0');
   const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-  return `${kindNames[match.kind] ?? kindNames.unknown}-${stamp}`;
+  const suffix = match.accountId ? `-${shortHash(match.accountId)}` : '';
+  return `${kindNames[match.kind] ?? kindNames.unknown}-${stamp}${suffix}`;
+}
+
+function shortHash(text: string): string {
+  let hash = 2166136261;
+  for (const byte of new TextEncoder().encode(text)) hash = Math.imul(hash ^ byte, 16777619);
+  return (hash >>> 0).toString(16).padStart(8, '0').slice(0, 6);
 }
 
 export function paintText(value: number | string): string {

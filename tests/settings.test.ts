@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { join } from 'node:path';
 import { sanitizeSettings } from '../src/main/capture/settings.js';
-import { defaultSettings } from '../src/shared/constants.js';
+import { backgroundDir } from '../src/main/store/path.js';
+import { defaultSettings, defaultThemeColor } from '../src/shared/constants.js';
 import type { RecordSettings } from '../src/shared/types.js';
 
 describe('sanitizeSettings', () => {
@@ -17,10 +19,24 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ desktopAudio: true, micAudio: true, micDevice: 'mic1' }, base)).toMatchObject({ desktopAudio: true, micAudio: true, micDevice: 'mic1' });
   });
 
-  it('丢弃已移除的采集后端字段', () => {
+  it('保留并校验采集格式偏好', () => {
     const base: RecordSettings = { ...defaultSettings };
-    const settings = sanitizeSettings({ nv12Capture: true, captureFormat: 'yuy2' }, base) as unknown as Record<string, unknown>;
-    expect(settings.nv12Capture).toBeUndefined();
-    expect(settings.captureFormat).toBeUndefined();
+    expect(sanitizeSettings({}, base).captureFormat).toBe('nv12');
+    expect(sanitizeSettings({ captureFormat: 'yuy2' }, base).captureFormat).toBe('yuy2');
+    expect(sanitizeSettings({ captureFormat: 'invalid' }, base).captureFormat).toBe('nv12');
+  });
+
+  it('校验主题色与背景路径', () => {
+    const base: RecordSettings = { ...defaultSettings };
+    expect(sanitizeSettings({}, base).themeColor).toBe(defaultThemeColor);
+    expect(sanitizeSettings({ themeColor: '#FF9800' }, base).themeColor).toBe('#ff9800');
+    expect(sanitizeSettings({ themeColor: 'red' }, base).themeColor).toBe(defaultThemeColor);
+    const inside = join(backgroundDir, 'background-1.png');
+    expect(sanitizeSettings({ backgroundPath: inside }, base).backgroundPath).toBe(inside);
+    expect(sanitizeSettings({ backgroundPath: 'C:/Windows/win.ini' }, base).backgroundPath).toBe('');
+    expect(sanitizeSettings({}, base).backgroundDim).toBe(40);
+    expect(sanitizeSettings({ backgroundDim: 70 }, base).backgroundDim).toBe(70);
+    expect(sanitizeSettings({ backgroundDim: 200 }, base).backgroundDim).toBe(100);
+    expect(sanitizeSettings({ backgroundDim: -5 }, base).backgroundDim).toBe(0);
   });
 });

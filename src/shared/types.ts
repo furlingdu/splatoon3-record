@@ -13,6 +13,32 @@ export interface CaptureDevice {
   maxFps?: number;
 }
 
+export type CaptureFormat = 'nv12' | 'yuy2';
+export type CaptureBackend = 'dshow' | 'mf';
+
+export interface CaptureMode {
+  format: CaptureFormat;
+  width: number;
+  height: number;
+  minFps: number;
+  maxFps: number;
+}
+
+export interface AudioHealth {
+  fps: number;
+  ageMs: number;
+  rollbacks: number;
+  recoveries: number;
+  cuts: number;
+}
+
+export interface VideoHealth {
+  inputFrames: number;
+  encodedFrames: number;
+  droppedFrames: number;
+  queuePeak: number;
+}
+
 export interface CaptureReport {
   recordState: RecordState;
   error?: string;
@@ -20,9 +46,13 @@ export interface CaptureReport {
   height: number;
   fps: number;
   format?: string;
+  pixelFormat?: CaptureFormat;
   encoder?: string;
   hasAudio: boolean;
   audio?: string;
+  audioSource?: string;
+  audioHealth?: AudioHealth;
+  videoHealth?: VideoHealth;
 }
 
 export interface RecordSettings {
@@ -31,6 +61,7 @@ export interface RecordSettings {
   desktopAudio?: boolean;
   micAudio?: boolean;
   micDevice?: string;
+  captureFormat: CaptureFormat;
   width: number;
   height: number;
   fps: number;
@@ -46,6 +77,9 @@ export interface RecordSettings {
   pollSeconds: number;
   updateProxy: boolean;
   updateCheck: boolean;
+  themeColor: string;
+  backgroundPath: string;
+  backgroundDim: number;
 }
 
 export type PushCodec = 'hevc' | 'h264' | 'av1';
@@ -135,6 +169,7 @@ export interface RuntimeInfo {
   gpu: string[];
   gpuStatus: Record<string, string>;
   hardwareAcceleration: boolean;
+  captureBackend: CaptureBackend;
   displays: string[];
 }
 
@@ -179,6 +214,11 @@ export interface BattleMatch {
   videoPath?: string;
   blurCopy?: boolean;
   rawData: unknown;
+  accountId?: string;
+  accountNickname?: string;
+  key?: string;
+  timeExact?: boolean;
+  skipReason?: string;
 }
 
 export interface AppStatus {
@@ -188,8 +228,13 @@ export interface AppStatus {
   streamHeight: number;
   streamFps: number;
   streamFormat?: string;
+  streamPixelFormat?: CaptureFormat;
   streamEncoder?: string;
   streamAudio: boolean;
+  streamAudioState?: string;
+  streamAudioSource?: string;
+  streamAudioHealth?: AudioHealth;
+  streamVideoHealth?: VideoHealth;
   segments: number;
   cacheStart?: number;
   cacheEnd?: number;
@@ -197,6 +242,9 @@ export interface AppStatus {
   encoder?: string;
   nsoState: LinkState;
   nsoError?: string;
+  nsoAccounts: NsoAccountStatus[];
+  nsoCurrentAccountId?: string;
+  nsoCurrentNickname?: string;
   qqState: LinkState;
   qqOwner?: string;
   qrCode?: string;
@@ -223,9 +271,30 @@ export interface UserMessage {
   isProxy: boolean;
 }
 
+export interface NsoAccountSecret {
+  id: string;
+  nickname: string;
+  session: string;
+  token: NsoToken;
+  addedAt: number;
+  lastRefreshAt?: number;
+}
+
+export interface NsoAccountStatus {
+  accountId: string;
+  nickname: string;
+  state: LinkState;
+  error?: string;
+  current: boolean;
+  lastPollAt?: number;
+  lastMatchAt?: number;
+}
+
 export interface SecretData {
   nsoSession?: string;
   nsoToken?: NsoToken;
+  nsoAccounts?: NsoAccountSecret[];
+  currentNsoAccountId?: string;
   qqAppId?: string;
   qqSecret?: string;
 }
@@ -250,9 +319,12 @@ export type SetupResult = { success: true } | { success: false; error: string };
 export interface BridgeApi {
   getStatus: () => Promise<AppStatus>;
   saveSettings: (settings: RecordSettings) => Promise<AppStatus>;
-  openNsoLogin: () => Promise<void>;
+  openNsoLogin: (accountId?: string) => Promise<void>;
   clearNsoLogin: () => Promise<void>;
   unbindNso: () => Promise<void>;
+  deleteNsoAccount: (accountId: string) => Promise<void>;
+  selectNsoAccount: (accountId: string) => Promise<void>;
+  pickBackground: () => Promise<string | undefined>;
   startQqLogin: () => Promise<void>;
   unbindQq: () => Promise<void>;
   listMatches: () => Promise<BattleMatch[]>;
@@ -285,6 +357,8 @@ export interface BridgeApi {
   detectFrame: (frame: ArrayBuffer, width: number, height: number, conf: number) => Promise<DetectReply>;
   stopDetect: () => Promise<void>;
   copyText: (text: string) => Promise<void>;
+  listModes: (device: string) => Promise<CaptureMode[]>;
+  relaunchApp: () => Promise<void>;
   saveReport: (text: string) => Promise<string | undefined>;
   updateState: () => Promise<UpdateState>;
   updateCheck: () => Promise<UpdateState>;

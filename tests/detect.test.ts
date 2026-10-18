@@ -28,6 +28,14 @@ describe('dedupeMatches', () => {
     const matches = [{ matchId: 'a' }, { matchId: 'a' }, { matchId: 'b' }] as never[];
     expect(dedupeMatches(matches, ['b'])).toEqual([{ matchId: 'a' }]);
   });
+
+  it('不同账户的同一对局 ID 分别处理', () => {
+    const first = makeMatch({ matchId: 'same', accountId: '1001' });
+    const second = makeMatch({ matchId: 'same', accountId: '1002' });
+    expect(isNewMatch(first, ['1001:same'])).toBe(false);
+    expect(isNewMatch(first, ['1002:same'])).toBe(true);
+    expect(dedupeMatches([first, second], ['1001:same'])).toEqual([second]);
+  });
 });
 
 describe('afterBaseline', () => {

@@ -45,4 +45,21 @@ describe('BattlePoller', () => {
     expect(query.getBattles).toHaveBeenCalledTimes(2);
     poller.stop();
   });
+
+  it('停止后忽略仍在途的查询结果', async () => {
+    let resolve: (value: BattleMatch[]) => void = () => undefined;
+    const query = { getBattles: vi.fn(() => new Promise<BattleMatch[]>((done) => { resolve = done; })) };
+    const received = vi.fn().mockResolvedValue(undefined);
+    const listed = vi.fn();
+    const failed = vi.fn();
+    const poller = new BattlePoller(query, 1000, () => false, received, failed, listed);
+    poller.start();
+    await vi.waitFor(() => expect(query.getBattles).toHaveBeenCalledTimes(1));
+    poller.stop();
+    resolve([match]);
+    await new Promise((done) => setTimeout(done, 0));
+    expect(listed).not.toHaveBeenCalled();
+    expect(received).not.toHaveBeenCalled();
+    expect(failed).not.toHaveBeenCalled();
+  });
 });

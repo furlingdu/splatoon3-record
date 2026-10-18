@@ -12,6 +12,12 @@
   background: url("../assets/bg/informationBg.jpg") 50% 50% / 400px repeat;
 }
 
+.bg-layer.bg-custom {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
 html,
 body {
   margin: 0;
@@ -47,6 +53,15 @@ a {
 .preview-box .preview-video {
   height: 100%;
   object-fit: contain;
+}
+
+.preview-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
 }
 
 .preview-placeholder {

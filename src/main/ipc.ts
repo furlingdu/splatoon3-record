@@ -1,4 +1,4 @@
-import { clipboard, dialog, ipcMain, shell, BrowserWindow } from 'electron';
+import { clipboard, dialog, ipcMain, shell, BrowserWindow, app } from 'electron';
 import { copyFile, mkdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
 import { ipcNames } from '../shared/events.js';
@@ -10,9 +10,11 @@ import { saveReport } from './store/report.js';
 import { checkForUpdate, downloadUpdate, installUpdate, updateState } from './update/service.js';
 import { removeMatch } from './match/archive.js';
 import { getThumb, dropThumb } from './media/thumbs.js';
+import { listModes } from './capture/modes.js';
 import { makeVideoUrl } from './media/video.js';
+import { matchKey } from '../shared/nso.js';
 import type { AppStatus, BattleMatch, BlurJob, CaptureReport, DetectReply, LiveChunk, RuntimeInfo, SegmentDraft, SetupResult, VideoRecord } from '../shared/types.js';
-import type { NsoLogin } from './nso/login.js';
+import type { NsoAccounts } from './nso/login.js';
 import type { QqBot } from './qq/bot.js';
 
 const liveChunkBytes = 8 * 1024 * 1024;
@@ -20,10 +22,11 @@ const liveChunkBytes = 8 * 1024 * 1024;
 export interface IpcContext {
   getStatus: () => AppStatus;
   getMatches: () => BattleMatch[];
-  nso: NsoLogin;
+  nso: NsoAccounts;
   qq: QqBot;
   startQqLogin: () => void;
   setSettings: (raw: unknown) => Promise<AppStatus>;
+  pickBackground: () => Promise<string | undefined>;
   writeChunk: (id: string, chunk: Uint8Array, offset: number) => Promise<boolean>;
   sealSegment: (draft: SegmentDraft) => Promise<VideoRecord | undefined>;
   sealSegments: () => void;
@@ -49,9 +52,11 @@ export interface IpcContext {
 export function registerIpc(context: IpcContext): void {
   ipcMain.handle(ipcNames.getStatus, () => context.getStatus());
   ipcMain.handle(ipcNames.saveSettings, (_event, raw: unknown) => context.setSettings(raw));
-  ipcMain.handle(ipcNames.openNsoLogin, () => context.nso.open(BrowserWindow.getFocusedWindow() ?? undefined));
+  ipcMain.handle(ipcNames.openNsoLogin, (_event, accountId?: unknown) => context.nso.open(BrowserWindow.getFocusedWindow() ?? undefined, typeof accountId === 'string' && accountId ? accountId : undefined));
   ipcMain.handle(ipcNames.clearNsoLogin, () => context.nso.clearAndOpen(BrowserWindow.getFocusedWindow() ?? undefined));
   ipcMain.handle(ipcNames.unbindNso, () => context.nso.clear());
+  ipcMain.handle(ipcNames.deleteNsoAccount, (_event, accountId: string) => context.nso.removeAccount(textArg(accountId)));
+  ipcMain.handle(ipcNames.selectNsoAccount, (_event, accountId: string) => context.nso.selectAccount(textArg(accountId)));
   ipcMain.handle(ipcNames.startQqLogin, () => context.startQqLogin());
   ipcMain.handle(ipcNames.unbindQq, () => unbindQq(context.qq));
   ipcMain.handle(ipcNames.listMatches, () => context.getMatches());
@@ -67,6 +72,7 @@ export function registerIpc(context: IpcContext): void {
   ipcMain.handle(ipcNames.debugExport, () => context.debugExport());
   ipcMain.handle(ipcNames.openPath, (_event, targetPath: string) => openPathItem(textArg(targetPath)));
   ipcMain.handle(ipcNames.pickFolder, () => pickFolder());
+  ipcMain.handle(ipcNames.pickBackground, () => context.pickBackground());
   ipcMain.handle(ipcNames.finishSetup, () => context.finishSetup());
   ipcMain.handle(ipcNames.openLink, (_event, url: string) => openLink(textArg(url)));
   ipcMain.handle(ipcNames.startLive, () => startLive(context));
@@ -83,6 +89,8 @@ export function registerIpc(context: IpcContext): void {
   ipcMain.handle(ipcNames.detectFrame, (_event, frame: ArrayBuffer, width: number, height: number, conf: number) => context.detectFrame(chunkBytes(frame), sizeArg(width), sizeArg(height), rateArg(conf)));
   ipcMain.handle(ipcNames.stopDetect, () => { context.stopDetect(); });
   ipcMain.handle(ipcNames.copyText, (_event, text: string) => { clipboard.writeText(copyTextArg(text)); });
+  ipcMain.handle(ipcNames.listModes, (_event, device: string) => listModes(textArg(device)));
+  ipcMain.handle(ipcNames.relaunchApp, () => relaunchApp());
   ipcMain.handle(ipcNames.saveReport, (_event, text: string) => saveReportFile(reportArg(text)));
   ipcMain.handle(ipcNames.updateState, () => updateState());
   ipcMain.handle(ipcNames.updateCheck, () => checkForUpdate(getConfig().settings.updateProxy));
@@ -154,9 +162,13 @@ async function stopLive(context: IpcContext): Promise<AppStatus> {
 }
 
 async function startBlur(context: IpcContext, id: string, mime: string): Promise<BlurJob | undefined> {
-  const match = context.getMatches().find((item) => item.matchId === id);
+  const match = findMatch(context.getMatches(), id);
   if (!match?.videoPath) return undefined;
   return context.startBlur(match.videoPath, mime);
+}
+
+function findMatch(matches: BattleMatch[], id: string): BattleMatch | undefined {
+  return matches.find((item) => matchKey(item) === id) ?? matches.find((item) => item.matchId === id);
 }
 
 function textArg(value: unknown): string {
@@ -165,6 +177,11 @@ function textArg(value: unknown): string {
 
 function copyTextArg(value: unknown): string {
   return typeof value === 'string' ? value.slice(0, 16000) : '';
+}
+
+function relaunchApp(): void {
+  app.relaunch();
+  app.quit();
 }
 
 function reportArg(value: unknown): string {
@@ -186,8 +203,8 @@ async function writeChunk(context: IpcContext, id: string, chunk: ArrayBuffer, o
 }
 
 async function videoUrl(matches: BattleMatch[], id: string): Promise<string | undefined> {
-  const match = matches.find((item) => item.matchId === id);
-  return match?.videoPath ? makeVideoUrl(match.matchId) : undefined;
+  const match = findMatch(matches, id);
+  return match?.videoPath ? makeVideoUrl(matchKey(match)) : undefined;
 }
 
 async function unbindQq(qq: QqBot): Promise<void> {
@@ -196,7 +213,7 @@ async function unbindQq(qq: QqBot): Promise<void> {
 }
 
 async function openMatch(matches: BattleMatch[], id: string): Promise<void> {
-  const match = matches.find((item) => item.matchId === id);
+  const match = findMatch(matches, id);
   if (match?.videoPath) shell.showItemInFolder(match.videoPath);
 }
 
@@ -205,7 +222,7 @@ async function openPathItem(targetPath: string): Promise<void> {
 }
 
 async function saveMatchFile(matches: BattleMatch[], id: string): Promise<string | undefined> {
-  const match = matches.find((item) => item.matchId === id);
+  const match = findMatch(matches, id);
   if (!match?.videoPath) return undefined;
   const result = await dialog.showSaveDialog({ defaultPath: basename(match.videoPath) });
   if (result.canceled || !result.filePath) return undefined;
@@ -215,12 +232,13 @@ async function saveMatchFile(matches: BattleMatch[], id: string): Promise<string
 }
 
 async function deleteMatch(matches: BattleMatch[], id: string, withBlur: boolean): Promise<void> {
-  const index = matches.findIndex((item) => item.matchId === id);
+  const index = matches.findIndex((item) => matchKey(item) === id || item.matchId === id);
   const match = matches[index];
   if (!match) return;
   await removeMatch(match, matchPath, withBlur);
   matches.splice(index, 1);
   dropThumb(id);
+  if (match.matchId !== id) dropThumb(match.matchId);
 }
 
 async function pickFolder(): Promise<string | undefined> {

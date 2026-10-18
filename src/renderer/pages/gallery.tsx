@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { snackbar } from 'mdui/functions/snackbar.js';
-import { durationText, kindNames, matchTitle, resultText, ruleName } from '../../shared/nso.js';
+import { durationText, kindNames, matchKey, matchTitle, resultText, ruleName } from '../../shared/nso.js';
 import { iconSvg } from '../lib/icons.js';
 import { dialogLayer } from '../lib/portal.js';
 import { targetChecked, targetValue, restoreSelect, useElementEvent } from '../lib/event.js';
@@ -35,13 +35,14 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
 
   const visible = matches.filter((match) => (kind === 'all' || match.kind === kind) && (!hideUnrecorded || Boolean(match.videoPath)));
   const kinds = [...new Set(matches.map((match) => match.kind))];
-  const pickedList = visible.filter((match) => picked.has(match.matchId) && match.videoPath);
-  const deleteTargets = matches.filter((match) => deleteIds.includes(match.matchId));
+  const pickedList = visible.filter((match) => picked.has(matchKey(match)) && match.videoPath);
+  const deleteTargets = matches.filter((match) => deleteIds.includes(matchKey(match)));
 
   useEffect(() => {
     for (const match of visible) {
-      if (match.videoPath && !(match.matchId in thumbs)) {
-        void window.recordApi.thumb(match.matchId).then((url) => setThumbs((prev) => ({ ...prev, [match.matchId]: url || '' })));
+      const key = matchKey(match);
+      if (match.videoPath && !(key in thumbs)) {
+        void window.recordApi.thumb(key).then((url) => setThumbs((prev) => ({ ...prev, [key]: url || '' })));
       }
     }
   }, [visible, thumbs]);
@@ -52,9 +53,9 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
       return;
     }
     let alive = true;
-    void window.recordApi.getVideoUrl(current.matchId).then((value) => { if (alive) setVideoUrl(value); });
+    void window.recordApi.getVideoUrl(matchKey(current)).then((value) => { if (alive) setVideoUrl(value); });
     return () => { alive = false; };
-  }, [viewerOpen, current?.matchId]);
+  }, [viewerOpen, current?.key, current?.matchId]);
 
   const openViewer = (match: BattleMatch): void => {
     if (!match.videoPath) {
@@ -78,7 +79,7 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
   };
   const closeDelete = (): void => { if (deleteRef.current) (deleteRef.current as HTMLDialogElement).open = false; };
   const openBatchDelete = (): void => {
-    const ids = pickedList.map((match) => match.matchId);
+    const ids = pickedList.map((match) => matchKey(match));
     if (!ids.length) {
       snackbar({ message: '请先勾选需要删除的对局' });
       return;
@@ -109,7 +110,7 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
     }
     if (!settings) return;
     openBlurDialog();
-    void startBlurJob(match.matchId, videoUrl, settings).catch((cause) => snackbar({ message: errorOf(cause) }));
+    void startBlurJob(matchKey(match), videoUrl, settings).catch((cause) => snackbar({ message: errorOf(cause) }));
   };
   const openBatch = (): void => {
     if (!settings || !pickedList.length) {
@@ -122,8 +123,8 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
   const startBatch = async (list: BattleMatch[], next: RecordSettings): Promise<void> => {
     const sources: BlurSource[] = [];
     for (const match of list) {
-      const url = await window.recordApi.getVideoUrl(match.matchId);
-      if (url) sources.push({ matchId: match.matchId, videoUrl: url });
+      const url = await window.recordApi.getVideoUrl(matchKey(match));
+      if (url) sources.push({ matchId: matchKey(match), videoUrl: url });
     }
     if (!sources.length) {
       snackbar({ message: '所选对局没有可用的录像文件' });
@@ -178,7 +179,7 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
       {visible.length ? (
         <div className="gallery-grid">
           {visible.map((match) => (
-            <GalleryCard key={match.matchId} match={match} thumb={thumbs[match.matchId]} picked={picked.has(match.matchId)} onPick={togglePick} onOpen={openViewer} />
+            <GalleryCard key={matchKey(match)} match={match} thumb={thumbs[matchKey(match)]} picked={picked.has(matchKey(match))} onPick={togglePick} onOpen={openViewer} />
           ))}
         </div>
       ) : (
@@ -207,11 +208,11 @@ function galleryPage(props: { status?: AppStatus }): ReactElement {
               昵称打码
             </mdui-button>
             <mdui-button slot="action" variant="text" disabled={!current?.videoPath}
-              onClick={() => { if (current) void window.recordApi.openMatch(current.matchId); }}>
+              onClick={() => { if (current) void window.recordApi.openMatch(matchKey(current)); }}>
               <mdui-icon slot="icon" dangerouslySetInnerHTML={{ __html: iconSvg('folder') }} />
               打开位置
             </mdui-button>
-            <mdui-button slot="action" variant="text" onClick={() => { if (current) openDelete([current.matchId]); }}>
+            <mdui-button slot="action" variant="text" onClick={() => { if (current) openDelete([matchKey(current)]); }}>
               <mdui-icon slot="icon" dangerouslySetInnerHTML={{ __html: iconSvg('delete') }} />
               删除
             </mdui-button>
@@ -288,7 +289,7 @@ function viewerTitle(match: BattleMatch): string {
 function galleryCard(props: { match: BattleMatch; thumb?: string; picked: boolean; onPick: (matchId: string) => void; onOpen: (match: BattleMatch) => void }): ReactElement {
   const { match, thumb, picked, onPick, onOpen } = props;
   const win = /WIN/i.test(match.result);
-  const pickRef = useElementEvent<HTMLElement>('change', () => onPick(match.matchId));
+  const pickRef = useElementEvent<HTMLElement>('change', () => onPick(matchKey(match)));
   return (
     <div className="gallery-card" onClick={() => onOpen(match)}>
       <div className="gallery-thumb">
@@ -304,7 +305,7 @@ function galleryCard(props: { match: BattleMatch; thumb?: string; picked: boolea
       </div>
       <div className="gallery-info">
         <div className="gallery-mode">{kindNames[match.kind]}</div>
-        <div className="gallery-sub">{ruleName(match.rule)} · {new Date(match.endAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="gallery-sub">{match.accountNickname ? `${match.accountNickname} · ` : ''}{ruleName(match.rule)} · {new Date(match.endAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
       </div>
     </div>
   );

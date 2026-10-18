@@ -1,5 +1,6 @@
 import { defaultSettings, segmentSecondsFixed } from '../../shared/constants.js';
-import type { SegmentDraft } from '../../shared/types.js';
+import type { AudioHealth, SegmentDraft, VideoHealth } from '../../shared/types.js';
+import { resumeRecordAudio } from './device.js';
 import { SegmentRecorder, type SegmentSeal, type SegmentSpec } from './segment.js';
 import { frameWall, seedOrigin } from './stamp.js';
 import { openVideoFeed, type VideoFeed } from './videofeed.js';
@@ -50,6 +51,14 @@ export function recordEncoder(): string {
 
 export function recordAudio(): string | undefined {
   return audioState;
+}
+
+export function recordAudioHealth(): AudioHealth | undefined {
+  return recorder?.health();
+}
+
+export function recordVideoHealth(): VideoHealth | undefined {
+  return recorder?.videoHealth();
 }
 
 export function planFormat(stream: MediaStream): string {
@@ -154,7 +163,14 @@ async function openRecorder(gen: number): Promise<SegmentRecorder | undefined> {
       onError: (message) => { failure = message; },
       onAudio: (state, detail) => {
         audioState = detail ? `${state}:${detail}` : state;
+        if (state === 'recovered') resumeRecordAudio();
         audioNotice?.(state, detail);
+      },
+      onFatal: (message) => {
+        failure = message;
+        audioState = `lost:${message}`;
+        audioNotice?.('lost', message);
+        window.setTimeout(() => { void stopRecord(); }, 0);
       },
       onData: (id, data, position) => {
         enqueue(() => window.recordApi.writeChunk(id, partBytes(data), position).then((stored) => {
