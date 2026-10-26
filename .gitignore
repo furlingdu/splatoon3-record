@@ -15,4 +15,5 @@
 .swifttmp/
 TestData/
 dist/
-/assets/tools/
+/assets/tools/*
+!/assets/tools/.gitkeep
