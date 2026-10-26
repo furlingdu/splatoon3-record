@@ -1,0 +1,17 @@
+analyzer:
+  exclude:
+    - build/**
+    - windows/**
+    - macos/**
+    - linux/**
+linter:
+  rules:
+    non_constant_identifier_names: false
+    constant_identifier_names: false
+    file_names: false
+    library_private_types_in_public_api: false
+    use_super_parameters: false
+    prefer_const_constructors: false
+    prefer_const_literals_to_create_immutables: false
+    avoid_print: false
+
