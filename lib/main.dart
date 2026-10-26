@@ -3,12 +3,16 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app/AppController.dart';
 import 'config/Config.dart';
+import 'config/PlatformInfo.dart';
 import 'app/ExternalLinkBus.dart';
+import 'store/Stores.dart';
 import 'ui/PreviewWindow.dart';
 import 'ui/Shell.dart';
 
@@ -20,7 +24,21 @@ Future<void> main(List<String> Args) async {
     } catch (_) {}
     FlutterError.presentError(Details);
   };
-  if (Args.contains('--preview')) {
+  if (PlatformInfo.Mobile) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      statusBarBrightness: Brightness.dark,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness: Brightness.light,
+    ));
+    try {
+      final Support = await getApplicationSupportDirectory();
+      PathStore.MobileRoot = '${Support.path}${Platform.pathSeparator}.splatoon3record';
+    } catch (_) {}
+  }
+  if (Args.contains('--preview') && PlatformInfo.Desktop) {
     await PreviewMode(Args.contains('--hidden'));
     return;
   }

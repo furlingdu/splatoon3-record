@@ -397,7 +397,7 @@ class AppDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      insetPadding: const EdgeInsets.all(48),
+      insetPadding: EdgeInsets.symmetric(horizontal: MediaQuery.sizeOf(context).width < 640 ? 16 : 48, vertical: 24),
       child: ConstrainedBox(
         constraints: const BoxConstraints(minWidth: 280, maxWidth: 560),
         child: Padding(

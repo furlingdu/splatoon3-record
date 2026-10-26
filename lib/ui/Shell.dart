@@ -5,9 +5,11 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../app/AppController.dart';
 import '../config/Config.dart';
+import '../config/PlatformInfo.dart';
 import '../domain/Models.dart';
 import '../format/Formats.dart';
 import '../match/Stats.dart';
+import 'AppLayout.dart';
 import 'AppMotion.dart';
 import 'AppTheme.dart';
 import 'Controls.dart';
@@ -74,10 +76,12 @@ class AppRootState extends State<AppRoot> {
       locale: const Locale('zh', 'CN'),
       supportedLocales: const <Locale>[Locale('zh', 'CN'), Locale('en', 'US')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      home: Scaffold(
-        body: Controller.Ready
-            ? (Controller.SettingsValue.CaptureMode == 'internal' ? ShellView(Controller: Controller) : ShellView(Controller: Controller))
-            : BootView(Controller: Controller),
+      home: SafeArea(
+        child: Scaffold(
+          body: Controller.Ready
+              ? (Controller.SettingsValue.CaptureMode == 'internal' ? ShellView(Controller: Controller) : ShellView(Controller: Controller))
+              : BootView(Controller: Controller),
+        ),
       ),
     );
   }
@@ -138,7 +142,8 @@ class ShellViewState extends State<ShellView> {
     }
     return LayoutBuilder(
       builder: (Context, Constraints) {
-        final Wide = Constraints.maxWidth >= 840;
+        final Wide = Constraints.maxWidth >= AppLayout.WideWidth;
+        final Drawer = AppLayout.DrawerWidth(context);
         if (LastWide != Wide) {
           LastWide = Wide;
           DrawerOpen = Wide;
@@ -174,10 +179,10 @@ class ShellViewState extends State<ShellView> {
               AnimatedPositioned(
                 duration: AppMotion.DrawerDuration,
                 curve: AppMotion.DrawerCurve,
-                left: DrawerOpen ? 0 : -360,
+                left: DrawerOpen ? 0 : -Drawer,
                 top: 64,
                 bottom: 0,
-                width: 360,
+                width: Drawer,
                 child: DrawerPanel(
                   Page: Page,
                   Controller: Controller,
@@ -192,7 +197,7 @@ class ShellViewState extends State<ShellView> {
             AnimatedPositioned(
               duration: AppMotion.DrawerDuration,
               curve: AppMotion.DrawerCurve,
-              left: Wide && DrawerOpen ? 360 : 0,
+              left: Wide && DrawerOpen ? Drawer : 0,
               right: 0,
               top: 64,
               bottom: 0,
@@ -242,10 +247,10 @@ class ShellViewState extends State<ShellView> {
               AnimatedPositioned(
                 duration: AppMotion.DrawerDuration,
                 curve: AppMotion.DrawerCurve,
-                left: DrawerOpen ? 0 : -360,
+                left: DrawerOpen ? 0 : -Drawer,
                 top: 64,
                 bottom: 0,
-                width: 360,
+                width: Drawer,
                 child: DrawerPanel(
                   Page: Page,
                   Controller: Controller,
@@ -335,6 +340,10 @@ class DrawerPanel extends StatelessWidget {
     <String>['about', '关于', 'info'],
   ];
 
+  static final List<List<String>> VisibleItems = PlatformInfo.Desktop
+      ? Items
+      : Items.where((Item) => Item[0] != 'live' && Item[0] != 'update').toList();
+
   @override
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
@@ -342,9 +351,9 @@ class DrawerPanel extends StatelessWidget {
       color: const Color(0x8017161d),
       padding: const EdgeInsets.only(top: 8),
       child: ListView.builder(
-        itemCount: Items.length,
+        itemCount: VisibleItems.length,
         itemBuilder: (Context, Index) {
-          final Item = Items[Index];
+          final Item = VisibleItems[Index];
           final Active = Item[0] == Page;
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -412,11 +421,13 @@ class PageBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Compact = AppLayout.Compact(context);
+    final Horizontal = AppLayout.Padding(context);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1120),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 48),
+          padding: EdgeInsets.fromLTRB(Horizontal, Compact ? 16 : 24, Horizontal, Compact ? 24 : 48),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: Children),
         ),
       ),
@@ -441,33 +452,43 @@ class MatchRow extends StatelessWidget {
     final String Account = Match.AccountNickname == null ? '' : '${Match.AccountNickname} · ';
     final String State = Match.IsDisconnected ? '掉线' : Formats.Result(Match.Result);
     final String RecordState = Match.VideoPath != null ? '已录制' : Match.SkipReason != null ? '账户冲突，未自动裁剪' : '未录制';
+    final Info = Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+      Text(Title, style: AppTheme.Style(Size: 15, Weight: FontWeight.w600)),
+      const SizedBox(height: 4),
+      Text('$Account${Formats.DateTimeText(Match.EndAt)} · ${Formats.Duration(Match.Duration)} · $State · $RecordState', style: AppTheme.Style(Size: 12, ColorValue: Scheme.onSurfaceVariant)),
+      const SizedBox(height: 2),
+      Text(MatchStats.Text(Match), style: AppTheme.Style(Size: 12, ColorValue: Scheme.onSurfaceVariant)),
+    ]);
+    final Actions = Wrap(
+      spacing: 2,
+      children: <Widget>[
+        AppButton(Label: '播放录像', Kind: AppButtonKind.Text, Enabled: Match.VideoPath != null, OnPressed: OnPlay ?? () {}),
+        if (PlatformInfo.Desktop) ...<Widget>[
+          AppButton(Label: '打开位置', Kind: AppButtonKind.Text, Enabled: Match.VideoPath != null, OnPressed: OnOpen ?? () {}),
+          AppButton(Label: '保存录像', Kind: AppButtonKind.Text, Enabled: Match.VideoPath != null, OnPressed: OnSave ?? () {}),
+        ],
+      ],
+    );
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(border: Border.all(color: Scheme.outlineVariant), borderRadius: BorderRadius.circular(14)),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: <Widget>[
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-              Text(Title, style: AppTheme.Style(Size: 15, Weight: FontWeight.w600)),
-              const SizedBox(height: 4),
-              Text('$Account${Formats.DateTimeText(Match.EndAt)} · ${Formats.Duration(Match.Duration)} · $State · $RecordState', style: AppTheme.Style(Size: 12, ColorValue: Scheme.onSurfaceVariant)),
-              const SizedBox(height: 2),
-              Text(MatchStats.Text(Match), style: AppTheme.Style(Size: 12, ColorValue: Scheme.onSurfaceVariant)),
-            ]),
-          ),
-          const SizedBox(width: 16),
-          Wrap(
-            spacing: 2,
-            children: <Widget>[
-              AppButton(Label: '播放录像', Kind: AppButtonKind.Text, Enabled: Match.VideoPath != null, OnPressed: OnPlay ?? () {}),
-              AppButton(Label: '打开位置', Kind: AppButtonKind.Text, Enabled: Match.VideoPath != null, OnPressed: OnOpen ?? () {}),
-              AppButton(Label: '保存录像', Kind: AppButtonKind.Text, Enabled: Match.VideoPath != null, OnPressed: OnSave ?? () {}),
-            ],
-          ),
-        ],
-      ),
+      child: LayoutBuilder(builder: (Context, Constraints) {
+        if (Constraints.maxWidth < 520) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[Info, const SizedBox(height: 6), Actions],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Expanded(child: Info),
+            const SizedBox(width: 16),
+            Actions,
+          ],
+        );
+      }),
     );
   }
 }

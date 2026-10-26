@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/AppController.dart';
 import '../../config/Config.dart';
+import '../../config/PlatformInfo.dart';
 import '../../domain/Models.dart';
 import '../../format/Formats.dart';
 import '../AppTheme.dart';
@@ -38,6 +39,9 @@ class SetupPageState extends State<SetupPage> {
   @override
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
+    final Mobile = PlatformInfo.Mobile;
+    final Steps = Mobile ? const <String>['绑定 Nintendo 账号', '绑定 QQBot'] : const <String>['选择采集卡设备', '绑定 Nintendo 账号', '绑定 QQBot'];
+    final Total = Steps.length;
     final Video = widget.Controller.Devices.where((Item) => Item.Kind == 'video').toList();
     final Audio = widget.Controller.Devices.where((Item) => Item.Kind == 'audio').toList();
     return Material(
@@ -48,20 +52,22 @@ class SetupPageState extends State<SetupPage> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 640),
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(32, 28, 32, 40),
+            padding: EdgeInsets.fromLTRB(MediaQuery.sizeOf(context).width < 640 ? 20 : 32, 24, MediaQuery.sizeOf(context).width < 640 ? 20 : 32, 40),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
               Row(children: <Widget>[
                 Image.asset('assets/images/AppIcon.png', width: 56, height: 56),
                 const SizedBox(width: 16),
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-                  Text('Splatoon3 Record', style: AppTheme.Style(Size: 18, Weight: FontWeight.w600)),
-                  Text('初始设置 · 步骤 ${Step + 1} / 3：${const <String>['选择采集卡设备', '绑定 Nintendo 账号', '绑定 QQBot'][Step]}', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
-                ]),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                    Text('Splatoon3 Record', style: AppTheme.Style(Size: 18, Weight: FontWeight.w600)),
+                    Text('初始设置 · 步骤 ${Step + 1} / $Total：${Steps[Step]}', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
+                  ]),
+                ),
               ]),
               const SizedBox(height: 20),
-              AppLinearProgress(Value: (Step + 1) / 3),
+              AppLinearProgress(Value: (Step + 1) / Total),
               const SizedBox(height: 24),
-              if (Step == 0) ...<Widget>[
+              if (!Mobile && Step == 0) ...<Widget>[
                 const AppSectionTitle('选择采集卡设备'),
                 AppSelect<String>(
                   Label: '摄像头 / 采集卡',
@@ -91,7 +97,7 @@ class SetupPageState extends State<SetupPage> {
                   setState(() => Step = 1);
                 }),
               ],
-              if (Step == 1) ...<Widget>[
+              if (Step == (Mobile ? 0 : 1)) ...<Widget>[
                 const AppSectionTitle('绑定 Nintendo 账号'),
                 const SizedBox(height: 8),
                 Text('点击下方按钮登录 Nintendo 账号并授权鱿鱼圈 3 数据读取，登录成功后应用才能检测对局结果。每次登录前都会自动清除登录窗口的 cookies。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.6)),
@@ -102,12 +108,14 @@ class SetupPageState extends State<SetupPage> {
                 StatusBox(Label: '已绑定账户', Value: '${widget.Controller.Status?.NSOAccounts.length ?? 0} 个'),
                 const SizedBox(height: 24),
                 Row(children: <Widget>[
-                  AppButton(Label: '上一步', Kind: AppButtonKind.Text, OnPressed: () => setState(() => Step = 0)),
-                  const SizedBox(width: 12),
-                  AppButton(Label: '下一步', OnPressed: () => setState(() => Step = 2)),
+                  if (!Mobile) ...<Widget>[
+                    AppButton(Label: '上一步', Kind: AppButtonKind.Text, OnPressed: () => setState(() => Step = 0)),
+                    const SizedBox(width: 12),
+                  ],
+                  AppButton(Label: '下一步', OnPressed: () => setState(() => Step = Step + 1)),
                 ]),
               ],
-              if (Step == 2) ...<Widget>[
+              if (Step == Total - 1) ...<Widget>[
                 const AppSectionTitle('绑定 QQBot'),
                 Text('绑定后可将对局录像推送到你的 QQ。点击按钮获取二维码，并使用创建机器人的 QQ 扫码授权。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.6)),
                 const SizedBox(height: 16),
@@ -121,7 +129,7 @@ class SetupPageState extends State<SetupPage> {
                 StatusBox(Label: '推送用户', Value: widget.Controller.Status?.QQOwner == null ? '未绑定' : '已绑定'),
                 const SizedBox(height: 24),
                 Row(children: <Widget>[
-                  AppButton(Label: '上一步', Kind: AppButtonKind.Text, OnPressed: () => setState(() => Step = 1)),
+                  AppButton(Label: '上一步', Kind: AppButtonKind.Text, OnPressed: () => setState(() => Step = Step - 1)),
                   const SizedBox(width: 12),
                   AppButton(Label: '完成并进入应用', OnPressed: () => widget.Controller.FinishSetup()),
                 ]),

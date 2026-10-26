@@ -38,7 +38,7 @@ class VideoDialogState extends State<VideoDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      insetPadding: const EdgeInsets.all(48),
+      insetPadding: EdgeInsets.symmetric(horizontal: MediaQuery.sizeOf(context).width < 640 ? 12 : 48, vertical: 24),
       backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 760),

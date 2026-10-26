@@ -22,10 +22,12 @@ class AboutPage extends StatelessWidget {
         Row(children: <Widget>[
           Image.asset('assets/images/AppIcon.png', width: 72, height: 72),
           const SizedBox(width: 16),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-            Text('Splatoon3 Record', style: AppTheme.Style(Size: 18, Weight: FontWeight.w600)),
-            Text('Splatoon3Record Ver.${Controller.Version}', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
-          ]),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+              Text('Splatoon3 Record', style: AppTheme.Style(Size: 18, Weight: FontWeight.w600)),
+              Text('Splatoon3Record Ver.${Controller.Version}', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
+            ]),
+          ),
         ]),
         const SizedBox(height: 16),
         Text('一款斯普拉遁3录制机，通过采集卡自动采集整局录像，并通过 QQBot 推送。', style: AppTheme.Style(Size: 14, Height: 1.7)),
@@ -36,10 +38,12 @@ class AboutPage extends StatelessWidget {
         Row(children: <Widget>[
           ClipOval(child: Image.network('https://q2.qlogo.cn/headimg_dl?dst_uin=3648192311&spec=640', width: 64, height: 64, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(Icons.person, size: 64))),
           const SizedBox(width: 16),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-            Text('澪度', style: AppTheme.Style(Size: 18, Weight: FontWeight.w600)),
-            Text('作者', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
-          ]),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+              Text('澪度', style: AppTheme.Style(Size: 18, Weight: FontWeight.w600)),
+              Text('作者', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
+            ]),
+          ),
         ]),
         const SizedBox(height: 12),
         Text('斯普拉遁3录制机作者，梦想是把巨齿刮水刀打到十星！', style: AppTheme.Style(Size: 14, Height: 1.7)),
@@ -51,10 +55,12 @@ class AboutPage extends StatelessWidget {
         Row(children: <Widget>[
           ClipOval(child: Image.asset('assets/images/Abxy.png', width: 64, height: 64, fit: BoxFit.cover)),
           const SizedBox(width: 16),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-            Text('ABXY', style: AppTheme.Style(Size: 18, Weight: FontWeight.w600)),
-            Text('乐队', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
-          ]),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+              Text('ABXY', style: AppTheme.Style(Size: 18, Weight: FontWeight.w600)),
+              Text('乐队', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
+            ]),
+          ),
         ]),
         const SizedBox(height: 12),
         Text('这是一支由四名成员组成的乐队，他们以朗朗上口的电子音乐和主唱脉子的歌声在音乐排行榜上掀起热潮。在演唱会上，他们让复古游戏机与音乐联动，并通过自身发光进行表演，这使得他们收获了很高的人气。收录的歌声使用了大量的后期修音，所以现场表演经常是对口型假唱。', style: AppTheme.Style(Size: 14, Height: 1.7)),

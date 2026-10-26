@@ -13,6 +13,7 @@ import 'package:window_manager/window_manager.dart';
 import 'ExternalLinkBus.dart';
 
 import '../config/Config.dart';
+import '../config/PlatformInfo.dart';
 import '../domain/Models.dart';
 import '../domain/UpdateInfo.dart';
 import '../format/Formats.dart';
@@ -124,8 +125,10 @@ class AppController extends ChangeNotifier {
     QQSecret = Vault.Text('qqSecret') ?? (Legacy?['qqSecret'] is String ? Legacy!['qqSecret'] as String : null);
     Capture.State.addListener(CaptureChanged);
     Capture.Error.addListener(CaptureChanged);
-    await DevicesRefresh();
-    await EnsureDevice();
+    if (PlatformInfo.Desktop) {
+      await DevicesRefresh();
+      await EnsureDevice();
+    }
     await ApplyAutoLaunch();
     Clock = Timer.periodic(const Duration(seconds: 2), (_) => PushStatus());
     Ready = true;
@@ -135,9 +138,11 @@ class AppController extends ChangeNotifier {
       unawaited(StartQQBot(QQAppId!, QQSecret!));
     }
     unawaited(NSOConnect());
-    unawaited(GenerateThumbs());
-    unawaited(ArchiveCached());
-    if (Configs.Current.SetupDone && Configs.Current.Settings.AutoRecord) {
+    if (PlatformInfo.Desktop) {
+      unawaited(GenerateThumbs());
+      unawaited(ArchiveCached());
+    }
+    if (Configs.Current.SetupDone && Configs.Current.Settings.AutoRecord && PlatformInfo.Desktop) {
       unawaited(StartRecord());
     }
     if (Configs.Current.SetupDone && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {

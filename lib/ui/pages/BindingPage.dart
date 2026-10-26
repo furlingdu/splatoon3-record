@@ -51,34 +51,37 @@ class BindingPage extends StatelessWidget {
                   border: Border.all(color: Account.State == 'connected' ? Scheme.primary : Scheme.outlineVariant),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-                        Row(children: <Widget>[
-                          Text(Account.Nickname, style: AppTheme.Style(Size: 15, Weight: FontWeight.w600)),
-                          if (Account.Id == Status?.NSOCurrentId)
-                            Container(
-                              margin: const EdgeInsets.only(left: 8),
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-                              decoration: BoxDecoration(color: Scheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
-                              child: Text('当前', style: AppTheme.Style(Size: 12, ColorValue: Scheme.onPrimaryContainer)),
-                            ),
-                        ]),
-                        Text(
-                          '${Formats.BindingState(Account.State)}${Account.LastMatchAt == null ? '' : ' · 最近对局 ${Formats.DateTimeText(Account.LastMatchAt!)}'}',
-                          style: AppTheme.Style(Size: 12, ColorValue: Scheme.onSurfaceVariant),
+                child: LayoutBuilder(builder: (Context, Constraints) {
+                  final Info = Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                    Row(children: <Widget>[
+                      Flexible(child: Text(Account.Nickname, style: AppTheme.Style(Size: 15, Weight: FontWeight.w600), overflow: TextOverflow.ellipsis)),
+                      if (Account.Id == Status?.NSOCurrentId)
+                        Container(
+                          margin: const EdgeInsets.only(left: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                          decoration: BoxDecoration(color: Scheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+                          child: Text('当前', style: AppTheme.Style(Size: 12, ColorValue: Scheme.onPrimaryContainer)),
                         ),
-                        if (Account.Error != null) Text(Account.Error!, style: AppTheme.Style(Size: 12, ColorValue: Scheme.error)),
-                      ]),
-                    ),
-                    Wrap(spacing: 2, children: <Widget>[
-                      AppButton(Label: '设为当前', Kind: AppButtonKind.Text, Enabled: Account.Id != Status?.NSOCurrentId, OnPressed: () => Controller.SelectNSOAccount(Account.Id)),
-                      AppButton(Label: '重新登录', Kind: AppButtonKind.Text, OnPressed: () => Controller.StartNSOLogin(Account.Id)),
-                      AppButton(Label: '删除', Kind: AppButtonKind.Text, Enabled: Accounts.length > 1, OnPressed: () => RemoveAccount(context, Account.Id)),
                     ]),
-                  ],
-                ),
+                    Text(
+                      '${Formats.BindingState(Account.State)}${Account.LastMatchAt == null ? '' : ' · 最近对局 ${Formats.DateTimeText(Account.LastMatchAt!)}'}',
+                      style: AppTheme.Style(Size: 12, ColorValue: Scheme.onSurfaceVariant),
+                    ),
+                    if (Account.Error != null) Text(Account.Error!, style: AppTheme.Style(Size: 12, ColorValue: Scheme.error)),
+                  ]);
+                  final Actions = Wrap(spacing: 2, children: <Widget>[
+                    AppButton(Label: '设为当前', Kind: AppButtonKind.Text, Enabled: Account.Id != Status?.NSOCurrentId, OnPressed: () => Controller.SelectNSOAccount(Account.Id)),
+                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, OnPressed: () => Controller.StartNSOLogin(Account.Id)),
+                    AppButton(Label: '删除', Kind: AppButtonKind.Text, Enabled: Accounts.length > 1, OnPressed: () => RemoveAccount(context, Account.Id)),
+                  ]);
+                  if (Constraints.maxWidth < 560) {
+                    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[Info, const SizedBox(height: 6), Actions]);
+                  }
+                  return Row(children: <Widget>[
+                    Expanded(child: Info),
+                    Actions,
+                  ]);
+                }),
               )),
         const SizedBox(height: 8),
         Text('至少需要保留一个 NSO 账户。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),

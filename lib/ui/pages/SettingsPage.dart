@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/AppController.dart';
+import '../../config/PlatformInfo.dart';
 import '../../domain/Models.dart';
 import '../../format/Formats.dart';
 import '../AppTheme.dart';
@@ -112,15 +113,17 @@ class SettingsPageState extends State<SettingsPage> {
     }.toList();
     return PageBody(Children: <Widget>[
       const AppPageTitle('设置'),
-      AppSelect<String>(
-        Label: '捕获方式',
-        Value: Draft.CaptureMode,
-        Items: const <String>['internal', 'rtmp'],
-        Display: (Value) => Value == 'rtmp' ? 'RTMP' : '软件内捕获',
-        OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'captureMode': Value})),
-      ),
-      const AppHint('RTMP 模式仅接收 RTMP 画面与原始音轨，请在 OBS 等推流端配置分辨率与帧率。'),
-      if (Draft.CaptureMode == 'rtmp') ...<Widget>[
+      if (PlatformInfo.Mobile) const AppHint('移动端不提供采集与编码设置，录制相关选项在桌面端调整。'),
+      if (!PlatformInfo.Mobile)
+        AppSelect<String>(
+          Label: '捕获方式',
+          Value: Draft.CaptureMode,
+          Items: const <String>['internal', 'rtmp'],
+          Display: (Value) => Value == 'rtmp' ? 'RTMP' : '软件内捕获',
+          OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'captureMode': Value})),
+        ),
+      if (!PlatformInfo.Mobile) const AppHint('RTMP 模式仅接收 RTMP 画面与原始音轨，请在 OBS 等推流端配置分辨率与帧率。'),
+      if (!PlatformInfo.Mobile && Draft.CaptureMode == 'rtmp') ...<Widget>[
         const AppSectionTitle('RTMP 采集'),
         AppTextField(Label: 'RTMP 服务器', Value: widget.Controller.Status?.RtmpServerUrl ?? '', ReadOnly: true, Placeholder: '等待主进程启动 RTMP 服务', OnIcon: Icons.copy, OnIconTap: () => Copy(widget.Controller.Status?.RtmpServerUrl ?? '', 'RTMP 服务器地址已复制')),
         AppHint('OBS 的服务器填该地址，流密钥填下方密钥。'),
@@ -139,7 +142,7 @@ class SettingsPageState extends State<SettingsPage> {
           AppStatusItem(Label: '录制编码', Value: AppStatusText(widget.Controller.Status?.Encoder ?? '未启动')),
           if (widget.Controller.Status?.RtmpError != null) AppStatusItem(Label: '错误信息', Value: AppStatusText(widget.Controller.Status!.RtmpError!)),
         ]),
-      ] else ...<Widget>[
+      ] else if (!PlatformInfo.Mobile) ...<Widget>[
         const AppSectionTitle('采集设备'),
         AppSelect<String>(
           Label: '摄像头 / 采集卡',
@@ -247,15 +250,19 @@ class SettingsPageState extends State<SettingsPage> {
         AppHint('CQP 数值越低画质越高，录制文件体积随画面复杂度变化。'),
       ],
       const AppSectionTitle('存储与运行'),
-      AppTextField(Label: '视频保存目录', Controller: SaveDir, ReadOnly: true, Placeholder: '默认保存到 ~/.splatoon3record/videos', OnIcon: Icons.folder, OnIconTap: () async {
-        await widget.Controller.PickFolder();
-        if (!mounted) return;
-        setState(() => SaveDir.text = widget.Controller.SettingsValue.SaveDir);
-      }),
-      AppHint('裁剪完成的对局录像保存到该目录。'),
+      if (!PlatformInfo.Mobile) ...<Widget>[
+        AppTextField(Label: '视频保存目录', Controller: SaveDir, ReadOnly: true, Placeholder: '默认保存到 ~/.splatoon3record/videos', OnIcon: Icons.folder, OnIconTap: () async {
+          await widget.Controller.PickFolder();
+          if (!mounted) return;
+          setState(() => SaveDir.text = widget.Controller.SettingsValue.SaveDir);
+        }),
+        AppHint('裁剪完成的对局录像保存到该目录。'),
+      ],
       AppFormSwitch(Label: '自动推送录像', Note: '对局裁剪完成后由 QQBot 私聊推送', Value: Draft.AutoPush, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'autoPush': Value}))),
-      AppFormSwitch(Label: '启动时自动录制', Note: '应用打开后立即开始缓存采集画面；RTMP 模式下收到推流即开始录制', Value: Draft.AutoRecord, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'autoRecord': Value}))),
-      AppFormSwitch(Label: '开机自启动', Note: '开机后自动运行 Splatoon3 Record', Value: Draft.AutoLaunch, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'autoLaunch': Value}))),
+      if (!PlatformInfo.Mobile) ...<Widget>[
+        AppFormSwitch(Label: '启动时自动录制', Note: '应用打开后立即开始缓存采集画面；RTMP 模式下收到推流即开始录制', Value: Draft.AutoRecord, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'autoRecord': Value}))),
+        AppFormSwitch(Label: '开机自启动', Note: '开机后自动运行 Splatoon3 Record', Value: Draft.AutoLaunch, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'autoLaunch': Value}))),
+      ],
       const AppSectionTitle('外观'),
       Text('背景图片', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurface)),
       AppHint(Draft.BackgroundPath.isEmpty ? '正在使用默认背景和吉祥物。' : '正在使用自定义背景，吉祥物已自动隐藏。'),

@@ -4,6 +4,8 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    - android/**
+    - ios/**
 linter:
   rules:
     non_constant_identifier_names: false

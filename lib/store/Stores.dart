@@ -8,10 +8,16 @@ import '../domain/Models.dart';
 class PathStore {
   PathStore._();
 
+  static String? MobileRoot;
+
   static AppDirectories Open() {
     final Override = Platform.environment['SPLATOON3RECORD_HOME'];
     if (Override != null && Override.isNotEmpty) {
       return AppDirectories(Root: Override);
+    }
+    final Sandbox = MobileRoot;
+    if (Sandbox != null && Sandbox.isNotEmpty) {
+      return AppDirectories(Root: Sandbox);
     }
     final Home = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
     return AppDirectories(Root: '$Home${Platform.pathSeparator}.splatoon3record');

@@ -37,6 +37,20 @@ pwsh tool/Package.ps1
 
 Windows 使用 Media Foundation 直接采集视频，预览由原生 RGBA 帧通过 Flutter 外部纹理直接显示；随包 `ffmpeg.exe` 只负责最终编码、分段封装、推流、裁剪和归档打码，`ffplay.exe` 只用于声音返听。macOS/Linux 使用系统 `ffmpeg` 采集与录制，不提供原生实时预览；构建使用 `tool/Build.sh`。macOS 的 URL Scheme 已写入 `Info.plist`，Windows 由安装器注册 `npf71b963c1b7b6d119`。
 
+## 移动端
+
+Android、iPhone 与 iPad 共用一套响应式界面：手机窄屏默认收起侧栏菜单，平板与桌面按宽度在抽屉和固定栏之间切换，列表、状态卡片与操作按钮随屏幕宽度调整列数和内边距。
+
+移动端提供账号同步、对局、相册、播放与 QQBot；采集和编码依赖桌面端的 Media Foundation 与 FFmpeg，相关入口在移动端隐藏。`assets/tools` 只在桌面平台打包，移动端不会带上 Windows 版 ffmpeg。
+
+```bash
+flutter build apk --release
+flutter build ios --release --no-codesign
+```
+
+iOS 产物为未签名 app，需要自行签名后再安装。`.github/workflows/mobile.yml` 会在 macOS 与 Linux runner 上构建未签名 ipa 和 apk 并上传工件。
+
+
 ## 说明
 
 UI 使用 Material 3 复刻旧版 MDUI 的深色桌面布局，复用了旧版位图、图标语义、字体和 ONNX 模型。Windows 采集链路为 Media Foundation 原生取帧、共享内存预览、FFmpeg 原始帧编码；macOS/Linux 使用 V4L2/AVFoundation 设备后端。

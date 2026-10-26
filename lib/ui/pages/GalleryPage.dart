@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../app/AppController.dart';
+import '../../config/PlatformInfo.dart';
 import '../../domain/Models.dart';
 import '../../format/Formats.dart';
 import '../AppTheme.dart';
@@ -59,12 +60,13 @@ class GalleryPageState extends State<GalleryPage> {
                 Kind: AppButtonKind.Text,
                 OnPressed: () => setState(() => Picked.clear()),
               ),
-            AppButton(
-              Label: PickedList.isEmpty ? '批量打码' : '批量打码 ${PickedList.length}',
-              Kind: AppButtonKind.Tonal,
-              Enabled: PickedList.isNotEmpty,
-              OnPressed: () => BlurBatch(PickedList),
-            ),
+            if (PlatformInfo.Desktop)
+              AppButton(
+                Label: PickedList.isEmpty ? '批量打码' : '批量打码 ${PickedList.length}',
+                Kind: AppButtonKind.Tonal,
+                Enabled: PickedList.isNotEmpty,
+                OnPressed: () => BlurBatch(PickedList),
+              ),
             AppButton(
               Label: PickedList.isEmpty ? '批量删除' : '批量删除 ${PickedList.length}',
               Kind: AppButtonKind.Tonal,

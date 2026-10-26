@@ -43,8 +43,8 @@ extension AppPlatformFlow on AppController {
     await Configs.Save(Next);
     Page = 'status';
     PushStatus();
-    if (SettingsValue.AutoRecord) await StartRecord();
-    unawaited(WarmPreviewWindow());
+    if (SettingsValue.AutoRecord && PlatformInfo.Desktop) await StartRecord();
+    if (PlatformInfo.Desktop) unawaited(WarmPreviewWindow());
   }
 
   Future<void> PickFolder() async {
