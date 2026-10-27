@@ -45,8 +45,6 @@ flutter:
         pluginClass: HaishinKitPlugin
       ios:
         pluginClass: HaishinKitPlugin
-      macos:
-        pluginClass: HaishinKitPlugin
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:
