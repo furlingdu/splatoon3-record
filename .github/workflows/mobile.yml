@@ -147,3 +147,36 @@ jobs:
           name: linux-x64
           path: "*.tar.gz"
           if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 60
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'windows'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8
+          channel: stable
+          cache: true
+      - name: Fetch FFmpeg
+        shell: pwsh
+        run: ./tool/FetchFFmpeg.ps1 -Target windows-x64
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Build Windows app
+        run: flutter build windows --release
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup\Setup.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: "dist/*.exe"
+          if-no-files-found: error
