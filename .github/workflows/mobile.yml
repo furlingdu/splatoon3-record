@@ -101,6 +101,7 @@ jobs:
       - name: Package
         run: |
           App="build/macos/Build/Products/Release/splatoon3record.app"
+          find "$App" -name '._*' -delete
           codesign --force --deep -s - "$App"
           ditto -c -k --sequesterRsrc --keepParent "$App" Splatoon3Record-3.0.0-macos-arm64.zip
       - uses: actions/upload-artifact@v4
