@@ -99,11 +99,6 @@ int ValueInt(FlValue* Args, const char* Key, int Fallback) {
   return static_cast<int>(fl_value_get_int(Value));
 }
 
-std::string CardName(int Fd) {
-  v4l2_capability Cap{};
-  if (Xioctl(Fd, VIDIOC_QUERYCAP, &Cap) < 0) return std::string();
-  return std::string(reinterpret_cast<const char*>(Cap.card));
-}
 
 FlValue* CaptureHost::Enumerate() {
   FlValue* List = fl_value_new_list();
