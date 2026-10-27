@@ -54,6 +54,7 @@ class CaptureService {
   bool _FallbackBlur = false;
   bool _MaskPipeOpen = false;
   CapturePrepared? _Prepared;
+  String? _AudioFifo;
   Timer? _NativeMaskTimer;
   int _LastStatsLog = 0;
 
@@ -114,8 +115,13 @@ class CaptureService {
       final Encoder = await FFmpeg.Encoder(Use);
       _Encoder = Encoder;
       final Exe = await FFmpeg.Ensure();
-      final Prepared = await CaptureBridge.Prepare(Use);
+      String? Fifo;
+      if (!PlatformInfo.Windows && Use.AudioDevice.isNotEmpty) {
+        Fifo = '${Directories.Temp}${Platform.pathSeparator}audio-${DateTime.now().microsecondsSinceEpoch}.pcm';
+      }
+      final Prepared = await CaptureBridge.Prepare(Use, AudioFifo: Fifo);
       _Prepared = Prepared;
+      _AudioFifo = Prepared.AudioFifo;
       final Live = LiveUrl != null && LiveUrl.isNotEmpty;
       final Writer = Record || Live;
       final Blur = Live && Use.BlurNickname;
@@ -150,6 +156,7 @@ class CaptureService {
                   Fps: Prepared.Fps,
                   RateText: Prepared.RateText,
                   Record: Record,
+                  AudioFifo: Prepared.AudioFifo,
                 )
               : CaptureArguments.Linux(
                   Value: Use,
@@ -161,6 +168,7 @@ class CaptureService {
                   Fps: Prepared.Fps,
                   RateText: Prepared.RateText,
                   Record: Record,
+                  AudioFifo: Prepared.AudioFifo,
                 );
       _RecordWaiter = Completer<void>();
       await CaptureBridge.Start(Exe, Args, Prepared.Rate, Writer);
@@ -192,6 +200,8 @@ class CaptureService {
   }
 
   Future<void> Stop({bool Fast = false}) async {
+    final Fifo = _AudioFifo;
+    _AudioFifo = null;
     final FallbackBlur = _FallbackBlur;
     _FallbackBlur = false;
     _NativeMaskTimer?.cancel();
@@ -219,6 +229,11 @@ class CaptureService {
         await CaptureBridge.CloseMaskPipe();
       } catch (_) {}
       _MaskPipeOpen = false;
+    }
+    if (Fifo != null && Fifo.isNotEmpty) {
+      try {
+        await File(Fifo).delete();
+      } catch (_) {}
     }
     await FlushLog();
     final ProcessRef = _Process;

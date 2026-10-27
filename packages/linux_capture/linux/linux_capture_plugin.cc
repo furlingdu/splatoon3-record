@@ -1,10 +1,12 @@
 #include "include/linux_capture/linux_capture_plugin.h"
 
+#include <alsa/asoundlib.h>
 #include <fcntl.h>
 #include <linux/videodev2.h>
 #include <poll.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <csignal>
@@ -12,6 +14,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -56,7 +59,7 @@ class CaptureHost {
 
   FlValue* Enumerate();
   FlValue* Modes(const std::string& Path);
-  bool Prepare(const std::string& Path, int Width, int Height, int Fps, FlValue** Info, std::string* Error);
+  bool Prepare(const std::string& Path, int Width, int Height, int Fps, const std::string& AudioName, const std::string& AudioFifoPath, FlValue** Info, std::string* Error);
   bool Start(const std::string& Exe, const std::vector<std::string>& Args, std::string* Error);
   void Stop(bool Fast);
 
@@ -82,6 +85,10 @@ class CaptureHost {
   std::atomic<bool> Running{false};
   std::thread Worker;
   std::atomic<int> Frames{0};
+  std::string AudioDevice;
+  std::string AudioFifo;
+  std::atomic<bool> AudioRunning{false};
+  std::thread AudioWorker;
   std::chrono::steady_clock::time_point LastTick;
 };
 
@@ -117,6 +124,29 @@ FlValue* CaptureHost::Enumerate() {
     fl_value_set_string_take(Item, "name", fl_value_new_string(reinterpret_cast<const char*>(Cap.card)));
     fl_value_set_string_take(Item, "kind", fl_value_new_string("video"));
     fl_value_append_take(List, Item);
+  }
+  void* Hints = nullptr;
+  if (snd_device_name_hint(-1, "pcm", &Hints) == 0) {
+    FlValue* Default = fl_value_new_map();
+    fl_value_set_string_take(Default, "id", fl_value_new_string("default"));
+    fl_value_set_string_take(Default, "name", fl_value_new_string("默认音频输入"));
+    fl_value_set_string_take(Default, "kind", fl_value_new_string("audio"));
+    fl_value_append_take(List, Default);
+    for (void** Cursor = static_cast<void**>(Hints); *Cursor != nullptr; Cursor++) {
+      char* Name = snd_device_name_get_hint(*Cursor, "NAME");
+      char* Ioid = snd_device_name_get_hint(*Cursor, "IOID");
+      bool Input = Ioid == nullptr || strcmp(Ioid, "Input") == 0;
+      if (Input && Name != nullptr && strcmp(Name, "null") != 0 && strcmp(Name, "default") != 0) {
+        FlValue* Audio = fl_value_new_map();
+        fl_value_set_string_take(Audio, "id", fl_value_new_string(Name));
+        fl_value_set_string_take(Audio, "name", fl_value_new_string(Name));
+        fl_value_set_string_take(Audio, "kind", fl_value_new_string("audio"));
+        fl_value_append_take(List, Audio);
+      }
+      free(Name);
+      free(Ioid);
+    }
+    snd_device_name_free_hint(static_cast<void**>(Hints));
   }
   return List;
 }
@@ -173,7 +203,7 @@ FlValue* CaptureHost::Modes(const std::string& Path) {
   return List;
 }
 
-bool CaptureHost::Prepare(const std::string& Path, int RequestedWidth, int RequestedHeight, int RequestedFps, FlValue** Info, std::string* Error) {
+bool CaptureHost::Prepare(const std::string& Path, int RequestedWidth, int RequestedHeight, int RequestedFps, const std::string& AudioName, const std::string& AudioFifoPath, FlValue** Info, std::string* Error) {
   Release();
   Fd = open(Path.c_str(), O_RDWR | O_NONBLOCK);
   if (Fd < 0) {
@@ -240,6 +270,14 @@ bool CaptureHost::Prepare(const std::string& Path, int RequestedWidth, int Reque
     Buffers[Index].Length = Buffer.length;
   }
   Frame.resize(static_cast<size_t>(Width) * Height * 3 / 2);
+  AudioDevice = AudioName;
+  AudioFifo.clear();
+  if (!AudioName.empty() && !AudioFifoPath.empty()) {
+    unlink(AudioFifoPath.c_str());
+    if (mkfifo(AudioFifoPath.c_str(), 0666) == 0) {
+      AudioFifo = AudioFifoPath;
+    }
+  }
   FlValue* Map = fl_value_new_map();
   fl_value_set_string_take(Map, "width", fl_value_new_int(Width));
   fl_value_set_string_take(Map, "height", fl_value_new_int(Height));
@@ -247,6 +285,7 @@ bool CaptureHost::Prepare(const std::string& Path, int RequestedWidth, int Reque
   fl_value_set_string_take(Map, "fpsNum", fl_value_new_int(Fps));
   fl_value_set_string_take(Map, "fpsDen", fl_value_new_int(1));
   fl_value_set_string_take(Map, "format", fl_value_new_string(PixelFormat == V4L2_PIX_FMT_NV12 ? "nv12" : "yuy2"));
+  fl_value_set_string_take(Map, "audioFifo", fl_value_new_string(AudioFifo.c_str()));
   *Info = Map;
   return true;
 }
@@ -299,6 +338,10 @@ bool CaptureHost::Start(const std::string& Exe, const std::vector<std::string>& 
   Frames = 0;
   LastTick = std::chrono::steady_clock::now();
   Worker = std::thread(&CaptureHost::FrameLoop, this);
+  if (!AudioFifo.empty()) {
+    AudioRunning = true;
+    AudioWorker = std::thread(&CaptureHost::AudioLoop, this);
+  }
   SendState("recording");
   return true;
 }
@@ -414,6 +457,64 @@ void CaptureHost::SendStats() {
   g_main_context_invoke(nullptr, DeliverEvent, Item);
 }
 
+void CaptureHost::AudioLoop() {
+  int Fd = -1;
+  for (int Attempt = 0; Attempt < 100 && AudioRunning; Attempt++) {
+    Fd = open(AudioFifo.c_str(), O_WRONLY | O_NONBLOCK);
+    if (Fd >= 0) break;
+    usleep(100000);
+  }
+  if (Fd < 0) return;
+  int Flags = fcntl(Fd, F_GETFL, 0);
+  fcntl(Fd, F_SETFL, Flags & ~O_NONBLOCK);
+  snd_pcm_t* Pcm = nullptr;
+  if (snd_pcm_open(&Pcm, AudioDevice.c_str(), SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK) < 0) {
+    close(Fd);
+    return;
+  }
+  snd_pcm_hw_params_t* Params = nullptr;
+  snd_pcm_hw_params_alloca(&Params);
+  bool Ready = snd_pcm_hw_params_any(Pcm, Params) >= 0;
+  Ready = Ready && snd_pcm_hw_params_set_access(Pcm, Params, SND_PCM_ACCESS_RW_INTERLEAVED) >= 0;
+  Ready = Ready && snd_pcm_hw_params_set_format(Pcm, Params, SND_PCM_FORMAT_S16_LE) >= 0;
+  Ready = Ready && snd_pcm_hw_params_set_channels(Pcm, Params, 2) >= 0;
+  unsigned Rate = 48000;
+  Ready = Ready && snd_pcm_hw_params_set_rate_near(Pcm, Params, &Rate, nullptr) >= 0;
+  Ready = Ready && snd_pcm_hw_params(Pcm, Params) >= 0;
+  if (!Ready) {
+    snd_pcm_close(Pcm);
+    close(Fd);
+    return;
+  }
+  short Buffer[1024 * 2];
+  while (AudioRunning) {
+    snd_pcm_sframes_t Frames = snd_pcm_readi(Pcm, Buffer, 1024);
+    if (Frames == -EPIPE) {
+      snd_pcm_prepare(Pcm);
+      continue;
+    }
+    if (Frames == -EAGAIN) {
+      usleep(5000);
+      continue;
+    }
+    if (Frames <= 0) continue;
+    size_t Total = static_cast<size_t>(Frames) * 4;
+    size_t Offset = 0;
+    const char* Data = reinterpret_cast<const char*>(Buffer);
+    while (Offset < Total) {
+      ssize_t Count = write(Fd, Data + Offset, Total - Offset);
+      if (Count > 0) {
+        Offset += static_cast<size_t>(Count);
+        continue;
+      }
+      if (errno == EINTR) continue;
+      Offset = Total;
+      AudioRunning = false;
+    }
+  }
+  snd_pcm_close(Pcm);
+  close(Fd);
+}
 void CaptureHost::Stop(bool Fast) {
   if (Running.exchange(false)) {
     if (Worker.joinable()) Worker.join();
@@ -424,6 +525,12 @@ void CaptureHost::Stop(bool Fast) {
 
 void CaptureHost::Release() {
   Running = false;
+  AudioRunning = false;
+  if (AudioWorker.joinable()) AudioWorker.join();
+  if (!AudioFifo.empty()) {
+    unlink(AudioFifo.c_str());
+    AudioFifo.clear();
+  }
   if (Worker.joinable()) Worker.join();
   if (Fd >= 0) {
     v4l2_buf_type Type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -472,7 +579,7 @@ void MethodCallCallback(FlMethodChannel* Channel, FlMethodCall* Call, gpointer U
   } else if (Name == "Prepare") {
     FlValue* Info = nullptr;
     std::string Error;
-    if (HostRef->Prepare(ValueString(Args, "device"), ValueInt(Args, "width", 1920), ValueInt(Args, "height", 1080), ValueInt(Args, "fps", 30), &Info, &Error)) {
+    if (HostRef->Prepare(ValueString(Args, "device"), ValueInt(Args, "width", 1920), ValueInt(Args, "height", 1080), ValueInt(Args, "fps", 30), ValueString(Args, "audioDevice"), ValueString(Args, "audioFifo"), &Info, &Error)) {
       Response = FL_METHOD_RESPONSE(fl_method_success_response_new(Info));
     } else {
       Response = FL_METHOD_RESPONSE(fl_method_error_response_new("capture", Error.c_str(), nullptr));

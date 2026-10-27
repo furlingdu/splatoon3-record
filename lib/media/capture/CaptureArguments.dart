@@ -105,8 +105,13 @@ class CaptureArguments {
     required int Fps,
     required String RateText,
     required bool Record,
+    String AudioFifo = '',
   }) {
+    final HasAudio = AudioFifo.isNotEmpty;
     final Args = <String>['-hide_banner', '-loglevel', 'warning', '-progress', 'pipe:2', '-stats_period', '1', '-nostdin', '-y'];
+    if (HasAudio) {
+      Args.addAll(<String>['-thread_queue_size', '1024', '-f', 's16le', '-ar', '48000', '-ac', '2', '-i', AudioFifo]);
+    }
     Args.addAll(<String>['-f', 'rawvideo', '-pixel_format', 'nv12', '-video_size', '${Width}x$Height', '-framerate', RateText, '-i', 'pipe:0']);
     if (Record) {
       AddRecordOutput(
@@ -114,8 +119,8 @@ class CaptureArguments {
         FFmpeg: FFmpeg,
         Directories: Directories,
         Encoder: Encoder,
-        VideoMap: '0:v:0',
-        AudioMap: null,
+        VideoMap: '${HasAudio ? 1 : 0}:v:0',
+        AudioMap: HasAudio ? '0:a:0' : null,
         Fps: Fps,
         RateText: RateText,
         Quality: Value.Quality,
@@ -134,6 +139,7 @@ class CaptureArguments {
     required int Fps,
     required String RateText,
     required bool Record,
+    String AudioFifo = '',
   }) {
     return Mac(
       Value: Value,
@@ -145,6 +151,7 @@ class CaptureArguments {
       Fps: Fps,
       RateText: RateText,
       Record: Record,
+      AudioFifo: AudioFifo,
     );
   }
 

@@ -22,3 +22,7 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(ALSA REQUIRED IMPORTED_TARGET alsa)
+target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::ALSA)

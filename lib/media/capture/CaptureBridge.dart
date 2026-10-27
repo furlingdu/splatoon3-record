@@ -36,13 +36,15 @@ class CaptureBridge {
     }).where((Item) => Item.Width > 0 && Item.Height > 0).toList();
   }
 
-  static Future<CapturePrepared> Prepare(RecordSettings Value) async {
+  static Future<CapturePrepared> Prepare(RecordSettings Value, {String? AudioFifo}) async {
     final Raw = await Channel.invokeMethod<Map<dynamic, dynamic>>('Prepare', <String, dynamic>{
       'device': Value.VideoDevice,
       'width': Value.Width,
       'height': Value.Height,
       'fps': Value.Fps,
       'format': Value.CaptureFormat,
+      'audioDevice': Value.AudioDevice,
+      'audioFifo': AudioFifo ?? '',
     });
     final Data = Map<String, dynamic>.from(Raw ?? <dynamic, dynamic>{});
     return CapturePrepared(
@@ -52,6 +54,7 @@ class CaptureBridge {
       FpsNumerator: (Data['fpsNum'] as num?)?.toInt() ?? Value.Fps,
       FpsDenominator: (Data['fpsDen'] as num?)?.toInt() ?? 1,
       Format: '${Data['format'] ?? 'nv12'}',
+      AudioFifo: '${Data['audioFifo'] ?? AudioFifo ?? ''}',
     );
   }
 
@@ -102,6 +105,7 @@ class CapturePrepared {
     required this.FpsNumerator,
     required this.FpsDenominator,
     required this.Format,
+    this.AudioFifo = '',
   });
 
   final int Width;
@@ -110,6 +114,9 @@ class CapturePrepared {
   final int FpsNumerator;
   final int FpsDenominator;
   final String Format;
+  final String AudioFifo;
+
+  bool get HasAudio => AudioFifo.isNotEmpty;
 
   double get Rate => FpsDenominator > 0 ? FpsNumerator / FpsDenominator : Fps.toDouble();
 

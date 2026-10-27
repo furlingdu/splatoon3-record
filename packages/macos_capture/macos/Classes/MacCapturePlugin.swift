@@ -25,8 +25,10 @@ public final class MacCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHandl
       let Width = Arguments["width"] as? Int ?? 1920
       let Height = Arguments["height"] as? Int ?? 1080
       let Fps = Arguments["fps"] as? Int ?? 30
+      let AudioDevice = Arguments["audioDevice"] as? String ?? ""
+      let AudioFifo = Arguments["audioFifo"] as? String ?? ""
       DispatchQueue.global(qos: .userInitiated).async {
-        self.Host.Prepare(DeviceId: Device, Width: Width, Height: Height, Fps: Fps) { Info, Error in
+        self.Host.Prepare(DeviceId: Device, Width: Width, Height: Height, Fps: Fps, AudioDeviceId: AudioDevice, AudioFifoPath: AudioFifo) { Info, Error in
           DispatchQueue.main.async {
             if let Error = Error {
               result(FlutterError(code: "capture", message: Error, details: nil))

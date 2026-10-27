@@ -1,18 +1,22 @@
 import AVFoundation
 import CoreImage
-import FlutterMacOS
 import CoreVideo
+import FlutterMacOS
 import Foundation
 
-final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
   let Session = AVCaptureSession()
 
   private let VideoOutput = AVCaptureVideoDataOutput()
+  private let AudioOutput = AVCaptureAudioDataOutput()
   private let Queue = DispatchQueue(label: "splatoon3record.mac.capture")
+  private let AudioQueue = DispatchQueue(label: "splatoon3record.mac.audio")
   private let Context = CIContext(options: nil)
   private let Texture = MacCaptureTexture()
   private var VideoInput: AVCaptureDeviceInput?
+  private var AudioInput: AVCaptureDeviceInput?
   private var Stdin: FileHandle?
+  private var AudioFile: FileHandle?
   private var ProcessRef: Process?
   private var Pool: CVPixelBufferPool?
   private var StatsTimer: Timer?
@@ -25,6 +29,7 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
   private var LastPreview = 0.0
   private var Prepared = false
   private var Stopping = false
+  private var AudioFifo = ""
 
   var TextureId: Int64 = -1
   var OnState: ((String) -> Void)?
@@ -35,16 +40,35 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     return [.builtInWideAngleCamera, .externalUnknown]
   }
 
+  private var AudioTypes: [AVCaptureDevice.DeviceType] {
+    if #available(macOS 14.0, *) {
+      return [.microphone, .externalUnknown]
+    }
+    return [.builtInMicrophone, .externalUnknown]
+  }
+
   private func Find(_ DeviceId: String) -> AVCaptureDevice? {
     let Devices = AVCaptureDevice.DiscoverySession(deviceTypes: DeviceTypes, mediaType: .video, position: .unspecified).devices
     return Devices.first(where: { $0.uniqueID == DeviceId })
   }
 
+  private func FindAudio(_ DeviceId: String) -> AVCaptureDevice? {
+    guard !DeviceId.isEmpty else { return nil }
+    let Devices = AVCaptureDevice.DiscoverySession(deviceTypes: AudioTypes, mediaType: .audio, position: .unspecified).devices
+    return Devices.first(where: { $0.uniqueID == DeviceId })
+  }
+
   func Enumerate() -> [[String: Any]] {
-    let Devices = AVCaptureDevice.DiscoverySession(deviceTypes: DeviceTypes, mediaType: .video, position: .unspecified).devices
-    return Devices.map { Device in
-      ["id": Device.uniqueID, "name": Device.localizedName, "kind": "video"]
+    var Result: [[String: Any]] = []
+    let Videos = AVCaptureDevice.DiscoverySession(deviceTypes: DeviceTypes, mediaType: .video, position: .unspecified).devices
+    for Device in Videos {
+      Result.append(["id": Device.uniqueID, "name": Device.localizedName, "kind": "video"])
     }
+    let Audios = AVCaptureDevice.DiscoverySession(deviceTypes: AudioTypes, mediaType: .audio, position: .unspecified).devices
+    for Device in Audios {
+      Result.append(["id": Device.uniqueID, "name": Device.localizedName, "kind": "audio"])
+    }
+    return Result
   }
 
   func Modes(_ DeviceId: String) -> [[String: Any]] {
@@ -62,7 +86,7 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     return Result
   }
 
-  func Prepare(DeviceId: String, Width: Int, Height: Int, Fps: Int, Completion: @escaping ([String: Any]?, String?) -> Void) {
+  func Prepare(DeviceId: String, Width: Int, Height: Int, Fps: Int, AudioDeviceId: String, AudioFifoPath: String, Completion: @escaping ([String: Any]?, String?) -> Void) {
     guard let Device = Find(DeviceId) else {
       Completion(nil, "未找到采集设备")
       return
@@ -107,6 +131,41 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     if !Session.outputs.contains(VideoOutput) {
       if Session.canAddOutput(VideoOutput) { Session.addOutput(VideoOutput) }
     }
+    AudioFifo = ""
+    if let AudioDevice = FindAudio(AudioDeviceId), !AudioFifoPath.isEmpty {
+      do {
+        if let Old = AudioInput {
+          Session.removeInput(Old)
+          AudioInput = nil
+        }
+        let Input = try AVCaptureDeviceInput(device: AudioDevice)
+        if Session.canAddInput(Input) {
+          Session.addInput(Input)
+          AudioInput = Input
+          AudioOutput.audioSettings = [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVSampleRateKey: 48000.0,
+            AVNumberOfChannelsKey: 2,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false,
+          ]
+          AudioOutput.setSampleBufferDelegate(self, queue: AudioQueue)
+          if !Session.outputs.contains(AudioOutput) {
+            if Session.canAddOutput(AudioOutput) { Session.addOutput(AudioOutput) }
+          }
+          unlink(AudioFifoPath)
+          if mkfifo(AudioFifoPath, 0o666) == 0 {
+            AudioFifo = AudioFifoPath
+          }
+        }
+      } catch {
+      }
+    } else if let Old = AudioInput {
+      Session.removeInput(Old)
+      AudioInput = nil
+    }
     Session.commitConfiguration()
     let Size = CMVideoFormatDescriptionGetDimensions(Device.activeFormat.formatDescription)
     self.Width = Int(Size.width)
@@ -120,6 +179,7 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
       "fpsNum": UseFps,
       "fpsDen": 1,
       "format": "nv12",
+      "audioFifo": AudioFifo,
     ], nil)
   }
 
@@ -179,6 +239,12 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
       Strong.OnError?("编码进程退出 \(Value.terminationStatus)")
       Strong.OnState?("error")
     }
+    if !AudioFifo.isEmpty {
+      let Path = AudioFifo
+      DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.2) {
+        self.AudioFile = FileHandle(forWritingAtPath: Path)
+      }
+    }
     Queue.async {
       self.Session.startRunning()
     }
@@ -195,6 +261,8 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     StatsTimer?.invalidate()
     StatsTimer = nil
     if Session.isRunning { Session.stopRunning() }
+    try? AudioFile?.close()
+    AudioFile = nil
     try? Stdin?.close()
     Stdin = nil
     let Task = ProcessRef
@@ -202,6 +270,10 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     if let Task = Task, Task.isRunning {
       Task.terminate()
       Task.waitUntilExit()
+    }
+    if !AudioFifo.isEmpty {
+      unlink(AudioFifo)
+      AudioFifo = ""
     }
     OnState?("idle")
     Completion()
@@ -217,14 +289,60 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     for Output in Session.outputs { Session.removeOutput(Output) }
     Session.commitConfiguration()
     VideoInput = nil
+    AudioInput = nil
     Pool = nil
   }
 
   func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+    if output === AudioOutput {
+      WriteAudio(sampleBuffer)
+      return
+    }
     guard let Pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
     Frames += 1
     Write(Pixel)
     Preview(Pixel)
+  }
+
+  private func WriteAudio(_ Sample: CMSampleBuffer) {
+    guard let File = AudioFile else { return }
+    var List = AudioBufferList()
+    var Block: CMBlockBuffer?
+    let Status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+      Sample,
+      bufferListSizeNeededOut: nil,
+      bufferListOut: &List,
+      bufferListSize: MemoryLayout<AudioBufferList>.size,
+      blockBufferAllocator: nil,
+      blockBufferMemoryAllocator: nil,
+      flags: UInt32(kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment),
+      blockBufferOut: &Block)
+    if Status != noErr { return }
+    let Buffers = UnsafeMutableAudioBufferListPointer(&List)
+    if Buffers.count == 1 {
+      guard let DataPtr = Buffers[0].mData else { return }
+      let Size = Int(Buffers[0].mDataByteSize)
+      if Size <= 0 { return }
+      try? File.write(contentsOf: Data(bytes: DataPtr, count: Size))
+      return
+    }
+    if Buffers.count >= 2 {
+      guard let LeftPtr = Buffers[0].mData, let RightPtr = Buffers[1].mData else { return }
+      let Frames = Int(min(Buffers[0].mDataByteSize, Buffers[1].mDataByteSize)) / 2
+      if Frames <= 0 { return }
+      let Left = LeftPtr.assumingMemoryBound(to: Int16.self)
+      let Right = RightPtr.assumingMemoryBound(to: Int16.self)
+      var Scratch = [Int16](repeating: 0, count: Frames * 2)
+      for Index in 0..<Frames {
+        Scratch[Index * 2] = Left[Index]
+        Scratch[Index * 2 + 1] = Right[Index]
+      }
+      Scratch.withUnsafeBufferPointer { Pointer in
+        if let Base = Pointer.baseAddress {
+          try? File.write(contentsOf: Data(bytes: Base, count: Frames * 4))
+        }
+      }
+    }
   }
 
   private func Write(_ Pixel: CVPixelBuffer) {
