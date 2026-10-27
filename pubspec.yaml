@@ -94,3 +94,5 @@ flutter:
 dependency_overrides:
   camera_avfoundation:
     path: third_party/camera_avfoundation
+  haishin_kit:
+    path: third_party/haishin_kit

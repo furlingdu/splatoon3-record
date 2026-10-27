@@ -35,8 +35,6 @@ jobs:
           flutter-version: 3.47.8
           channel: stable
           cache: true
-      - name: Disable Swift Package Manager
-        run: flutter config --no-enable-swift-package-manager
       - name: Resolve dependencies
         run: flutter pub get
       - name: Build runner app
@@ -96,8 +94,6 @@ jobs:
           cache: true
       - name: Fetch FFmpeg
         run: bash tool/FetchFFmpeg.sh macos-arm64
-      - name: Disable Swift Package Manager
-        run: flutter config --no-enable-swift-package-manager
       - name: Resolve dependencies
         run: flutter pub get
       - name: Build macOS app

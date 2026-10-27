@@ -377,10 +377,9 @@ packages:
   haishin_kit:
     dependency: "direct main"
     description:
-      name: haishin_kit
-      sha256: "56c7919936f123ebb4afd6f7aacf207cd3f3f6ba190bd830e351dd858d60ac9b"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/haishin_kit"
+      relative: true
+    source: path
     version: "0.16.0"
   hooks:
     dependency: transitive
