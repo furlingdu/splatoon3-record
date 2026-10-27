@@ -91,8 +91,8 @@ final class MobileCapturePreviewFactory: NSObject, FlutterPlatformViewFactory {
 
 final class MobileCapturePreviewView: NSObject, FlutterPlatformView {
   init(Frame: CGRect, Capture: MobileCaptureSession) {
-    super.init()
     Container = MobileCapturePreviewContainer(Frame: Frame, Session: Capture.Session)
+    super.init()
   }
 
   private let Container: MobileCapturePreviewContainer
