@@ -15,12 +15,17 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
+#include <algorithm>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace {
+
+class CaptureHost;
+GType linux_capture_texture_get_type(void);
 
 int Xioctl(int Fd, unsigned long Request, void* Arg) {
   int Result = 0;
@@ -56,6 +61,10 @@ class CaptureHost {
   ~CaptureHost() { Stop(true); }
 
   void SetEventChannel(FlEventChannel* Channel) { Events = Channel; }
+  void SetTextureRegistrar(FlTextureRegistrar* Value) { Textures = Value; }
+  void CreateTexture();
+  int64_t PreviewId() const { return TextureId; }
+  bool CopyPreview(const uint8_t** Buffer, uint32_t* WidthValue, uint32_t* HeightValue);
 
   FlValue* Enumerate();
   FlValue* Modes(const std::string& Path);
@@ -66,6 +75,7 @@ class CaptureHost {
  private:
   void FrameLoop();
   void AudioLoop();
+  void PushPreview(const uint8_t* Source);
   void Convert(const uint8_t* Source);
   bool WriteFrame();
   void SendState(const char* Value);
@@ -90,9 +100,96 @@ class CaptureHost {
   std::string AudioFifo;
   std::atomic<bool> AudioRunning{false};
   std::thread AudioWorker;
+  FlTextureRegistrar* Textures = nullptr;
+  FlTexture* Texture = nullptr;
+  int64_t TextureId = -1;
+  std::mutex PreviewLock;
+  std::vector<uint8_t> PreviewStage;
+  std::vector<uint8_t> PreviewFrame;
+  std::vector<uint8_t> PreviewOut;
+  std::chrono::steady_clock::time_point LastPreview;
   std::chrono::steady_clock::time_point LastTick;
 };
 
+struct _LinuxCaptureTexture {
+  FlPixelBufferTexture parent_instance;
+  CaptureHost* Host;
+};
+typedef struct _LinuxCaptureTexture LinuxCaptureTexture;
+typedef struct {
+  FlPixelBufferTextureClass parent_class;
+} LinuxCaptureTextureClass;
+
+static gboolean LinuxCaptureTextureCopy(FlPixelBufferTexture* Texture, const guint8** Buffer, guint32* WidthValue, guint32* HeightValue, GError** Error) {
+  auto* Self = reinterpret_cast<LinuxCaptureTexture*>(Texture);
+  if (Self->Host == nullptr) return FALSE;
+  return Self->Host->CopyPreview(Buffer, WidthValue, HeightValue) ? TRUE : FALSE;
+}
+
+G_DEFINE_TYPE(LinuxCaptureTexture, linux_capture_texture, fl_pixel_buffer_texture_get_type())
+
+static void linux_capture_texture_class_init(LinuxCaptureTextureClass* Klass) {
+  FL_PIXEL_BUFFER_TEXTURE_CLASS(Klass)->copy_pixels = LinuxCaptureTextureCopy;
+}
+
+static void linux_capture_texture_init(LinuxCaptureTexture* Self) {
+  Self->Host = nullptr;
+}
+
+void CaptureHost::CreateTexture() {
+  if (Textures == nullptr || Texture != nullptr) return;
+  auto* Value = static_cast<LinuxCaptureTexture*>(g_object_new(linux_capture_texture_get_type(), nullptr));
+  Value->Host = this;
+  if (!fl_texture_registrar_register_texture(Textures, FL_TEXTURE(Value))) {
+    g_object_unref(Value);
+    return;
+  }
+  Texture = FL_TEXTURE(Value);
+  TextureId = fl_texture_get_id(Texture);
+}
+
+bool CaptureHost::CopyPreview(const uint8_t** Buffer, uint32_t* WidthValue, uint32_t* HeightValue) {
+  std::lock_guard<std::mutex> Guard(PreviewLock);
+  if (PreviewFrame.empty()) return false;
+  PreviewOut = PreviewFrame;
+  *Buffer = PreviewOut.data();
+  *WidthValue = static_cast<uint32_t>(Width);
+  *HeightValue = static_cast<uint32_t>(Height);
+  return true;
+}
+
+void CaptureHost::PushPreview(const uint8_t* Source) {
+  if (Texture == nullptr || Textures == nullptr) return;
+  auto Now = std::chrono::steady_clock::now();
+  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastPreview).count() < 33) return;
+  LastPreview = Now;
+  size_t Size = static_cast<size_t>(Width) * Height * 4;
+  if (Size == 0) return;
+  if (PreviewStage.size() != Size) PreviewStage.resize(Size);
+  const uint8_t* YPlane = Source;
+  const uint8_t* UVPlane = Source + static_cast<size_t>(Width) * Height;
+  for (int Row = 0; Row < Height; Row++) {
+    for (int Column = 0; Column < Width; Column++) {
+      int Y = YPlane[static_cast<size_t>(Row) * Width + Column];
+      int UvIndex = (Row / 2) * Width + (Column / 2) * 2;
+      int U = UVPlane[UvIndex] - 128;
+      int V = UVPlane[UvIndex + 1] - 128;
+      int R = Y + (V * 1436) / 1024;
+      int G = Y - (U * 352) / 1024 - (V * 731) / 1024;
+      int B = Y + (U * 1814) / 1024;
+      uint8_t* Target = PreviewStage.data() + (static_cast<size_t>(Row) * Width + Column) * 4;
+      Target[0] = static_cast<uint8_t>(std::clamp(B, 0, 255));
+      Target[1] = static_cast<uint8_t>(std::clamp(G, 0, 255));
+      Target[2] = static_cast<uint8_t>(std::clamp(R, 0, 255));
+      Target[3] = 255;
+    }
+  }
+  {
+    std::lock_guard<std::mutex> Guard(PreviewLock);
+    PreviewStage.swap(PreviewFrame);
+  }
+  fl_texture_registrar_mark_texture_frame_available(Textures, Texture);
+}
 std::string ValueString(FlValue* Args, const char* Key) {
   if (Args == nullptr || fl_value_get_type(Args) != FL_VALUE_TYPE_MAP) return std::string();
   FlValue* Value = fl_value_lookup_string(Args, Key);
@@ -386,6 +483,7 @@ void CaptureHost::Convert(const uint8_t* Source) {
     for (int Row = 0; Row < Height / 2; Row++) {
       memcpy(Target + static_cast<size_t>(Row) * Width, UV + static_cast<size_t>(Row) * Stride, Width);
     }
+    PushPreview(Frame.data());
     return;
   }
   uint8_t* YPlane = Frame.data();
@@ -406,6 +504,7 @@ void CaptureHost::Convert(const uint8_t* Source) {
       UV[Index + 1] = static_cast<uint8_t>((Top[Column + 3] + Bottom[Column + 3]) / 2);
     }
   }
+  PushPreview(Frame.data());
 }
 
 bool CaptureHost::WriteFrame() {
@@ -606,7 +705,7 @@ void MethodCallCallback(FlMethodChannel* Channel, FlMethodCall* Call, gpointer U
     HostRef->Stop(true);
     Response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
   } else if (Name == "PreviewTexture") {
-    Response = FL_METHOD_RESPONSE(fl_method_success_response_new(fl_value_new_int(-1)));
+    Response = FL_METHOD_RESPONSE(fl_method_success_response_new(fl_value_new_int(HostRef->PreviewId())));
   } else if (Name == "PreviewState") {
     Response = FL_METHOD_RESPONSE(fl_method_success_response_new(fl_value_new_map()));
   } else if (Name == "Snapshot" || Name == "Mask" || Name == "OpenMaskPipe" || Name == "CloseMaskPipe") {
@@ -627,4 +726,6 @@ void linux_capture_plugin_register_with_registrar(FlPluginRegistrar* registrar) 
   EventChannelRef = fl_event_channel_new(fl_plugin_registrar_get_messenger(registrar), "splatoon3record/capture/events", FL_METHOD_CODEC(Codec));
   fl_event_channel_set_stream_handlers(EventChannelRef, ListenCallback, CancelCallback, nullptr, nullptr);
   Host->SetEventChannel(EventChannelRef);
+  Host->SetTextureRegistrar(fl_plugin_registrar_get_texture_registrar(registrar));
+  Host->CreateTexture();
 }

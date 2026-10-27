@@ -48,7 +48,7 @@ extension AppCaptureFlow on AppController {
     }
     if (Next.AudioDevice.isEmpty && AudioDevices.isNotEmpty) {
       final Preferred = AudioDevices.firstWhere(
-        (Item) => RegExp('hdmi|line|capture|game|采集|线路', caseSensitive: false).hasMatch(Item.Name),
+        (Item) => RegExp('hdmi|line|capture|game|usb|uvc|采集|线路', caseSensitive: false).hasMatch(Item.Name),
         orElse: () => AudioDevices.first,
       );
       Next = Next.Copy(<String, dynamic>{'audioDevice': Preferred.Id});

@@ -52,10 +52,19 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     return Devices.first(where: { $0.uniqueID == DeviceId })
   }
 
+  private func AudioDevices() -> [AVCaptureDevice] {
+    var Result = AVCaptureDevice.DiscoverySession(deviceTypes: AudioTypes, mediaType: .audio, position: .unspecified).devices
+    for Device in AVCaptureDevice.devices(for: .audio) {
+      if !Result.contains(where: { $0.uniqueID == Device.uniqueID }) {
+        Result.append(Device)
+      }
+    }
+    return Result
+  }
+
   private func FindAudio(_ DeviceId: String) -> AVCaptureDevice? {
     guard !DeviceId.isEmpty else { return nil }
-    let Devices = AVCaptureDevice.DiscoverySession(deviceTypes: AudioTypes, mediaType: .audio, position: .unspecified).devices
-    return Devices.first(where: { $0.uniqueID == DeviceId })
+    return AudioDevices().first(where: { $0.uniqueID == DeviceId })
   }
 
   func Enumerate() -> [[String: Any]] {
@@ -64,7 +73,7 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     for Device in Videos {
       Result.append(["id": Device.uniqueID, "name": Device.localizedName, "kind": "video"])
     }
-    let Audios = AVCaptureDevice.DiscoverySession(deviceTypes: AudioTypes, mediaType: .audio, position: .unspecified).devices
+    let Audios = AudioDevices()
     for Device in Audios {
       Result.append(["id": Device.uniqueID, "name": Device.localizedName, "kind": "audio"])
     }
