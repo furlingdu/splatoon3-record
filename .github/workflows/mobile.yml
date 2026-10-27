@@ -25,7 +25,7 @@ permissions:
 jobs:
   ios:
     name: iOS unsigned ipa
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'ios'
     steps:
