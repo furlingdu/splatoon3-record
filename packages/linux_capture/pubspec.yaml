@@ -1,0 +1,18 @@
+name: linux_capture
+description: Native Linux V4L2 capture for Splatoon3 Record.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+  flutter: ">=3.32.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      linux:
+        pluginClass: LinuxCapturePlugin

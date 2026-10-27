@@ -125,19 +125,8 @@ class CaptureService {
         if (MaskPipe == null || MaskPipe.isEmpty) throw StateError('无法创建直播打码通道');
         _MaskPipeOpen = true;
       }
-      final Args = PlatformInfo.MacOS
-          ? CaptureArguments.Mac(
-              Value: Use,
-              FFmpeg: FFmpeg,
-              Directories: Directories,
-              Encoder: Encoder,
-              Width: Prepared.Width,
-              Height: Prepared.Height,
-              Fps: Prepared.Fps,
-              RateText: Prepared.RateText,
-              Record: Record,
-            )
-          : CaptureArguments.Native(
+      final Args = PlatformInfo.Windows
+          ? CaptureArguments.Native(
               Value: Use,
               FFmpeg: FFmpeg,
               Directories: Directories,
@@ -149,7 +138,30 @@ class CaptureService {
               LiveTarget: Live ? LiveUrl : null,
               Record: Record,
               MaskPipe: MaskPipe,
-            );
+            )
+          : PlatformInfo.MacOS
+              ? CaptureArguments.Mac(
+                  Value: Use,
+                  FFmpeg: FFmpeg,
+                  Directories: Directories,
+                  Encoder: Encoder,
+                  Width: Prepared.Width,
+                  Height: Prepared.Height,
+                  Fps: Prepared.Fps,
+                  RateText: Prepared.RateText,
+                  Record: Record,
+                )
+              : CaptureArguments.Linux(
+                  Value: Use,
+                  FFmpeg: FFmpeg,
+                  Directories: Directories,
+                  Encoder: Encoder,
+                  Width: Prepared.Width,
+                  Height: Prepared.Height,
+                  Fps: Prepared.Fps,
+                  RateText: Prepared.RateText,
+                  Record: Record,
+                );
       _RecordWaiter = Completer<void>();
       await CaptureBridge.Start(Exe, Args, Prepared.Rate, Writer);
       _NativeRunning = true;

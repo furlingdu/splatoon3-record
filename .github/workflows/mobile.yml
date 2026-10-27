@@ -109,3 +109,33 @@ jobs:
           name: macos-arm64
           path: "*.zip"
           if-no-files-found: error
+
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'linux'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libjson-glib-dev libasound2-dev ninja-build
+      - name: Fetch FFmpeg
+        run: bash tool/FetchFFmpeg.sh linux-x64
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Build Linux app
+        run: flutter build linux --release
+      - name: Package
+        run: tar -czf Splatoon3Record-3.0.0-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: "*.tar.gz"
+          if-no-files-found: error

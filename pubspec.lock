@@ -467,6 +467,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.2"
+  linux_capture:
+    dependency: "direct main"
+    description:
+      path: "packages/linux_capture"
+      relative: true
+    source: path
+    version: "0.1.0"
   logging:
     dependency: transitive
     description:

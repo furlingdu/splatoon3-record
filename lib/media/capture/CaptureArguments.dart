@@ -124,6 +124,30 @@ class CaptureArguments {
     return Args;
   }
 
+  static List<String> Linux({
+    required RecordSettings Value,
+    required FFmpegService FFmpeg,
+    required AppDirectories Directories,
+    required String Encoder,
+    required int Width,
+    required int Height,
+    required int Fps,
+    required String RateText,
+    required bool Record,
+  }) {
+    return Mac(
+      Value: Value,
+      FFmpeg: FFmpeg,
+      Directories: Directories,
+      Encoder: Encoder,
+      Width: Width,
+      Height: Height,
+      Fps: Fps,
+      RateText: RateText,
+      Record: Record,
+    );
+  }
+
   static List<String> Fallback({
     required RecordSettings Value,
     required FFmpegService FFmpeg,
