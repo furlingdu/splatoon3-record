@@ -23,8 +23,6 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
     var Types: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera]
     if #available(iOS 17.0, *) {
       Types.append(.external)
-    } else {
-      Types.append(.externalUnknown)
     }
     return Types
   }
@@ -37,9 +35,9 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
 
   private func IsExternal(_ Device: AVCaptureDevice) -> Bool {
     if #available(iOS 17.0, *) {
-      if Device.deviceType == .external { return true }
+      return Device.deviceType == .external
     }
-    return Device.deviceType == .externalUnknown
+    return false
   }
 
   func Enumerate() -> [[String: Any]] {
