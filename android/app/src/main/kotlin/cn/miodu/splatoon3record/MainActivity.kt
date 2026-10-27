@@ -47,8 +47,6 @@ class MainActivity : FlutterActivity() {
         else -> Result.notImplemented()
       }
     }
-  }
-
     EventChannel(Engine.dartExecutor.binaryMessenger, "splatoon3record/uvc_live/events").setStreamHandler(object : EventChannel.StreamHandler {
       override fun onListen(Arguments: Any?, Events: EventChannel.EventSink) {
         UvcSink = Events
@@ -85,8 +83,8 @@ class MainActivity : FlutterActivity() {
             } else {
               Result.success(null)
             }
-          } catch (Failure: Exception) {
-            Result.error("uvc", Failure.message, null)
+          } catch (Problem: Exception) {
+            Result.error("uvc", Problem.message, null)
           }
         }
         "Stop" -> {
