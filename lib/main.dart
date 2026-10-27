@@ -34,8 +34,16 @@ Future<void> main(List<String> Args) async {
       systemNavigationBarIconBrightness: Brightness.light,
     ));
     try {
+      final Documents = await getApplicationDocumentsDirectory();
       final Support = await getApplicationSupportDirectory();
-      PathStore.MobileRoot = '${Support.path}${Platform.pathSeparator}.splatoon3record';
+      final Target = '${Documents.path}${Platform.pathSeparator}.splatoon3record';
+      final Legacy = '${Support.path}${Platform.pathSeparator}.splatoon3record';
+      if (!Directory(Target).existsSync() && Directory(Legacy).existsSync()) {
+        try {
+          await Directory(Legacy).rename(Target);
+        } catch (_) {}
+      }
+      PathStore.MobileRoot = Target;
     } catch (_) {}
   }
   if (Args.contains('--preview') && PlatformInfo.Desktop) {

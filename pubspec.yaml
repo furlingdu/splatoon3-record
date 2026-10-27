@@ -12,10 +12,13 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   app_links: ^7.2.2
+  camera: ^0.12.1
   crypto: ^3.0.6
   cryptography: ^2.9.0
+  ffmpeg_kit_flutter_new_min_gpl: ^2.6.7
   ffi: ^2.1.3
   file_selector: ^1.1.0
+  flutter_ffi_uvc: ^1.1.2
   http: ^1.6.0
   media_kit: ^1.2.6
   media_kit_libs_android_video: ^1.3.8
@@ -24,11 +27,14 @@ dependencies:
   media_kit_libs_macos_video: ^1.0.11
   media_kit_libs_windows_video: ^1.0.11
   media_kit_video: ^2.0.1
+  mobile_capture:
+    path: packages/mobile_capture
   package_info_plus: ^10.2.2
   path: ^1.9.0
   path_provider: ^2.1.6
   qr: ^4.0.0
   screen_retriever: ^0.2.2
+  share_plus: ^13.3.1
   url_launcher: ^6.3.2
   web_socket_channel: ^3.0.3
   window_manager: ^0.5.2

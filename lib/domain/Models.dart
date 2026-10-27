@@ -33,6 +33,9 @@ class RecordSettings {
     this.ThemeColor = '#4285f4',
     this.BackgroundPath = '',
     this.BackgroundDim = 40,
+    this.MobileSource = 'camera',
+    this.MobileDevice = '',
+    this.MobileAudio = false,
   });
 
   String CaptureMode;
@@ -64,6 +67,9 @@ class RecordSettings {
   String ThemeColor;
   String BackgroundPath;
   int BackgroundDim;
+  String MobileSource;
+  String MobileDevice;
+  bool MobileAudio;
 
   static RecordSettings FromMap(Map<String, dynamic> Data, [RecordSettings? Current]) {
     final Fallback = Current ?? RecordSettings();
@@ -89,6 +95,7 @@ class RecordSettings {
     final CaptureMode = Text(Data['captureMode'], Fallback.CaptureMode);
     final CaptureFormat = Text(Data['captureFormat'], Fallback.CaptureFormat);
     final ThemeColor = Text(Data['themeColor'], Fallback.ThemeColor);
+    final MobileSource = Text(Data['mobileSource'], Fallback.MobileSource);
     final Quality = Number(Data['quality'], 0, 51, Fallback.Quality);
     final Port = Number(Data['rtmpPort'], 1024, 65535, Fallback.RtmpPort);
     final Key = Text(Data['rtmpStreamKey'], Fallback.RtmpStreamKey);
@@ -126,6 +133,9 @@ class RecordSettings {
       ThemeColor: RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(ThemeColor) ? ThemeColor.toLowerCase() : Fallback.ThemeColor,
       BackgroundPath: Text(Data['backgroundPath'], Fallback.BackgroundPath),
       BackgroundDim: Number(Data['backgroundDim'], 0, 100, Fallback.BackgroundDim),
+      MobileSource: const ['camera', 'uvc', 'external'].contains(MobileSource) ? MobileSource : 'camera',
+      MobileDevice: Text(Data['mobileDevice'], Fallback.MobileDevice),
+      MobileAudio: Flag(Data['mobileAudio'], Fallback.MobileAudio),
     );
   }
 
@@ -165,6 +175,9 @@ class RecordSettings {
         'themeColor': ThemeColor,
         'backgroundPath': BackgroundPath,
         'backgroundDim': BackgroundDim,
+        'mobileSource': MobileSource,
+        'mobileDevice': MobileDevice,
+        'mobileAudio': MobileAudio,
       };
 
   RecordSettings Copy([Map<String, dynamic>? Part]) {

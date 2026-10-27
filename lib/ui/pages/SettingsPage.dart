@@ -41,6 +41,10 @@ class SettingsPageState extends State<SettingsPage> {
     LoadModes();
   }
 
+  List<CaptureDevice> MobileDevices(String Prefix) {
+    return widget.Controller.Devices.where((Item) => Item.Kind == 'video' && Item.Id.startsWith('$Prefix:')).toList();
+  }
+
   Future<void> LoadModes() async {
     if (Draft.VideoDevice.isEmpty) return;
     final List = await widget.Controller.Capture.Modes(Draft.VideoDevice).catchError((_) => <CaptureMode>[]);
@@ -113,7 +117,59 @@ class SettingsPageState extends State<SettingsPage> {
     }.toList();
     return PageBody(Children: <Widget>[
       const AppPageTitle('设置'),
-      if (PlatformInfo.Mobile) const AppHint('移动端不提供采集与编码设置，录制相关选项在桌面端调整。'),
+      if (PlatformInfo.Mobile) ...<Widget>[
+        const AppSectionTitle('采集设备'),
+        AppSelect<String>(
+          Label: '采集来源',
+          Value: Draft.MobileSource,
+          Items: PlatformInfo.IOS ? const <String>['external'] : const <String>['camera', 'uvc'],
+          Display: (Value) => Value == 'uvc' ? 'USB 采集卡' : '系统相机',
+          OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileSource': Value, 'mobileDevice': ''})),
+        ),
+        Row(children: <Widget>[
+          Expanded(
+            child: AppSelect<String>(
+              Label: '设备',
+              Value: Draft.MobileDevice,
+              Items: <String>['', ...MobileDevices(Draft.MobileSource).map((Item) => Item.Id)],
+              Display: (Value) => Value.isEmpty ? '未选择' : MobileDevices(Draft.MobileSource).firstWhere((Item) => Item.Id == Value, orElse: () => CaptureDevice(Id: Value, Name: Value, Kind: 'video')).Name,
+              OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileDevice': Value})),
+            ),
+          ),
+          AppIconButton(Glyph: Icons.refresh, OnPressed: () async {
+            setState(() => LoadingDevices = true);
+            await widget.Controller.DevicesRefresh();
+            if (mounted) setState(() => LoadingDevices = false);
+          }),
+        ]),
+        if (LoadingDevices) const Padding(padding: EdgeInsets.only(bottom: 8), child: AppLinearProgress(Indeterminate: true)),
+        AppSelect<String>(
+          Label: '录制分辨率',
+          Value: '${Draft.Width}x${Draft.Height}',
+          Items: const <String>['1920x1080', '1280x720', '854x480'],
+          Display: (Value) => Value.replaceFirst('x', ' × ') + (Value == '1920x1080' ? '（1080p）' : Value == '1280x720' ? '（720p）' : '（480p）'),
+          OnChanged: (Value) {
+            final Parts = Value.split('x');
+            Update(Draft.Copy(<String, dynamic>{'width': int.tryParse(Parts[0]) ?? 1920, 'height': int.tryParse(Parts.last) ?? 1080}));
+          },
+        ),
+        AppSelect<int>(
+          Label: '录制帧率',
+          Value: Draft.Fps,
+          Items: const <int>[30, 60],
+          Display: (Value) => '$Value fps',
+          OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'fps': Value})),
+        ),
+        AppFormSwitch(Label: '录制麦克风', Note: '采集卡音频系统层不提供，移动端仅支持麦克风。', Value: Draft.MobileAudio, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileAudio': Value}))),
+        AppSelect<int>(
+          Label: '录制质量',
+          Value: Draft.Quality,
+          Items: QualityTiers,
+          Display: (Value) => const <int, String>{18: '高质量、存储占用大', 22: '普通质量、存储占用适中', 28: '低质量、存储占用小'}[Value] ?? '$Value',
+          OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'quality': Value})),
+        ),
+        AppHint('移动端每 10 分钟自动分段，对局裁剪、归档与推送流程与桌面一致。'),
+      ],
       if (!PlatformInfo.Mobile)
         AppSelect<String>(
           Label: '捕获方式',

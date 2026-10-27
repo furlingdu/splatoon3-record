@@ -22,10 +22,10 @@ class StatusPage extends StatelessWidget {
     return PageBody(
       Children: <Widget>[
         const AppPageTitle('状态'),
-        if (Mobile) const AppHint('移动端提供账号同步、对局与相册；采集、编码与录制请在桌面端完成。'),
-        if (!Mobile) CapturePreview(Controller: Controller),
-        if (!Mobile) const SizedBox(height: 20),
-        if (!Mobile) ...<Widget>[
+        if (Mobile) const AppHint('移动端使用系统相机或 USB 采集卡采集，录制写入应用沙盒，可在相册中播放。'),
+        CapturePreview(Controller: Controller),
+        const SizedBox(height: 20),
+        ...<Widget>[
           Wrap(
             spacing: 12,
             runSpacing: 8,
@@ -42,17 +42,18 @@ class StatusPage extends StatelessWidget {
                 Enabled: !Controller.Busy && Status.RecordState != 'idle',
                 OnPressed: () => Controller.StopRecord(),
               ),
-              AppButton(
-                Label: '打开预览窗口',
-                Enabled: Status.Width > 0 && Status.RecordError == null && Status.Settings.CaptureMode != 'rtmp',
-                OnPressed: () async {
-                  final Opened = await Controller.OpenPreviewWindow();
-                  if (!Opened && context.mounted) await ShowPreviewDialog(context, Controller);
-                },
-              ),
+              if (!Mobile)
+                AppButton(
+                  Label: '打开预览窗口',
+                  Enabled: Status.Width > 0 && Status.RecordError == null && Status.Settings.CaptureMode != 'rtmp',
+                  OnPressed: () async {
+                    final Opened = await Controller.OpenPreviewWindow();
+                    if (!Opened && context.mounted) await ShowPreviewDialog(context, Controller);
+                  },
+                ),
               if (Status.RecordError != null)
                 AppButton(Label: '重试采集', Kind: AppButtonKind.Text, OnPressed: () => Controller.RetryRecord()),
-              if (Status.Settings.CaptureMode != 'rtmp')
+              if (!Mobile && Status.Settings.CaptureMode != 'rtmp')
                 Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
                   Text('声音返听', style: AppTheme.Style(Size: 15)),
                   const SizedBox(width: 4),
@@ -173,15 +174,16 @@ class CapturePreview extends StatelessWidget {
     return LayoutBuilder(builder: (Context, Constraints) {
       final Width = Constraints.maxWidth;
       final BoxHeight = Height > 0 ? Height : Width * 9 / 16;
+      final Live = Controller.Capture.BuildPreview(context);
       return Container(
         height: BoxHeight,
         width: double.infinity,
         decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12)),
         clipBehavior: Clip.antiAlias,
-        child: Controller.PreviewReady && Controller.PreviewTextureId != null
+        child: Live != null
             ? Transform.flip(
                 flipY: Controller.SettingsValue.FlipVertical,
-                child: Texture(textureId: Controller.PreviewTextureId!, filterQuality: FilterQuality.low),
+                child: Live,
               )
             : Center(
                 child: Padding(

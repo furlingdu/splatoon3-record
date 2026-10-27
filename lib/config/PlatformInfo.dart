@@ -8,9 +8,13 @@ abstract final class PlatformInfo {
   static bool get IOS => Platform.isIOS;
   static bool get Mobile => Platform.isAndroid || Platform.isIOS;
   static bool get Desktop => Platform.isWindows || Platform.isMacOS || Platform.isLinux;
-  static bool get Capture => Platform.isWindows;
-  static bool get Record => Desktop;
+  static bool get Capture => true;
+  static bool get DesktopCapture => Platform.isWindows;
+  static bool get MobileCapture => Mobile;
+  static bool get Record => true;
   static bool get Live => Desktop;
   static bool get Update => Desktop;
   static bool get Preview => Desktop;
+  static bool get Shell => Desktop;
+  static bool get MobileExternal => Platform.isIOS;
 }

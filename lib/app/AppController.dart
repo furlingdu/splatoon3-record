@@ -18,6 +18,8 @@ import '../domain/Models.dart';
 import '../domain/UpdateInfo.dart';
 import '../format/Formats.dart';
 import '../media/capture/CaptureBridge.dart';
+import '../media/capture/CapturePlatform.dart';
+import '../media/capture/MobileService.dart';
 import '../media/capture/Service.dart';
 import '../media/ffmpeg/Service.dart';
 import '../media/nickname/Blur.dart';
@@ -43,7 +45,7 @@ class AppController extends ChangeNotifier {
   late LogStore Logs;
   late ArchiveStore Archive;
   late FFmpegService FFmpeg;
-  late CaptureService Capture;
+  late CapturePlatform Capture;
   late NicknameBlur Blur;
   late SecretStore Vault;
   AppStatus? Status;
@@ -94,7 +96,7 @@ class AppController extends ChangeNotifier {
     Logs = LogStore(Directories);
     Archive = ArchiveStore(Directories);
     FFmpeg = FFmpegService(Directories);
-    Capture = CaptureService(Directories, FFmpeg);
+    Capture = PlatformInfo.Mobile ? MobileCaptureService(Directories, FFmpeg) : DesktopCaptureAdapter(CaptureService(Directories, FFmpeg));
     Blur = NicknameBlur(FFmpeg, Directories);
     Vault = SecretStore(Directories);
     await Vault.Load();
@@ -128,6 +130,9 @@ class AppController extends ChangeNotifier {
     if (PlatformInfo.Desktop) {
       await DevicesRefresh();
       await EnsureDevice();
+    } else {
+      await DevicesRefresh();
+      await (Capture as MobileCaptureService).Recover();
     }
     await ApplyAutoLaunch();
     Clock = Timer.periodic(const Duration(seconds: 2), (_) => PushStatus());
@@ -138,11 +143,9 @@ class AppController extends ChangeNotifier {
       unawaited(StartQQBot(QQAppId!, QQSecret!));
     }
     unawaited(NSOConnect());
-    if (PlatformInfo.Desktop) {
-      unawaited(GenerateThumbs());
-      unawaited(ArchiveCached());
-    }
-    if (Configs.Current.SetupDone && Configs.Current.Settings.AutoRecord && PlatformInfo.Desktop) {
+    unawaited(GenerateThumbs());
+    unawaited(ArchiveCached());
+    if (Configs.Current.SetupDone && Configs.Current.Settings.AutoRecord) {
       unawaited(StartRecord());
     }
     if (Configs.Current.SetupDone && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {

@@ -24,6 +24,8 @@ class SetupPageState extends State<SetupPage> {
   late int Width;
   late int Height;
   late int Fps;
+  late String MobileSource;
+  late String MobileDevice;
 
   @override
   void initState() {
@@ -34,16 +36,19 @@ class SetupPageState extends State<SetupPage> {
     Width = Settings.Width;
     Height = Settings.Height;
     Fps = Settings.Fps;
+    MobileSource = Settings.MobileSource;
+    MobileDevice = Settings.MobileDevice;
   }
 
   @override
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
     final Mobile = PlatformInfo.Mobile;
-    final Steps = Mobile ? const <String>['绑定 Nintendo 账号', '绑定 QQBot'] : const <String>['选择采集卡设备', '绑定 Nintendo 账号', '绑定 QQBot'];
+    final Steps = const <String>['选择采集设备', '绑定 Nintendo 账号', '绑定 QQBot'];
     final Total = Steps.length;
     final Video = widget.Controller.Devices.where((Item) => Item.Kind == 'video').toList();
     final Audio = widget.Controller.Devices.where((Item) => Item.Kind == 'audio').toList();
+    final MobileVideo = widget.Controller.Devices.where((Item) => Item.Kind == 'video' && Item.Id.startsWith('$MobileSource:')).toList();
     return Material(
       color: Colors.transparent,
       child: Stack(children: <Widget>[
@@ -67,7 +72,32 @@ class SetupPageState extends State<SetupPage> {
               const SizedBox(height: 20),
               AppLinearProgress(Value: (Step + 1) / Total),
               const SizedBox(height: 24),
-              if (!Mobile && Step == 0) ...<Widget>[
+              if (Step == 0 && Mobile) ...<Widget>[
+                const AppSectionTitle('选择采集设备'),
+                AppSelect<String>(
+                  Label: '采集来源',
+                  Value: MobileSource,
+                  Items: PlatformInfo.IOS ? const <String>['external'] : const <String>['camera', 'uvc'],
+                  Display: (Value) => Value == 'uvc' ? 'USB 采集卡' : '系统相机',
+                  OnChanged: (Value) => setState(() {
+                    MobileSource = Value;
+                    MobileDevice = '';
+                  }),
+                ),
+                AppSelect<String>(
+                  Label: '设备',
+                  Value: MobileDevice,
+                  Items: <String>['', ...MobileVideo.map((Item) => Item.Id)],
+                  Display: (Value) => Value.isEmpty ? '未选择' : MobileVideo.firstWhere((Item) => Item.Id == Value, orElse: () => CaptureDevice(Id: Value, Name: Value, Kind: 'video')).Name,
+                  OnChanged: (Value) => setState(() => MobileDevice = Value),
+                ),
+                AppHint('移动端使用系统相机或 USB 采集卡，采集卡需要设备支持 USB OTG。'),
+                AppButton(Label: '下一步', OnPressed: () async {
+                  await Save(<String, dynamic>{'mobileSource': MobileSource, 'mobileDevice': MobileDevice, 'width': Width, 'height': Height, 'fps': Fps});
+                  setState(() => Step = 1);
+                }),
+              ],
+              if (Step == 0 && !Mobile) ...<Widget>[
                 const AppSectionTitle('选择采集卡设备'),
                 AppSelect<String>(
                   Label: '摄像头 / 采集卡',
@@ -97,7 +127,7 @@ class SetupPageState extends State<SetupPage> {
                   setState(() => Step = 1);
                 }),
               ],
-              if (Step == (Mobile ? 0 : 1)) ...<Widget>[
+              if (Step == 1) ...<Widget>[
                 const AppSectionTitle('绑定 Nintendo 账号'),
                 const SizedBox(height: 8),
                 Text('点击下方按钮登录 Nintendo 账号并授权鱿鱼圈 3 数据读取，登录成功后应用才能检测对局结果。每次登录前都会自动清除登录窗口的 cookies。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.6)),
@@ -108,8 +138,8 @@ class SetupPageState extends State<SetupPage> {
                 StatusBox(Label: '已绑定账户', Value: '${widget.Controller.Status?.NSOAccounts.length ?? 0} 个'),
                 const SizedBox(height: 24),
                 Row(children: <Widget>[
-                  if (!Mobile) ...<Widget>[
-                    AppButton(Label: '上一步', Kind: AppButtonKind.Text, OnPressed: () => setState(() => Step = 0)),
+                  if (Step > 0) ...<Widget>[
+                    AppButton(Label: '上一步', Kind: AppButtonKind.Text, OnPressed: () => setState(() => Step = Step - 1)),
                     const SizedBox(width: 12),
                   ],
                   AppButton(Label: '下一步', OnPressed: () => setState(() => Step = Step + 1)),

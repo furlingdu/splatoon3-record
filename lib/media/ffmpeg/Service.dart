@@ -5,7 +5,9 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 import '../../config/Config.dart';
+import '../../config/PlatformInfo.dart';
 import '../../domain/Models.dart';
+import 'MediaRunner.dart';
 
 const Utf8Codec OutputEncoding = Utf8Codec(allowMalformed: true);
 
@@ -20,26 +22,35 @@ class FFmpegService {
   final Map<String, List<CaptureMode>> _Modes = <String, List<CaptureMode>>{};
 
   Future<String> Ensure() async {
-    if (_Path != null && (Platform.isWindows ? File(_Path!).existsSync() : true)) return _Path!;
+    if (PlatformInfo.Mobile) return '';
+    if (_Path != null && (_Path == 'ffmpeg' || File(_Path!).existsSync())) return _Path!;
+    final Asset = Platform.isWindows ? Config.FFmpegAsset : Config.FFmpegAssetUnix;
+    final Name = Platform.isWindows ? 'ffmpeg.exe' : 'ffmpeg';
+    try {
+      final Data = await rootBundle.load(Asset);
+      if (Data.lengthInBytes > 1000000) {
+        final Target = '${Directories.Cache}${Platform.pathSeparator}Tools${Platform.pathSeparator}$Name';
+        final FileRef = File(Target);
+        if (!FileRef.existsSync() || FileRef.lengthSync() != Data.lengthInBytes) {
+          await FileRef.parent.create(recursive: true);
+          await FileRef.writeAsBytes(Data.buffer.asUint8List(Data.offsetInBytes, Data.lengthInBytes), flush: true);
+          if (!Platform.isWindows) await Process.run('chmod', <String>['755', Target]);
+        }
+        _Path = Target;
+        return Target;
+      }
+    } catch (_) {}
     if (!Platform.isWindows) {
       final Probe = await Process.run('ffmpeg', <String>['-version'], stdoutEncoding: OutputEncoding, stderrEncoding: OutputEncoding);
       if (Probe.exitCode != 0) throw StateError('未找到 ffmpeg，请先安装并加入 PATH');
       _Path = 'ffmpeg';
       return _Path!;
     }
-    final Target = '${Directories.Cache}${Platform.pathSeparator}Tools${Platform.pathSeparator}ffmpeg.exe';
-    final FileRef = File(Target);
-    if (!FileRef.existsSync() || FileRef.lengthSync() < 1000000) {
-      await FileRef.parent.create(recursive: true);
-      final Data = await rootBundle.load(Config.FFmpegAsset);
-      await FileRef.writeAsBytes(Data.buffer.asUint8List(Data.offsetInBytes, Data.lengthInBytes), flush: true);
-      if (!Platform.isWindows) await Process.run('chmod', <String>['755', Target]);
-    }
-    _Path = Target;
-    return Target;
+    throw StateError('未找到 ffmpeg');
   }
 
   Future<ProcessResult> Run(List<String> Args, {Duration Timeout = const Duration(seconds: 20)}) async {
+    if (PlatformInfo.Mobile) return KitMediaRunner.Run(Args, Timeout);
     final Exe = await Ensure();
     final Task = Process.run(Exe, Args, stdoutEncoding: OutputEncoding, stderrEncoding: OutputEncoding);
     return Task.timeout(Timeout, onTimeout: () => ProcessResult(0, -1, '', 'timeout'));
@@ -175,18 +186,21 @@ class FFmpegService {
   }
 
   Future<String> Encoder(RecordSettings Value) async {
-    if (Value.Encoder == 'software') return 'libx264';
+    if (Value.Encoder == 'software' && !PlatformInfo.Mobile) return 'libx264';
     if (_Encoder != null && Value.Encoder == 'auto') return _Encoder!;
-    final Exe = await Ensure();
-    final Out = await Process.run(Exe, <String>['-hide_banner', '-encoders'], stdoutEncoding: OutputEncoding, stderrEncoding: OutputEncoding);
+    final Out = await Run(<String>['-hide_banner', '-encoders'], Timeout: const Duration(seconds: 30));
     final Text = '${Out.stdout}${Out.stderr}';
-    final Candidate = Value.Encoder == 'nvidia'
-        ? <String>['h264_nvenc', 'libx264']
-        : Value.Encoder == 'amd'
-            ? <String>['h264_amf', 'libx264']
-            : Value.Encoder == 'intel'
-                ? <String>['h264_qsv', 'libx264']
-                : <String>['h264_nvenc', 'h264_qsv', 'h264_amf', 'libx264'];
+    final Candidate = PlatformInfo.IOS
+        ? <String>[Config.VideoToolbox, 'libx264']
+        : PlatformInfo.Android
+            ? <String>[Config.MediaCodec, 'libx264']
+            : Value.Encoder == 'nvidia'
+                ? <String>['h264_nvenc', 'libx264']
+                : Value.Encoder == 'amd'
+                    ? <String>['h264_amf', 'libx264']
+                    : Value.Encoder == 'intel'
+                        ? <String>['h264_qsv', 'libx264']
+                        : <String>['h264_nvenc', 'h264_qsv', 'h264_amf', 'libx264'];
     for (final Name in Candidate) {
       if (Text.contains(Name)) {
         _Encoder = Name;
@@ -199,6 +213,10 @@ class FFmpegService {
 
   List<String> QualityArgs(String Encoder, int Quality) {
     final Q = '$Quality';
+    if (Encoder == Config.VideoToolbox || Encoder == Config.MediaCodec) {
+      final Bitrate = Quality >= 28 ? 6000 : Quality >= 22 ? 10000 : 16000;
+      return <String>['-b:v', '${Bitrate}k', '-maxrate', '${Bitrate}k', '-bufsize', '${Bitrate * 2}k'];
+    }
     if (Encoder == 'h264_nvenc' || Encoder == 'hevc_nvenc') return <String>['-preset', 'p1', '-rc', 'constqp', '-qp', Q];
     if (Encoder == 'h264_qsv' || Encoder == 'hevc_qsv') return <String>['-preset', 'medium', '-global_quality', Q];
     if (Encoder == 'h264_amf' || Encoder == 'hevc_amf') return <String>['-quality', 'quality', '-rc', 'cqp', '-qp_i', Q, '-qp_p', Q, '-qp_b', Q];

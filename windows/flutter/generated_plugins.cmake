@@ -4,10 +4,13 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   app_links
+  ffmpeg_kit_flutter_new_min_gpl
   file_selector_windows
+  flutter_ffi_uvc
   media_kit_libs_windows_video
   media_kit_video
   screen_retriever_windows
+  share_plus
   url_launcher_windows
   window_manager
 )
