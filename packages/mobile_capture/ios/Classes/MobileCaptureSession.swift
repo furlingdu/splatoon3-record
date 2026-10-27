@@ -33,6 +33,36 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
     return nil
   }
 
+  private var AudioTypes: [AVCaptureDevice.DeviceType] {
+    if #available(iOS 17.0, *) {
+      return [.microphone, .external]
+    }
+    return [.builtInMicrophone]
+  }
+
+  private func AudioDevicesList() -> [AVCaptureDevice] {
+    var Devices = AVCaptureDevice.DiscoverySession(deviceTypes: AudioTypes, mediaType: .audio, position: .unspecified).devices
+    for Device in AVCaptureDevice.devices(for: .audio) where !Devices.contains(where: { $0.uniqueID == Device.uniqueID }) {
+      Devices.append(Device)
+    }
+    return Devices
+  }
+
+  private func FindAudio(_ DeviceId: String) -> AVCaptureDevice? {
+    guard !DeviceId.isEmpty else { return AVCaptureDevice.default(for: .audio) }
+    return AudioDevicesList().first(where: { $0.uniqueID == DeviceId }) ?? AVCaptureDevice.default(for: .audio)
+  }
+
+  func AudioDevices() -> [[String: Any]] {
+    return AudioDevicesList().map { Device in
+      [
+        "id": Device.uniqueID,
+        "name": Device.localizedName,
+        "external": IsExternal(Device),
+      ]
+    }
+  }
+
   private func IsExternal(_ Device: AVCaptureDevice) -> Bool {
     if #available(iOS 17.0, *) {
       return Device.deviceType == .external
@@ -73,7 +103,7 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
     }
   }
 
-  func Configure(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, Completion: @escaping (MobileCaptureModeInfo?, String?) -> Void) {
+  func Configure(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Completion: @escaping (MobileCaptureModeInfo?, String?) -> Void) {
     RequestAccess(Video: true) { VideoOk in
       guard VideoOk else {
         Completion(nil, "相机权限被拒绝")
@@ -81,10 +111,10 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
       }
       if Audio {
         AVCaptureDevice.requestAccess(for: .audio) { _ in
-          self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: Audio, Completion: Completion)
+          self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: Audio, AudioDeviceId: AudioDeviceId, Completion: Completion)
         }
       } else {
-        self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: false, Completion: Completion)
+        self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: false, AudioDeviceId: "", Completion: Completion)
       }
     }
   }
@@ -102,7 +132,7 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
     }
   }
 
-  private func ConfigureNow(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, Completion: @escaping (MobileCaptureModeInfo?, String?) -> Void) {
+  private func ConfigureNow(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Completion: @escaping (MobileCaptureModeInfo?, String?) -> Void) {
     CaptureQueue.async {
       guard let Device = self.Find(DeviceId) else {
         DispatchQueue.main.async { Completion(nil, "未找到采集设备") }
@@ -142,7 +172,7 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
       } catch {
       }
       if Audio {
-        if let AudioDevice = AVCaptureDevice.default(for: .audio) {
+        if let AudioDevice = FindAudio(AudioDeviceId) {
           if let Old = self.AudioInput { self.Session.removeInput(Old) }
           if let Input = try? AVCaptureDeviceInput(device: AudioDevice), self.Session.canAddInput(Input) {
             self.Session.addInput(Input)

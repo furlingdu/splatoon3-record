@@ -45,6 +45,10 @@ class SettingsPageState extends State<SettingsPage> {
     return widget.Controller.Devices.where((Item) => Item.Kind == 'video' && Item.Id.startsWith('$Prefix:')).toList();
   }
 
+  List<CaptureDevice> MobileAudioDevices() {
+    return widget.Controller.Devices.where((Item) => Item.Kind == 'audio').toList();
+  }
+
   Future<void> LoadModes() async {
     if (Draft.VideoDevice.isEmpty) return;
     final List = await widget.Controller.Capture.Modes(Draft.VideoDevice).catchError((_) => <CaptureMode>[]);
@@ -160,7 +164,15 @@ class SettingsPageState extends State<SettingsPage> {
           Display: (Value) => '$Value fps',
           OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'fps': Value})),
         ),
-        AppFormSwitch(Label: '录制麦克风', Note: '采集卡音频系统层不提供，移动端仅支持麦克风。', Value: Draft.MobileAudio, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileAudio': Value}))),
+        AppFormSwitch(Label: '录制音频', Note: '采集卡的 HDMI 音频会作为 USB 音频设备出现；Android 先录 WAV 再与视频合流，iOS 直接写入录制文件。', Value: Draft.MobileAudio, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileAudio': Value}))),
+        if (Draft.MobileAudio && MobileAudioDevices().isNotEmpty)
+          AppSelect<String>(
+            Label: '音频录制设备',
+            Value: Draft.MobileAudioDevice,
+            Items: <String>['', ...MobileAudioDevices().map((Item) => Item.Id)],
+            Display: (Value) => Value.isEmpty ? '默认音频输入' : MobileAudioDevices().firstWhere((Item) => Item.Id == Value, orElse: () => CaptureDevice(Id: Value, Name: Value, Kind: 'audio')).Name,
+            OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileAudioDevice': Value})),
+          ),
         AppSelect<int>(
           Label: '录制质量',
           Value: Draft.Quality,

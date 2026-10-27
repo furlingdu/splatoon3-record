@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../../domain/Models.dart';
+import 'AndroidAudio.dart';
 import 'MobileCaptureSource.dart';
 
 class AndroidCameraSource implements MobileCaptureSource {
@@ -13,6 +14,8 @@ class AndroidCameraSource implements MobileCaptureSource {
   CameraController? ControllerRef;
   String? Target;
   int Index = -1;
+  bool AudioEnabled = false;
+  String AudioDevice = '';
 
   @override
   String get Prefix => SourcePrefix;
@@ -37,6 +40,26 @@ class AndroidCameraSource implements MobileCaptureSource {
   }
 
   @override
+  Future<List<CaptureDevice>> AudioDevices() async {
+    return AndroidAudio.Devices();
+  }
+
+  @override
+  bool get HasSeparateAudio => true;
+
+  @override
+  Future<String?> StartAudio(String Path) async {
+    if (!AudioEnabled) return null;
+    await AndroidAudio.Start(Path, AudioDevice);
+    return Path;
+  }
+
+  @override
+  Future<void> StopAudio() async {
+    await AndroidAudio.Stop();
+  }
+
+  @override
   Future<List<CaptureMode>> Modes(String Id) async {
     return <CaptureMode>[
       CaptureMode(Format: 'camera', Width: 1920, Height: 1080, MinFps: 30, MaxFps: 30),
@@ -49,16 +72,18 @@ class AndroidCameraSource implements MobileCaptureSource {
   @override
   Future<CaptureMode> Prepare(CaptureDevice Device, CaptureMode Mode, RecordSettings Value) async {
     await Release();
+    AudioEnabled = Value.MobileAudio;
+    AudioDevice = Value.MobileAudioDevice;
     final Position = int.tryParse(Device.Id.split(':').last) ?? -1;
     if (Position < 0 || Position >= Descriptions.length) throw StateError('未找到相机');
     final Preset = Mode.Height >= 1080 ? ResolutionPreset.veryHigh : Mode.Height >= 720 ? ResolutionPreset.high : ResolutionPreset.medium;
     final Bitrate = MobileBitrate(Mode, Value.Quality);
-    CameraController? Controller = CameraController(Descriptions[Position], Preset, enableAudio: Value.MobileAudio, fps: Mode.MaxFps, videoBitrate: Bitrate);
+    CameraController? Controller = CameraController(Descriptions[Position], Preset, enableAudio: false, fps: Mode.MaxFps, videoBitrate: Bitrate);
     try {
       await Controller.initialize();
     } catch (_) {
       await Controller.dispose();
-      Controller = CameraController(Descriptions[Position], Preset, enableAudio: Value.MobileAudio, videoBitrate: Bitrate);
+      Controller = CameraController(Descriptions[Position], Preset, enableAudio: false, videoBitrate: Bitrate);
       await Controller.initialize();
     }
     ControllerRef = Controller;

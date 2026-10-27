@@ -7,6 +7,18 @@ abstract class MobileCaptureSource {
 
   Future<List<CaptureDevice>> Devices();
 
+  Future<List<CaptureDevice>> AudioDevices() async {
+    return <CaptureDevice>[];
+  }
+
+  bool get HasSeparateAudio => false;
+
+  Future<String?> StartAudio(String Path) async {
+    return null;
+  }
+
+  Future<void> StopAudio() async {}
+
   Future<List<CaptureMode>> Modes(String Id);
 
   Future<CaptureMode> Prepare(CaptureDevice Device, CaptureMode Mode, RecordSettings Value);

@@ -36,6 +36,7 @@ class RecordSettings {
     this.MobileSource = 'camera',
     this.MobileDevice = '',
     this.MobileAudio = false,
+    this.MobileAudioDevice = '',
   });
 
   String CaptureMode;
@@ -70,6 +71,7 @@ class RecordSettings {
   String MobileSource;
   String MobileDevice;
   bool MobileAudio;
+  String MobileAudioDevice;
 
   static RecordSettings FromMap(Map<String, dynamic> Data, [RecordSettings? Current]) {
     final Fallback = Current ?? RecordSettings();
@@ -136,6 +138,7 @@ class RecordSettings {
       MobileSource: const ['camera', 'uvc', 'external'].contains(MobileSource) ? MobileSource : 'camera',
       MobileDevice: Text(Data['mobileDevice'], Fallback.MobileDevice),
       MobileAudio: Flag(Data['mobileAudio'], Fallback.MobileAudio),
+    MobileAudioDevice: Text(Data['mobileAudioDevice'], Fallback.MobileAudioDevice),
     );
   }
 
@@ -178,6 +181,7 @@ class RecordSettings {
         'mobileSource': MobileSource,
         'mobileDevice': MobileDevice,
         'mobileAudio': MobileAudio,
+    'mobileAudioDevice': MobileAudioDevice,
       };
 
   RecordSettings Copy([Map<String, dynamic>? Part]) {

@@ -104,7 +104,13 @@ class MobileCaptureService implements CapturePlatform {
         Result.addAll(await Source.Devices());
       } catch (_) {}
     }
-    return Result;
+    for (final Source in Sources) {
+      try {
+        Result.addAll(await Source.AudioDevices());
+      } catch (_) {}
+    }
+    final Seen = <String>{};
+    return Result.where((CaptureDevice Item) => Seen.add(Item.Id)).toList();
   }
 
   @override

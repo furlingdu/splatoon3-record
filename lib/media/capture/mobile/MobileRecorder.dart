@@ -16,6 +16,7 @@ class MobileRecorder {
   Timer? Clock;
   String? Target;
   String? Actual;
+  String? AudioPath;
   bool Busy = false;
   int Segments = 0;
 
@@ -34,7 +35,14 @@ class MobileRecorder {
 
   Future<void> Start() async {
     Target = NextPath();
-    Actual = await Source.StartRecording(Target!);
+    AudioPath = await Source.StartAudio('${Target!}.wav');
+    try {
+      Actual = await Source.StartRecording(Target!);
+    } catch (_) {
+      await Source.StopAudio();
+      AudioPath = null;
+      rethrow;
+    }
     Segments = 1;
     Clock?.cancel();
     Clock = Timer.periodic(const Duration(seconds: Config.SegmentSeconds), (_) => Roll());
@@ -46,9 +54,12 @@ class MobileRecorder {
     try {
       final OldTarget = Target;
       final OldActual = Actual;
+      final OldAudio = AudioPath;
       await Source.StopRecording();
-      await Finalize(OldTarget, OldActual);
+      await Source.StopAudio();
+      await Finalize(OldTarget, OldActual, OldAudio);
       Target = NextPath();
+      AudioPath = await Source.StartAudio('${Target!}.wav');
       Actual = await Source.StartRecording(Target!);
       Segments++;
     } finally {
@@ -61,24 +72,62 @@ class MobileRecorder {
     Clock = null;
     final OldTarget = Target;
     final OldActual = Actual;
+    final OldAudio = AudioPath;
     Target = null;
     Actual = null;
+    AudioPath = null;
     if (OldTarget == null) return;
     await Source.StopRecording();
-    await Finalize(OldTarget, OldActual);
+    await Source.StopAudio();
+    await Finalize(OldTarget, OldActual, OldAudio);
   }
 
-  Future<void> Finalize(String? Target, String? Actual) async {
+  Future<void> Finalize(String? Target, String? Actual, [String? Audio]) async {
     if (Target == null) return;
     final Source = Actual ?? Target;
     if (!File(Source).existsSync()) return;
-    if (!Source.toLowerCase().endsWith('.mov')) return;
-    final Out = await FFmpeg.Run(<String>['-hide_banner', '-loglevel', 'error', '-y', '-i', Source, '-c', 'copy', '-movflags', '+faststart', Target], Timeout: const Duration(minutes: 3));
-    if (Out.exitCode == 0 && File(Target).existsSync()) {
+    var Video = Source;
+    if (Video.toLowerCase().endsWith('.mov')) {
+      final Out = await FFmpeg.Run(<String>['-hide_banner', '-loglevel', 'error', '-y', '-i', Video, '-c', 'copy', '-movflags', '+faststart', Target], Timeout: const Duration(minutes: 3));
+      if (Out.exitCode != 0 || !File(Target).existsSync()) return;
       try {
-        await File(Source).delete();
+        await File(Video).delete();
+      } catch (_) {}
+      Video = Target;
+    }
+    if (Audio == null || !File(Audio).existsSync()) return;
+    final Temp = '$Target.mux.mp4';
+    final Out = await FFmpeg.Run(<String>[
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-i',
+      Video,
+      '-i',
+      Audio,
+      '-c:v',
+      'copy',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      '-shortest',
+      Temp,
+    ], Timeout: const Duration(minutes: 3));
+    if (Out.exitCode != 0 || !File(Temp).existsSync()) return;
+    try {
+      await File(Audio).delete();
+    } catch (_) {}
+    if (Video != Target) {
+      try {
+        await File(Video).delete();
       } catch (_) {}
     }
+    try {
+      if (File(Target).existsSync()) await File(Target).delete();
+      await File(Temp).rename(Target);
+    } catch (_) {}
   }
 
   Future<void> Recover() async {

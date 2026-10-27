@@ -56,12 +56,18 @@ abstract final class MobileCapture {
     return Raw.whereType<Map>().map(MobileCaptureMode.FromMap).where((Item) => Item.Width > 0 && Item.Height > 0).toList();
   }
 
+  static Future<List<MobileCaptureDevice>> EnumerateAudio() async {
+    final Raw = await Channel.invokeMethod<List<dynamic>>('EnumerateAudio') ?? <dynamic>[];
+    return Raw.whereType<Map>().map(MobileCaptureDevice.FromMap).where((Item) => Item.Id.isNotEmpty).toList();
+  }
+
   static Future<MobileCaptureMode> Prepare({
     required String Device,
     required int Width,
     required int Height,
     required int Fps,
     required bool Audio,
+    String AudioDevice = '',
   }) async {
     final Raw = await Channel.invokeMethod<Map<dynamic, dynamic>>('Prepare', <String, dynamic>{
       'device': Device,
@@ -69,6 +75,7 @@ abstract final class MobileCapture {
       'height': Height,
       'fps': Fps,
       'audio': Audio,
+      'audioDevice': AudioDevice,
     });
     if (Raw == null) throw const MobileCaptureException('无法打开采集设备');
     return MobileCaptureMode.FromMap(Raw);

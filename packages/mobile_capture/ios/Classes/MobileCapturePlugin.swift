@@ -21,13 +21,16 @@ import Flutter
       result(Capture.Enumerate())
     case "Modes":
       result(Capture.Modes(Arguments["device"] as? String ?? ""))
+    case "EnumerateAudio":
+      result(Capture.AudioDevices())
     case "Prepare":
       Capture.Configure(
         DeviceId: Arguments["device"] as? String ?? "",
         Width: Arguments["width"] as? Int ?? 1920,
         Height: Arguments["height"] as? Int ?? 1080,
         Fps: Arguments["fps"] as? Int ?? 30,
-        Audio: Arguments["audio"] as? Bool ?? false
+        Audio: Arguments["audio"] as? Bool ?? false,
+        AudioDeviceId: Arguments["audioDevice"] as? String ?? ""
       ) { Mode, Error in
         if let Error = Error {
           result(FlutterError(code: "capture", message: Error, details: nil))

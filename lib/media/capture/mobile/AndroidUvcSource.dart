@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_ffi_uvc/flutter_ffi_uvc.dart';
 
 import '../../../domain/Models.dart';
+import 'AndroidAudio.dart';
 import 'MobileCaptureSource.dart';
 
 class AndroidUvcSource implements MobileCaptureSource {
@@ -13,6 +14,8 @@ class AndroidUvcSource implements MobileCaptureSource {
   String? Target;
   CaptureMode? Mode;
   bool Active = false;
+  bool AudioEnabled = false;
+  String AudioDevice = '';
 
   @override
   String get Prefix => SourcePrefix;
@@ -27,6 +30,26 @@ class AndroidUvcSource implements MobileCaptureSource {
       final Name = Item.productName.isNotEmpty ? Item.productName : Item.deviceName.isNotEmpty ? Item.deviceName : 'USB 采集卡';
       return CaptureDevice(Id: '$Prefix:${Item.deviceId}', Name: Name, Kind: 'video');
     }).toList();
+  }
+
+  @override
+  Future<List<CaptureDevice>> AudioDevices() async {
+    return AndroidAudio.Devices();
+  }
+
+  @override
+  bool get HasSeparateAudio => true;
+
+  @override
+  Future<String?> StartAudio(String Path) async {
+    if (!AudioEnabled) return null;
+    await AndroidAudio.Start(Path, AudioDevice);
+    return Path;
+  }
+
+  @override
+  Future<void> StopAudio() async {
+    await AndroidAudio.Stop();
   }
 
   @override
@@ -61,6 +84,8 @@ class AndroidUvcSource implements MobileCaptureSource {
   @override
   Future<CaptureMode> Prepare(CaptureDevice Device, CaptureMode Requested, RecordSettings Value) async {
     await Release();
+    AudioEnabled = Value.MobileAudio;
+    AudioDevice = Value.MobileAudioDevice;
     final IdValue = int.tryParse(Device.Id.split(':').last) ?? -1;
     if (IdValue < 0) throw StateError('未找到采集卡');
     await Camera.openUsbDevice(IdValue);
