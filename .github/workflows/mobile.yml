@@ -67,10 +67,8 @@ jobs:
           cache: true
       - name: Resolve dependencies
         run: flutter pub get
-      - name: Build arm64 apk
-        run: flutter build apk --release --target-platform android-arm64
-      - name: Build armv7 apk
-        run: flutter build apk --release --target-platform android-arm
+      - name: Build apk
+        run: flutter build apk --release --split-per-abi
       - uses: actions/upload-artifact@v4
         with:
           name: apk-release
