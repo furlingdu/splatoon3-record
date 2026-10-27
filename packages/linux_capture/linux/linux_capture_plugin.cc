@@ -40,7 +40,7 @@ struct EventPayload {
 gboolean DeliverEvent(gpointer Data) {
   auto* Item = static_cast<EventPayload*>(Data);
   if (Item->Channel != nullptr) {
-    fl_event_channel_send(Item->Channel, Item->Value, nullptr);
+    fl_event_channel_send(Item->Channel, Item->Value, nullptr, nullptr);
   }
   fl_value_unref(Item->Value);
   delete Item;
