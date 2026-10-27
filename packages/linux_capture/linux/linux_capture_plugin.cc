@@ -65,6 +65,7 @@ class CaptureHost {
 
  private:
   void FrameLoop();
+  void AudioLoop();
   void Convert(const uint8_t* Source);
   bool WriteFrame();
   void SendState(const char* Value);
