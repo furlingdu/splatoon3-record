@@ -87,4 +87,5 @@ flutter:
 
 
 dependency_overrides:
-  camera_avfoundation: ^0.11.1
+  camera_avfoundation:
+    path: third_party/camera_avfoundation

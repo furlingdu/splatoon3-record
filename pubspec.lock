@@ -100,10 +100,9 @@ packages:
   camera_avfoundation:
     dependency: "direct overridden"
     description:
-      name: camera_avfoundation
-      sha256: "971f7b4938ae761797dd667c078af92f1b6a1bb7760774c0cbcf9c9d4a14bdf1"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/camera_avfoundation"
+      relative: true
+    source: path
     version: "0.11.1"
   camera_platform_interface:
     dependency: transitive
