@@ -131,7 +131,15 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
       - name: Build Linux app
-        run: flutter build linux --release
+        run: |
+          set +e
+          flutter build linux --release
+          Code=$?
+          if [ $Code -ne 0 ]; then
+            cd build/linux/x64/release
+            ninja -v 2>&1 | tail -120
+          fi
+          exit $Code
       - name: Package
         run: tar -czf Splatoon3Record-3.0.0-linux-x64.tar.gz -C build/linux/x64/release/bundle .
       - uses: actions/upload-artifact@v4
