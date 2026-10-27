@@ -7,7 +7,7 @@ import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.extrasources.CameraUvcSource
 import com.pedro.library.generic.GenericStream
 
-class UvcLive(ContextValue: Context, private val Listener: Listener) {
+class UvcLive(ContextValue: Context, private val Callback: Listener) {
   interface Listener {
     fun OnState(Value: String)
     fun OnError(Value: String)
@@ -15,23 +15,23 @@ class UvcLive(ContextValue: Context, private val Listener: Listener) {
 
   private val Checker = object : ConnectChecker {
     override fun onConnectionStarted(url: String) {
-      Listener.OnState("starting")
+      Callback.OnState("starting")
     }
 
     override fun onConnectionSuccess() {
-      Listener.OnState("live")
+      Callback.OnState("live")
     }
 
     override fun onConnectionFailed(reason: String) {
-      Listener.OnError(reason)
+      Callback.OnError(reason)
     }
 
     override fun onDisconnect() {
-      Listener.OnState("idle")
+      Callback.OnState("idle")
     }
 
     override fun onAuthError() {
-      Listener.OnError("RTMP 鉴权失败")
+      Callback.OnError("RTMP 鉴权失败")
     }
 
     override fun onAuthSuccess() {}
