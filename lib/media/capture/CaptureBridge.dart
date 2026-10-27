@@ -8,7 +8,7 @@ class CaptureBridge {
   static const MethodChannel Channel = MethodChannel('splatoon3record/capture');
   static const EventChannel Events = EventChannel('splatoon3record/capture/events');
 
-  static bool get Supported => Platform.isWindows;
+  static bool get Supported => Platform.isWindows || Platform.isMacOS;
 
   static Future<List<CaptureDevice>> Enumerate() async {
     final Raw = await Channel.invokeMethod<List<dynamic>>('Enumerate') ?? <dynamic>[];

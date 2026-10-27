@@ -95,6 +95,35 @@ class CaptureArguments {
     return Args;
   }
 
+  static List<String> Mac({
+    required RecordSettings Value,
+    required FFmpegService FFmpeg,
+    required AppDirectories Directories,
+    required String Encoder,
+    required int Width,
+    required int Height,
+    required int Fps,
+    required String RateText,
+    required bool Record,
+  }) {
+    final Args = <String>['-hide_banner', '-loglevel', 'warning', '-progress', 'pipe:2', '-stats_period', '1', '-nostdin', '-y'];
+    Args.addAll(<String>['-f', 'rawvideo', '-pixel_format', 'nv12', '-video_size', '${Width}x$Height', '-framerate', RateText, '-i', 'pipe:0']);
+    if (Record) {
+      AddRecordOutput(
+        Args,
+        FFmpeg: FFmpeg,
+        Directories: Directories,
+        Encoder: Encoder,
+        VideoMap: '0:v:0',
+        AudioMap: null,
+        Fps: Fps,
+        RateText: RateText,
+        Quality: Value.Quality,
+      );
+    }
+    return Args;
+  }
+
   static List<String> Fallback({
     required RecordSettings Value,
     required FFmpegService FFmpeg,

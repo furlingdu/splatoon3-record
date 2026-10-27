@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../config/Config.dart';
+import '../../config/PlatformInfo.dart';
 import '../../domain/Models.dart';
 import '../ffmpeg/Service.dart';
 import '../nickname/Detector.dart';
@@ -124,19 +125,31 @@ class CaptureService {
         if (MaskPipe == null || MaskPipe.isEmpty) throw StateError('无法创建直播打码通道');
         _MaskPipeOpen = true;
       }
-      final Args = CaptureArguments.Native(
-        Value: Use,
-        FFmpeg: FFmpeg,
-        Directories: Directories,
-        Encoder: Encoder,
-        Width: Prepared.Width,
-        Height: Prepared.Height,
-        Fps: Prepared.Fps,
-        RateText: Prepared.RateText,
-        LiveTarget: Live ? LiveUrl : null,
-        Record: Record,
-        MaskPipe: MaskPipe,
-      );
+      final Args = PlatformInfo.MacOS
+          ? CaptureArguments.Mac(
+              Value: Use,
+              FFmpeg: FFmpeg,
+              Directories: Directories,
+              Encoder: Encoder,
+              Width: Prepared.Width,
+              Height: Prepared.Height,
+              Fps: Prepared.Fps,
+              RateText: Prepared.RateText,
+              Record: Record,
+            )
+          : CaptureArguments.Native(
+              Value: Use,
+              FFmpeg: FFmpeg,
+              Directories: Directories,
+              Encoder: Encoder,
+              Width: Prepared.Width,
+              Height: Prepared.Height,
+              Fps: Prepared.Fps,
+              RateText: Prepared.RateText,
+              LiveTarget: Live ? LiveUrl : null,
+              Record: Record,
+              MaskPipe: MaskPipe,
+            );
       _RecordWaiter = Completer<void>();
       await CaptureBridge.Start(Exe, Args, Prepared.Rate, Writer);
       _NativeRunning = true;
