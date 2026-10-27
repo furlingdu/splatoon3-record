@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreImage
+import FlutterMacOS
 import CoreVideo
 import Foundation
 
@@ -68,7 +69,6 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     }
     if Session.isRunning { Session.stopRunning() }
     Session.beginConfiguration()
-    Session.sessionPreset = .inputPriority
     do {
       let Input = try AVCaptureDeviceInput(device: Device)
       if let Old = VideoInput { Session.removeInput(Old) }
@@ -174,10 +174,10 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     LastTick = Date()
     LastPreview = 0
     Task.terminationHandler = { [weak self] Value in
-      guard let Self = self else { return }
-      if Self.Stopping { return }
-      Self.OnError?("编码进程退出 \(Value.terminationStatus)")
-      Self.OnState?("error")
+      guard let Strong = self else { return }
+      if Strong.Stopping { return }
+      Strong.OnError?("编码进程退出 \(Value.terminationStatus)")
+      Strong.OnState?("error")
     }
     Queue.async {
       self.Session.startRunning()
