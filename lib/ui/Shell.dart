@@ -342,7 +342,7 @@ class DrawerPanel extends StatelessWidget {
 
   static final List<List<String>> VisibleItems = PlatformInfo.Desktop
       ? Items
-      : Items.where((Item) => Item[0] != 'live' && Item[0] != 'update').toList();
+      : Items.where((Item) => Item[0] != 'update').toList();
 
   @override
   Widget build(BuildContext context) {

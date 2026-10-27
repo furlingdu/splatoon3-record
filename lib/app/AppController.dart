@@ -22,6 +22,7 @@ import '../media/capture/CapturePlatform.dart';
 import '../media/capture/MobileService.dart';
 import '../media/capture/Service.dart';
 import '../media/ffmpeg/Service.dart';
+import '../media/live/MobileLiveService.dart';
 import '../media/nickname/Blur.dart';
 import '../nso/Battle.dart';
 import '../nso/Service.dart';
@@ -75,6 +76,7 @@ class AppController extends ChangeNotifier {
   String? QQAppId;
   String? QQSecret;
   final NSOService NSO = NSOService();
+  final MobileLiveService MobileLive = MobileLiveService();
   final Map<String, NSOSession> NSOSessions = <String, NSOSession>{};
   Timer? NSOClock;
   bool NSOBusy = false;
@@ -321,6 +323,27 @@ class AppController extends ChangeNotifier {
 
 
 
+  Future<void> StartMobileLive({String? VideoId}) async {
+    final Settings = SettingsValue;
+    final Url = PushTarget(Settings.RtmpPushUrl, Settings.RtmpPushKey);
+    if (Url.isEmpty) {
+      ShowNotice('请先填写 RTMP 推流地址');
+      return;
+    }
+    if (Capture.Running) await StopRecord();
+    final Area = Settings.Width * Settings.Height;
+    final Base = Area >= 1920 * 1080 ? 10000000 : Area >= 1280 * 720 ? 5000000 : 2500000;
+    final Scale = Settings.Quality >= 28 ? 0.6 : Settings.Quality >= 22 ? 1.0 : 1.5;
+    await MobileLive.Start(Url, VideoId: VideoId, Width: Settings.Width, Height: Settings.Height, Fps: Settings.Fps, Bitrate: (Base * Scale).round());
+    final Failure = MobileLive.Error.value;
+    if (Failure != null) ShowNotice(Failure);
+    Notify();
+  }
+
+  Future<void> StopMobileLive() async {
+    await MobileLive.Stop();
+    Notify();
+  }
   void Notify() => notifyListeners();
 
   void ShowNotice(String Text) {
@@ -336,6 +359,7 @@ class AppController extends ChangeNotifier {
     NSOClock?.cancel();
     LinkSub?.cancel();
     unawaited(Capture.Dispose());
+    unawaited(MobileLive.Dispose());
     if (Ready) {
       Capture.State.removeListener(CaptureChanged);
       Capture.Error.removeListener(CaptureChanged);

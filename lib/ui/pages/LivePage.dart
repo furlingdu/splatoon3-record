@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:haishin_kit/haishin_kit.dart';
 
 import '../../app/AppController.dart';
+import '../../config/PlatformInfo.dart';
 import '../../format/Formats.dart';
 import '../AppTheme.dart';
 import '../Controls.dart';
@@ -29,6 +31,7 @@ class LivePageState extends State<LivePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (PlatformInfo.Mobile) return MobileLiveView(Controller: widget.Controller);
     final Status = widget.Controller.Status;
     final Settings = widget.Controller.SettingsValue;
     final Target = widget.Controller.PushTarget(Settings.RtmpPushUrl, Settings.RtmpPushKey);
@@ -160,3 +163,118 @@ class LivePageState extends State<LivePage> {
 
 
 
+
+class MobileLiveView extends StatefulWidget {
+  const MobileLiveView({super.key, required this.Controller});
+
+  final AppController Controller;
+
+  @override
+  State<MobileLiveView> createState() => MobileLiveViewState();
+}
+
+class MobileLiveViewState extends State<MobileLiveView> {
+  List<VideoSource> Sources = <VideoSource>[];
+  String Source = '';
+  bool Busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Load();
+  }
+
+  Future<void> Load() async {
+    final Items = await widget.Controller.MobileLive.Sources();
+    if (!mounted) return;
+    setState(() {
+      Sources = Items;
+      if (Source.isEmpty && Items.isNotEmpty) Source = Items.first.id;
+    });
+  }
+
+  Future<void> Toggle(bool Value) async {
+    if (Busy) return;
+    setState(() => Busy = true);
+    try {
+      if (Value) {
+        await widget.Controller.StartMobileLive(VideoId: Source);
+      } else {
+        await widget.Controller.StopMobileLive();
+      }
+    } finally {
+      if (mounted) setState(() => Busy = false);
+    }
+  }
+
+  Future<void> Save(Map<String, dynamic> Part) async {
+    await widget.Controller.SaveSettings(widget.Controller.SettingsValue.Copy(Part));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Live = widget.Controller.MobileLive;
+    final Settings = widget.Controller.SettingsValue;
+    final Scheme = Theme.of(context).colorScheme;
+    return PageBody(
+      Children: <Widget>[
+        const AppPageTitle('直播'),
+        ValueListenableBuilder<String>(
+          valueListenable: Live.State,
+          builder: (Context, State, _) {
+            final Preview = Live.BuildPreview();
+            return AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Container(
+                decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12)),
+                clipBehavior: Clip.antiAlias,
+                child: Preview ??
+                    Center(
+                      child: Text(
+                        State == 'starting' ? '正在连接…' : State == 'live' ? '直播中' : '未开始直播',
+                        style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant),
+                      ),
+                    ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        ValueListenableBuilder<String>(
+          valueListenable: Live.State,
+          builder: (Context, State, _) {
+            final TextValue = State == 'live' ? '直播中' : State == 'starting' ? '连接中' : State == 'error' ? '推流失败' : '未直播';
+            return Text('状态：$TextValue', style: AppTheme.Style(Size: 14, ColorValue: State == 'error' ? Scheme.error : Scheme.onSurfaceVariant));
+          },
+        ),
+        ValueListenableBuilder<String?>(
+          valueListenable: Live.Error,
+          builder: (Context, Error, _) {
+            if (Error == null || Error.isEmpty) return const SizedBox.shrink();
+            return Padding(padding: const EdgeInsets.only(top: 6), child: Text(Error, style: AppTheme.Style(Size: 13, ColorValue: Scheme.error)));
+          },
+        ),
+        const AppSectionTitle('推流设置'),
+        AppSelect<String>(
+          Label: '摄像头',
+          Value: Source,
+          Items: <String>['', ...Sources.map((Item) => Item.id)],
+          Display: (Value) => Value.isEmpty ? '默认摄像头' : Sources.firstWhere((VideoSource Item) => Item.id == Value, orElse: () => const VideoSource(id: '', name: '默认摄像头')).name ?? Value,
+          OnChanged: (Value) => setState(() => Source = Value),
+        ),
+        AppTextField(Label: 'RTMP 推流地址', Value: Settings.RtmpPushUrl, Placeholder: 'rtmp://example.com/live', Enabled: Live.State.value != 'live', OnChanged: (Value) => Save(<String, dynamic>{'rtmpPushUrl': Value})),
+        AppTextField(Label: '推流码', Value: Settings.RtmpPushKey, Placeholder: '留空则直接使用上方地址', Enabled: Live.State.value != 'live', OnChanged: (Value) => Save(<String, dynamic>{'rtmpPushKey': Value})),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: <Widget>[
+            AppButton(Label: Busy ? '处理中…' : '开始直播', Enabled: !Busy && Live.State.value != 'live' && Live.State.value != 'starting', OnPressed: () => Toggle(true)),
+            AppButton(Label: '停止直播', Kind: AppButtonKind.Outlined, Enabled: !Busy && Live.State.value != 'idle', OnPressed: () => Toggle(false)),
+          ],
+        ),
+        const AppHint('移动端直播使用系统摄像头，iPadOS 识别到的外接相机也会出现在列表；开始直播会先停止缓存录制，推流地址与推流码会保存到设置。'),
+      ],
+    );
+  }
+}
