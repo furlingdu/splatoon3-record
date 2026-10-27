@@ -38,8 +38,8 @@ pwsh tool/Package.ps1
 五端都用系统原生接口取帧，FFmpeg 只负责编码与后期：
 
 - Windows：Media Foundation 原生采集，预览为 Flutter 外部纹理，包内 `ffmpeg.exe` 编码，`ffplay.exe` 仅用于声音返听。
-- macOS：`packages/macos_capture` 用 AVFoundation 取 NV12 帧写入 ffmpeg stdin，`FlutterTexture` 预览。
-- Linux：`packages/linux_capture` 用 V4L2 mmap 取帧（NV12/YUYV），转 NV12 后写入 ffmpeg stdin。
+- macOS：`packages/macos_capture` 用 AVFoundation 取 NV12 帧写入 ffmpeg stdin，`FlutterTexture` 预览；音频由 `AVCaptureAudioDataOutput` 转 s16le 写入 FIFO，作为 ffmpeg 第二路输入。
+- Linux：`packages/linux_capture` 用 V4L2 mmap 取帧（NV12/YUYV），转 NV12 后写入 ffmpeg stdin；音频由 ALSA 采集后写入 FIFO。
 - Android：`camera` 走 Camera2、`flutter_ffi_uvc` 走 libuvc，两者都是原生采集与硬件编码分段 MP4。
 - iOS/iPadOS：`packages/mobile_capture` 用 AVFoundation 采集内置相机与 iPadOS 17+ 外接设备，`AVAssetWriter` 分段录制。
 
