@@ -29,6 +29,17 @@ android {
         versionName = flutter.versionName
     }
 
+    packaging {
+        jniLibs {
+            pickFirsts += listOf(
+                "lib/arm64-v8a/libusb1.0.so",
+                "lib/armeabi-v7a/libusb1.0.so",
+                "lib/x86/libusb1.0.so",
+                "lib/x86_64/libusb1.0.so"
+            )
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
