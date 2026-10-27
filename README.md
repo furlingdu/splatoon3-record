@@ -35,25 +35,39 @@ pwsh tool/Package.ps1
 
 ## 平台
 
-Windows 使用 Media Foundation 直接采集视频，预览由原生 RGBA 帧通过 Flutter 外部纹理直接显示；随包 `ffmpeg.exe` 只负责最终编码、分段封装、推流、裁剪和归档打码，`ffplay.exe` 只用于声音返听。macOS/Linux 使用系统 `ffmpeg` 采集与录制，不提供原生实时预览；构建使用 `tool/Build.sh`。macOS 的 URL Scheme 已写入 `Info.plist`，Windows 由安装器注册 `npf71b963c1b7b6d119`。
+五端都用系统原生接口取帧，FFmpeg 只负责编码与后期：
+
+- Windows：Media Foundation 原生采集，预览为 Flutter 外部纹理，包内 `ffmpeg.exe` 编码，`ffplay.exe` 仅用于声音返听。
+- macOS：`packages/macos_capture` 用 AVFoundation 取 NV12 帧写入 ffmpeg stdin，`FlutterTexture` 预览。
+- Linux：`packages/linux_capture` 用 V4L2 mmap 取帧（NV12/YUYV），转 NV12 后写入 ffmpeg stdin。
+- Android：`camera` 走 Camera2、`flutter_ffi_uvc` 走 libuvc，两者都是原生采集与硬件编码分段 MP4。
+- iOS/iPadOS：`packages/mobile_capture` 用 AVFoundation 采集内置相机与 iPadOS 17+ 外接设备，`AVAssetWriter` 分段录制。
+
+FFmpeg 按构建目标架构下载，不跨架构打包：
+
+```bash
+pwsh tool/FetchFFmpeg.ps1 -Target windows-x64
+bash tool/FetchFFmpeg.sh macos-arm64
+bash tool/FetchFFmpeg.sh linux-x64
+```
 
 ## 移动端
 
 Android、iPhone 与 iPad 共用一套响应式界面：手机窄屏默认收起侧栏菜单，平板与桌面按宽度在抽屉和固定栏之间切换，列表、状态卡片与操作按钮随屏幕宽度调整列数和内边距。
 
-移动端提供账号同步、对局、相册、播放与 QQBot；采集和编码依赖桌面端的 Media Foundation 与 FFmpeg，相关入口在移动端隐藏。`assets/tools` 只在桌面平台打包，移动端不会带上 Windows 版 ffmpeg。
+移动端具备完整采集录制链路：设备枚举、预览、分段录制、对局裁剪、缩略图、打码与 QQBot 推送；采集卡音频不由系统提供，移动端只支持麦克风。`assets/tools` 只在桌面平台打包。
 
 ```bash
-flutter build apk --release
+flutter build apk --release --split-per-abi
 flutter build ios --release --no-codesign
 ```
 
-iOS 产物为未签名 app，需要自行签名后再安装。`.github/workflows/mobile.yml` 会在 macOS 与 Linux runner 上构建未签名 ipa 和 apk 并上传工件。
+iOS 产物为未签名 app，需要自行签名后再安装。`.github/workflows/mobile.yml` 会构建五端工件：Windows 安装包、macOS arm64、Linux x64、Android arm64/armv7 APK 与 iOS 未签名 IPA。
 
 
 ## 说明
 
-UI 使用 Material 3 复刻旧版 MDUI 的深色桌面布局，复用了旧版位图、图标语义、字体和 ONNX 模型。Windows 采集链路为 Media Foundation 原生取帧、共享内存预览、FFmpeg 原始帧编码；macOS/Linux 使用 V4L2/AVFoundation 设备后端。
+UI 使用 Material 3 复刻旧版 MDUI 的深色桌面布局，复用了旧版位图、图标语义、字体和 ONNX 模型。Windows 采集链路为 Media Foundation 原生取帧、共享内存预览、FFmpeg 原始帧编码；macOS/Linux 为 AVFoundation/V4L2 原生取帧后写入 FFmpeg 编码。
 
 当前已实现：
 
