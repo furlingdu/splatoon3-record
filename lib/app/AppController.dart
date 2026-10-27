@@ -334,7 +334,7 @@ class AppController extends ChangeNotifier {
     final Area = Settings.Width * Settings.Height;
     final Base = Area >= 1920 * 1080 ? 10000000 : Area >= 1280 * 720 ? 5000000 : 2500000;
     final Scale = Settings.Quality >= 28 ? 0.6 : Settings.Quality >= 22 ? 1.0 : 1.5;
-    await MobileLive.Start(Url, VideoId: VideoId, Width: Settings.Width, Height: Settings.Height, Fps: Settings.Fps, Bitrate: (Base * Scale).round());
+    await MobileLive.Start(Url, VideoId: VideoId, Width: Settings.Width, Height: Settings.Height, Fps: Settings.Fps, Bitrate: (Base * Scale).round(), Uvc: Settings.MobileSource == 'uvc' && Platform.isAndroid);
     final Failure = MobileLive.Error.value;
     if (Failure != null) ShowNotice(Failure);
     Notify();

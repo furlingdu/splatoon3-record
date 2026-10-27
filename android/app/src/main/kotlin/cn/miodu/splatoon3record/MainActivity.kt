@@ -8,6 +8,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
@@ -18,6 +19,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : FlutterActivity() {
   private var Audio: UsbAudio? = null
+  private var Uvc: UvcLive? = null
+  private var UvcSink: EventChannel.EventSink? = null
 
   override fun configureFlutterEngine(Engine: FlutterEngine) {
     super.configureFlutterEngine(Engine)
@@ -40,6 +43,56 @@ class MainActivity : FlutterActivity() {
           val Path = Audio?.Stop()
           Audio = null
           Result.success(Path)
+        }
+        else -> Result.notImplemented()
+      }
+    }
+  }
+
+    EventChannel(Engine.dartExecutor.binaryMessenger, "splatoon3record/uvc_live/events").setStreamHandler(object : EventChannel.StreamHandler {
+      override fun onListen(Arguments: Any?, Events: EventChannel.EventSink) {
+        UvcSink = Events
+      }
+
+      override fun onCancel(Arguments: Any?) {
+        UvcSink = null
+      }
+    })
+    MethodChannel(Engine.dartExecutor.binaryMessenger, "splatoon3record/uvc_live").setMethodCallHandler { Call, Result ->
+      when (Call.method) {
+        "Start" -> {
+          val Url = Call.argument<String>("url") ?: ""
+          val Width = Call.argument<Int>("width") ?: 1920
+          val Height = Call.argument<Int>("height") ?: 1080
+          val Fps = Call.argument<Int>("fps") ?: 30
+          val Bitrate = Call.argument<Int>("bitrate") ?: 6000000
+          try {
+            Uvc?.Stop()
+            val Live = UvcLive(this, object : UvcLive.Listener {
+              override fun OnState(Value: String) {
+                UvcSink?.success(mapOf("type" to "state", "value" to Value))
+              }
+
+              override fun OnError(Value: String) {
+                UvcSink?.success(mapOf("type" to "error", "value" to Value))
+              }
+            })
+            Uvc = Live
+            val Failure = Live.Start(Url, Width, Height, Fps, Bitrate)
+            if (Failure != null) {
+              Uvc = null
+              Result.error("uvc", Failure, null)
+            } else {
+              Result.success(null)
+            }
+          } catch (Failure: Exception) {
+            Result.error("uvc", Failure.message, null)
+          }
+        }
+        "Stop" -> {
+          Uvc?.Stop()
+          Uvc = null
+          Result.success(null)
         }
         else -> Result.notImplemented()
       }

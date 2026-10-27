@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:haishin_kit/haishin_kit.dart';
+
+import 'UvcLive.dart';
 
 class MobileLiveService {
   final ValueNotifier<String> State = ValueNotifier<String>('idle');
@@ -7,10 +11,12 @@ class MobileLiveService {
 
   MediaMixer? _Mixer;
   StreamSession? _Session;
+  StreamSubscription<Map<String, dynamic>>? _Events;
+  bool _Uvc = false;
   String? _Target;
   VideoSource? _Source;
 
-  bool get Running => _Session != null;
+  bool get Running => _Session != null || _Uvc;
 
   String? get Target => _Target;
 
@@ -24,10 +30,33 @@ class MobileLiveService {
     }
   }
 
-  Future<void> Start(String Url, {String? VideoId, int Width = 1280, int Height = 720, int Fps = 30, int Bitrate = 4000000}) async {
-    if (_Session != null) return;
+  Future<void> Start(String Url, {String? VideoId, int Width = 1280, int Height = 720, int Fps = 30, int Bitrate = 4000000, bool Uvc = false}) async {
+    if (_Session != null || _Uvc) return;
     Error.value = null;
     State.value = 'starting';
+    if (Uvc) {
+      _Events = UvcLive.Updates.listen((Map<String, dynamic> Item) {
+        final Type = '${Item['type']}';
+        final Value = '${Item['value']}';
+        if (Type == 'state') State.value = Value;
+        if (Type == 'error') {
+          Error.value = Value;
+          State.value = 'error';
+        }
+      });
+      final Failure = await UvcLive.Start(Url: Url, Width: Width, Height: Height, Fps: Fps, Bitrate: Bitrate);
+      if (Failure != null) {
+        Error.value = Failure;
+        State.value = 'error';
+        await Stop();
+        State.value = 'error';
+        return;
+      }
+      _Uvc = true;
+      _Target = Url;
+      if (State.value != 'live') State.value = 'live';
+      return;
+    }
     var Started = false;
     try {
       final List<VideoSource> Items = await Sources();
@@ -57,6 +86,15 @@ class MobileLiveService {
   }
 
   Future<void> Stop() async {
+    if (_Uvc) {
+      _Uvc = false;
+      await UvcLive.Stop();
+      await _Events?.cancel();
+      _Events = null;
+      _Target = null;
+      State.value = 'idle';
+      return;
+    }
     final Session = _Session;
     _Session = null;
     if (Session != null) {

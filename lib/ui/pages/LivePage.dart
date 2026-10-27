@@ -273,7 +273,7 @@ class MobileLiveViewState extends State<MobileLiveView> {
             AppButton(Label: '停止直播', Kind: AppButtonKind.Outlined, Enabled: !Busy && Live.State.value != 'idle', OnPressed: () => Toggle(false)),
           ],
         ),
-        const AppHint('移动端直播使用系统摄像头，iPadOS 识别到的外接相机也会出现在列表；开始直播会先停止缓存录制，推流地址与推流码会保存到设置。'),
+        AppHint(Settings.MobileSource == 'uvc' && !PlatformInfo.IOS ? '采集卡直播：使用 USB 采集卡画面推流；开始直播会先停止缓存录制，推流地址与推流码会保存到设置。' : '移动端直播使用系统摄像头，iPadOS 识别到的外接相机也会出现在列表；开始直播会先停止缓存录制，推流地址与推流码会保存到设置。'),
       ],
     );
   }

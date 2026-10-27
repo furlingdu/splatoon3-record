@@ -47,3 +47,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("com.github.pedroSG94.RootEncoder:library:2.8.1")
+    implementation("com.github.pedroSG94.RootEncoder:extra-sources:2.8.1")
+}
