@@ -126,14 +126,14 @@ FlValue* CaptureHost::Enumerate() {
     fl_value_set_string_take(Item, "kind", fl_value_new_string("video"));
     fl_value_append_take(List, Item);
   }
-  void* Hints = nullptr;
+  void** Hints = nullptr;
   if (snd_device_name_hint(-1, "pcm", &Hints) == 0) {
     FlValue* Default = fl_value_new_map();
     fl_value_set_string_take(Default, "id", fl_value_new_string("default"));
     fl_value_set_string_take(Default, "name", fl_value_new_string("默认音频输入"));
     fl_value_set_string_take(Default, "kind", fl_value_new_string("audio"));
     fl_value_append_take(List, Default);
-    for (void** Cursor = static_cast<void**>(Hints); *Cursor != nullptr; Cursor++) {
+    for (void** Cursor = Hints; *Cursor != nullptr; Cursor++) {
       char* Name = snd_device_name_get_hint(*Cursor, "NAME");
       char* Ioid = snd_device_name_get_hint(*Cursor, "IOID");
       bool Input = Ioid == nullptr || strcmp(Ioid, "Input") == 0;
@@ -147,7 +147,7 @@ FlValue* CaptureHost::Enumerate() {
       free(Name);
       free(Ioid);
     }
-    snd_device_name_free_hint(static_cast<void**>(Hints));
+    snd_device_name_free_hint(Hints);
   }
   return List;
 }
