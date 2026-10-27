@@ -172,7 +172,7 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
       } catch {
       }
       if Audio {
-        if let AudioDevice = FindAudio(AudioDeviceId) {
+        if let AudioDevice = self.FindAudio(AudioDeviceId) {
           if let Old = self.AudioInput { self.Session.removeInput(Old) }
           if let Input = try? AVCaptureDeviceInput(device: AudioDevice), self.Session.canAddInput(Input) {
             self.Session.addInput(Input)
