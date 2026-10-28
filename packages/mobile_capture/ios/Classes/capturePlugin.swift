@@ -133,14 +133,16 @@ final class CapturePreviewContainer: UIView {
   }
 
   required init?(coder: NSCoder) {
+    Capture = nil
     super.init(coder: coder)
   }
 
-  private let Capture: CaptureSession
+  private var Capture: CaptureSession?
   private let Preview = AVCaptureVideoPreviewLayer()
 
   override func layoutSubviews() {
     super.layoutSubviews()
+    guard let Capture = Capture else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     Preview.session = Capture.Session
@@ -166,7 +168,7 @@ final class CapturePreviewContainer: UIView {
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    if window != nil {
+    if window != nil, let Capture = Capture {
       Preview.session = Capture.Session
       setNeedsLayout()
     }
