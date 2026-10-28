@@ -5,11 +5,11 @@ Flutter/Dart 的 Splatoon 3 采集、缓存与归档工具，覆盖桌面与移�
 ## 构建
 
 ```powershell
-pwsh tool/Fetch.ps1
-pwsh tool/Check.ps1
-pwsh tool/Test.ps1
-pwsh tool/Build.ps1
-pwsh tool/Package.ps1
+pwsh tool/fetch.ps1
+pwsh tool/check.ps1
+pwsh tool/test.ps1
+pwsh tool/build.ps1
+pwsh tool/package.ps1
 ```
 
 产物位于 `dist/Splatoon3Record3.0.0X64Setup.exe`。
@@ -46,9 +46,9 @@ pwsh tool/Package.ps1
 FFmpeg 按构建目标架构下载，不跨架构打包：
 
 ```bash
-pwsh tool/FetchFFmpeg.ps1 -Target windows-x64
-bash tool/FetchFFmpeg.sh macos-arm64
-bash tool/FetchFFmpeg.sh linux-x64
+pwsh tool/fetchFFmpeg.ps1 -Target windows-x64
+bash tool/fetchFFmpeg.sh macos-arm64
+bash tool/fetchFFmpeg.sh linux-x64
 ```
 
 ## 移动端

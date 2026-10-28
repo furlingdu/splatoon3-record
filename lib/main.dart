@@ -8,13 +8,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'app/AppController.dart';
-import 'config/Config.dart';
-import 'config/PlatformInfo.dart';
-import 'app/ExternalLinkBus.dart';
-import 'store/Stores.dart';
-import 'ui/PreviewWindow.dart';
-import 'ui/Shell.dart';
+import 'app/controller.dart';
+import 'config/constants.dart';
+import 'config/system.dart';
+import 'app/links.dart';
+import 'store/storage.dart';
+import 'ui/preview.dart';
+import 'ui/shell.dart';
 
 Future<void> main(List<String> Args) async {
   WidgetsFlutterBinding.ensureInitialized();

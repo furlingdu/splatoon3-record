@@ -8,7 +8,7 @@
 
 ## 命名规则
 
-所有自有函数、方法、变量、参数、字段、类、枚举、常量和脚本文件名使用 UpperCamelCase。每个单词首字母大写，不使用下划线或连字符连接单词。
+所有自有函数、方法、变量、参数、字段、类、枚举和常量使用 UpperCamelCase。每个单词首字母大写，不使用下划线或连字符连接单词。
 
 示例：
 
@@ -26,11 +26,11 @@
 - `DoSomethingForTheUserWhenReady`
 - `Util`、`Helper`、`Manager`、`Processor`、`Handler` 等泛化后缀
 
-文件名同样使用 UpperCamelCase，例如 `StatusPage.dart`、`CaptureService.dart`、`Setup.iss`。测试文件命名 `StatusPageTest.dart`。
+所有自有文件使用 lowerCamelCase，优先使用单个单词，并省略父目录已经表达的含义。例如 `lib/app/flow/nso.dart`、`lib/ui/pages/settings.dart`、`lib/media/capture/recorder.dart`、`lib/ui/nsoLogin.dart`，不要使用 `lib/app/flow/AppNSOFlow.dart` 或 `lib/ui/pages/SettingsPage.dart`。测试文件命名 `statusTest.dart`，脚本命名 `check.ps1`、`fetchFFmpeg.ps1`、`setup.iss`，资源文件命名 `appIcon.png`、`character.png`。
 
 目录名全部使用小写单词，多个单词用下划线连接，例如 `lib/app`、`lib/config`、`lib/media/capture`、`assets/images`、`third_party`、`testdata`。Flutter 生成的 `macos/Runner`、`macos/Flutter`、`Runner.xcodeproj` 等固定目录保持模板原名。
 
-语言、Flutter 框架、构建工具强制要求的名称不受上述规则约束，包括 Dart 的 `main()`、`build()`、`initState()`、`dispose()` 等生命周期覆盖，`pubspec.yaml`、`analysis_options.yaml`、`CMakeLists.txt`、平台 runner 工具生成文件名，以及 JSON 数据键、HTTP 字段、URL、MethodChannel 字符串和第三方 API。私有成员允许语言要求的 `_` 前缀。
+语言、Flutter 框架、构建工具强制要求的名称不受上述规则约束，包括 Dart 的 `main.dart`、`main()`、`build()`、`initState()`、`dispose()` 等生命周期覆盖，`pubspec.yaml`、`analysis_options.yaml`、`CMakeLists.txt`、`LICENSE`、`README.md`、`AGENTS.md`、平台 runner 工具生成文件名，以及 JSON 数据键、HTTP 字段、URL、MethodChannel 字符串和第三方 API。私有成员允许语言要求的 `_` 前缀。
 
 专有名词保留官方大小写，不受 UpperCamelCase 单词拆分约束，例如 `FFmpeg`、`FFplay`、`ONNX`、`NSO`、`SplatNet`、`QQBot`、`GitHub`、`DirectShow`、`MediaFoundation`。
 
@@ -40,7 +40,7 @@
 
 许可证文本只放 `LICENSE` 和 `third_party/Licenses/`，不在每个源文件放版权注释。
 
-`tool/Check.ps1` 必须执行注释与命名检查，失败时禁止打包。
+`tool/check.ps1` 必须执行注释与命名检查，失败时禁止打包。
 
 ## 架构规则
 
@@ -69,8 +69,8 @@
 
 ## 目录约定
 
-- `lib/config/Config.dart`：路径、端口、编解码参数、NSO/QQ 服务地址和版本常量。
-- `lib/app/AppController.dart`：只保留状态、启动、导航和共享方法。
+- `lib/config/constants.dart`：路径、端口、编解码参数、NSO/QQ 服务地址和版本常量。
+- `lib/app/controller.dart`：只保留状态、启动、导航和共享方法。
 - `lib/app/flow/`：按 NSO、QQ、采集、对局、更新、平台拆分的流程扩展。
 - `lib/media/capture`、`lib/media/ffmpeg`、`lib/media/nickname`：采集桥接与参数、FFmpeg 编码服务、昵称检测/打码。
 - `windows/runner/capture`：Media Foundation 设备枚举、低延迟取帧、RGBA 预览、共享内存和 FFmpeg 原始帧写入。
@@ -81,12 +81,12 @@
 ## 验证命令
 
 ```powershell
-pwsh tool/Fetch.ps1
-pwsh tool/Build.ps1
-pwsh tool/Test.ps1
-pwsh tool/Check.ps1
-pwsh tool/Package.ps1
+pwsh tool/fetch.ps1
+pwsh tool/build.ps1
+pwsh tool/test.ps1
+pwsh tool/check.ps1
+pwsh tool/package.ps1
 ```
 
-Windows 最终产物输出到 `dist`。macOS/Linux 使用 `tool/Build.sh` 和 CI 构建。
+Windows 最终产物输出到 `dist`。macOS/Linux 使用 `tool/build.sh` 和 CI 构建。
 

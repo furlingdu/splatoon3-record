@@ -65,19 +65,19 @@ flutter:
   fonts:
     - family: Splatoon1
       fonts:
-        - asset: assets/fonts/SplatoonCommon.ttf
+        - asset: assets/fonts/splatoonCommon.ttf
     - family: SplatoonCjk
       fonts:
-        - asset: assets/fonts/SplatoonCjk.ttf
+        - asset: assets/fonts/splatoonCjk.ttf
     - family: SplatoonKana
       fonts:
-        - asset: assets/fonts/SplatoonKana.ttf
+        - asset: assets/fonts/splatoonKana.ttf
     - family: SplatoonSymbol
       fonts:
-        - asset: assets/fonts/SplatoonSymbol.ttf
+        - asset: assets/fonts/splatoonSymbol.ttf
     - family: SplatoonZhL1
       fonts:
-        - asset: assets/fonts/SplatoonZhL1.ttf
+        - asset: assets/fonts/splatoonZhL1.ttf
     - family: SplatoonZhL2
       fonts:
-        - asset: assets/fonts/SplatoonZhL2.ttf
+        - asset: assets/fonts/splatoonZhL2.ttf

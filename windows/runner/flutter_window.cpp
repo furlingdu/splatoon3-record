@@ -2,7 +2,7 @@
 
 #include <optional>
 
-#include "capture/CaptureHost.h"
+#include "capture/host.h"
 #include "flutter/generated_plugin_registrant.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
