@@ -340,28 +340,14 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
     guard let SourceFormat = AVAudioFormat(streamDescription: &StreamValue) else { return false }
     let Frames = CMSampleBufferGetNumSamples(SampleBuffer)
     if Frames <= 0 { return false }
+    guard SourceFormat.isInterleaved else { return false }
     guard let Input = AVAudioPCMBuffer(pcmFormat: SourceFormat, frameCapacity: AVAudioFrameCount(Frames)) else { return false }
     Input.frameLength = AVAudioFrameCount(Frames)
-    let List = AudioBufferList.allocate(maximumBuffers: Int(SourceFormat.channelCount))
-    defer { free(List.unsafeMutablePointer) }
-    var Block: CMBlockBuffer?
-    let Status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-      SampleBuffer,
-      bufferListSizeNeededOut: nil,
-      bufferListOut: List.unsafeMutablePointer,
-      bufferListSize: AudioBufferList.sizeInBytes(maximumBuffers: Int(SourceFormat.channelCount)),
-      blockBufferAllocator: nil,
-      blockBufferMemoryAllocator: nil,
-      flags: 0,
-      blockBufferOut: &Block
-    )
-    if Status != noErr { return false }
+    guard let Block = CMSampleBufferGetDataBuffer(SampleBuffer) else { return false }
     let Targets = UnsafeMutableAudioBufferListPointer(Input.mutableAudioBufferList)
-    for Index in 0..<min(List.count, Targets.count) {
-      guard let Source = List[Index].mData, let Target = Targets[Index].mData else { continue }
-      let Bytes = min(Int(List[Index].mDataByteSize), Int(Targets[Index].mDataByteSize))
-      memcpy(Target, Source, Bytes)
-    }
+    guard Targets.count > 0, let Target = Targets[0].mData else { return false }
+    let Length = min(CMBlockBufferGetDataLength(Block), Int(Targets[0].mDataByteSize))
+    if CMBlockBufferCopyDataBytes(Block, atOffset: 0, dataLength: Length, destination: Target) != noErr { return false }
     guard let Converter = AVAudioConverter(from: SourceFormat, to: Format) else { return false }
     var ConversionError: NSError?
     var Consumed = false
