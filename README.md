@@ -1,6 +1,6 @@
 # Splatoon3 Record
 
-Flutter/Dart 桌面版 Splatoon 3 采集、缓存、归档与直播工具。
+Flutter/Dart 的 Splatoon 3 采集、缓存与归档工具，覆盖桌面与移动端。
 
 ## 构建
 
@@ -40,8 +40,8 @@ pwsh tool/Package.ps1
 - Windows：Media Foundation 原生采集，预览为 Flutter 外部纹理，包内 `ffmpeg.exe` 编码，`ffplay.exe` 仅用于声音返听。
 - macOS：`packages/macos_capture` 用 AVFoundation 取 NV12 帧写入 ffmpeg stdin，`FlutterTexture` 预览；音频由 `AVCaptureAudioDataOutput` 转 s16le 写入 FIFO，作为 ffmpeg 第二路输入。
 - Linux：`packages/linux_capture` 用 V4L2 mmap 取帧（NV12/YUYV），转 NV12 后写入 ffmpeg stdin；音频由 ALSA 采集后写入 FIFO。
-- Android：`camera` 走 Camera2、`flutter_ffi_uvc` 走 libuvc，两者都是原生采集与硬件编码分段 MP4。
-- iOS/iPadOS：`packages/mobile_capture` 用 AVFoundation 采集内置相机与 iPadOS 17+ 外接设备，`AVAssetWriter` 分段录制。
+- Android：`flutter_ffi_uvc` 走 libuvc + MediaCodec 原生采集与硬件编码分段 MP4；音频由 `AudioRecord` 原生录制为 AAC 伴轨，再用 `MediaExtractor + MediaMuxer` 无损合流。不使用系统相机，也不使用 Camera2。
+- iOS/iPadOS：`packages/mobile_capture` 用 AVFoundation 采集 iPadOS 17+ 外接 UVC 设备，`AVCaptureMovieFileOutput` 录制同一文件内的音视频，`AVAssetExportSession` 导出 MP4；不枚举内置相机。
 
 FFmpeg 按构建目标架构下载，不跨架构打包：
 
@@ -55,7 +55,7 @@ bash tool/FetchFFmpeg.sh linux-x64
 
 Android、iPhone 与 iPad 共用一套响应式界面：手机窄屏默认收起侧栏菜单，平板与桌面按宽度在抽屉和固定栏之间切换，列表、状态卡片与操作按钮随屏幕宽度调整列数和内边距。
 
-移动端具备完整采集录制链路：设备枚举、预览、分段录制、对局裁剪、缩略图、打码与 QQBot 推送；采集卡音频不由系统提供，移动端只支持麦克风。`assets/tools` 只在桌面平台打包。
+移动端只支持 USB 采集卡（UVC），不提供系统相机，也没有直播功能。移动端具备完整采集录制链路：采集卡实际档位枚举、预览、按屏幕刷新率渲染、分段录制、对局裁剪、缩略图、打码与 QQBot 推送；Android 采集卡音频走原生 AAC 音轨并合流为单个 MP4，iOS 由 AVFoundation 直接写入。初次配置必须完成 NSO 与 QQBot 登录后才能继续。`assets/tools` 只在桌面平台打包。
 
 ```bash
 flutter build apk --release --split-per-abi
@@ -76,7 +76,7 @@ UI 使用 Material 3 复刻旧版 MDUI 的深色桌面布局，复用了旧版�
 - ONNX 昵称检测与归档打码
 - QQBot 扫码绑定、命令、分片上传与自动推送
 - Media Foundation 低延迟预览、独立预览窗口
-- RTMP 采集/直播、无损转发
+- 桌面 RTMP 采集/直播、无损转发；移动端不提供直播
 - GitHub Release 更新下载与安装
 - 旧 Electron 版检测与静默卸载、数据备份与凭证迁移
 

@@ -20,14 +20,14 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
   var OnState: ((String) -> Void)?
 
   private var DeviceTypes: [AVCaptureDevice.DeviceType] {
-    var Types: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera]
     if #available(iOS 17.0, *) {
-      Types.append(.external)
+      return [.external]
     }
-    return Types
+    return []
   }
 
   private func Find(_ DeviceId: String) -> AVCaptureDevice? {
+    guard #available(iOS 17.0, *) else { return nil }
     let Devices = AVCaptureDevice.DiscoverySession(deviceTypes: DeviceTypes, mediaType: .video, position: .unspecified).devices
     if let Exact = Devices.first(where: { $0.uniqueID == DeviceId }) { return Exact }
     return nil
@@ -71,6 +71,7 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
   }
 
   func Enumerate() -> [[String: Any]] {
+    guard #available(iOS 17.0, *) else { return [] }
     let Devices = AVCaptureDevice.DiscoverySession(deviceTypes: DeviceTypes, mediaType: .video, position: .unspecified).devices
     return Devices.map { Device in
       [
@@ -110,8 +111,8 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
         return
       }
       if Audio {
-        AVCaptureDevice.requestAccess(for: .audio) { _ in
-          self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: Audio, AudioDeviceId: AudioDeviceId, Completion: Completion)
+        AVCaptureDevice.requestAccess(for: .audio) { Granted in
+          self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: Granted, AudioDeviceId: AudioDeviceId, Completion: Completion)
         }
       } else {
         self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: false, AudioDeviceId: "", Completion: Completion)
@@ -135,7 +136,7 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
   private func ConfigureNow(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Completion: @escaping (MobileCaptureModeInfo?, String?) -> Void) {
     CaptureQueue.async {
       guard let Device = self.Find(DeviceId) else {
-        DispatchQueue.main.async { Completion(nil, "未找到采集设备") }
+        DispatchQueue.main.async { Completion(nil, "未找到外接 USB 采集设备，需要 iPadOS 17 或更高版本") }
         return
       }
       if self.Session.isRunning { self.Session.stopRunning() }
@@ -159,11 +160,11 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
       var UseFps = max(1, Fps)
       do {
         try Device.lockForConfiguration()
-        if let Format = Self.PickFormat(Device, Width: Width, Height: Height) {
+        if let Format = Self.PickFormat(Device, Width: Width, Height: Height, Fps: Fps) {
           Device.activeFormat = Format
         }
         if let Range = Device.activeFormat.videoSupportedFrameRateRanges.first {
-          UseFps = min(UseFps, max(1, Int(Range.maxFrameRate.rounded())))
+          UseFps = min(max(UseFps, max(1, Int(Range.minFrameRate.rounded()))), max(1, Int(Range.maxFrameRate.rounded())))
         }
         let Duration = CMTime(value: 1, timescale: CMTimeScale(UseFps))
         Device.activeVideoMinFrameDuration = Duration
@@ -189,18 +190,28 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
       self.Session.commitConfiguration()
       self.Prepared = true
       self.Session.startRunning()
+      if let Connection = self.Output.connection(with: .video) {
+        Connection.automaticallyAdjustsVideoMirroring = false
+        if Connection.isVideoMirroringSupported {
+          Connection.isVideoMirrored = false
+        }
+      }
       let Size = CMVideoFormatDescriptionGetDimensions(Device.activeFormat.formatDescription)
       let Mode = MobileCaptureModeInfo(Width: Int(Size.width), Height: Int(Size.height), Fps: UseFps)
       DispatchQueue.main.async { Completion(Mode, nil) }
     }
   }
 
-  private static func PickFormat(_ Device: AVCaptureDevice, Width: Int, Height: Int) -> AVCaptureDevice.Format? {
+  private static func PickFormat(_ Device: AVCaptureDevice, Width: Int, Height: Int, Fps: Int) -> AVCaptureDevice.Format? {
     var Best: AVCaptureDevice.Format?
     var BestScore = Int.max
     for Format in Device.formats {
       let Size = CMVideoFormatDescriptionGetDimensions(Format.formatDescription)
-      let Score = abs(Int(Size.width) - Width) + abs(Int(Size.height) - Height)
+      let Range = Format.videoSupportedFrameRateRanges.first
+      let MaxFps = Int((Range?.maxFrameRate ?? 30).rounded())
+      let MinFps = Int((Range?.minFrameRate ?? 1).rounded())
+      let FpsScore = Fps > MaxFps ? (Fps - MaxFps) * 100 : Fps < MinFps ? (MinFps - Fps) * 20 : 0
+      let Score = abs(Int(Size.width) - Width) + abs(Int(Size.height) - Height) + FpsScore
       if Score < BestScore {
         BestScore = Score
         Best = Format

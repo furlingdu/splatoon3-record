@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'ExternalLinkBus.dart';
+import 'SetupGating.dart';
 
 import '../config/Config.dart';
 import '../config/PlatformInfo.dart';
@@ -22,9 +23,9 @@ import '../media/capture/CapturePlatform.dart';
 import '../media/capture/MobileService.dart';
 import '../media/capture/Service.dart';
 import '../media/ffmpeg/Service.dart';
-import '../media/live/MobileLiveService.dart';
 import '../media/nickname/Blur.dart';
 import '../nso/Battle.dart';
+import '../nso/NSOAuthCallback.dart';
 import '../nso/Service.dart';
 import '../store/LegacySecret.dart';
 import '../store/SecretStore.dart';
@@ -76,17 +77,21 @@ class AppController extends ChangeNotifier {
   String? QQAppId;
   String? QQSecret;
   final NSOService NSO = NSOService();
-  final MobileLiveService MobileLive = MobileLiveService();
   final Map<String, NSOSession> NSOSessions = <String, NSOSession>{};
   Timer? NSOClock;
   bool NSOBusy = false;
   String? NSOErrorText;
   NSOAuthRequest? PendingAuth;
+  bool AuthBusy = false;
+  String? LastAuthState;
   StreamSubscription<Uri>? LinkSub;
 
   AppConfig get CurrentConfig => Configs.Current;
   RecordSettings get SettingsValue => Configs.Current.Settings;
   List<BattleMatch> get Matches => Archive.Matches;
+  bool get NSOReady => SetupGating.NSOReady(Accounts);
+  bool get QQReady => SetupGating.QQReady(QQState);
+  bool get MobileSetupReady => !PlatformInfo.Mobile || (NSOReady && QQReady);
   String? get PreviewError => Capture.Error.value;
   int? get PreviewTextureId => Capture.PreviewTexture.value;
 
@@ -134,7 +139,10 @@ class AppController extends ChangeNotifier {
       await EnsureDevice();
     } else {
       await DevicesRefresh();
-      await (Capture as MobileCaptureService).Recover();
+      await NormalizeMobileSettings();
+      final Mobile = Capture as MobileCaptureService;
+      await EnsureDevice();
+      await Mobile.Recover();
     }
     await ApplyAutoLaunch();
     Clock = Timer.periodic(const Duration(seconds: 2), (_) => PushStatus());
@@ -174,6 +182,7 @@ class AppController extends ChangeNotifier {
     final State = Capture.State.value;
     final Cache = CacheRange();
     final Settings = SettingsValue;
+    final HasAudio = PlatformInfo.Mobile ? Settings.MobileAudio : Settings.AudioDevice.isNotEmpty;
     Status = AppStatus(
       RecordState: State == 'recording' ? 'recording' : State == 'starting' ? 'starting' : State == 'error' ? 'error' : 'idle',
       RecordError: Capture.Error.value,
@@ -183,9 +192,9 @@ class AppController extends ChangeNotifier {
       Format: State == 'recording' || State == 'starting' ? 'video/mp4' : '',
       PixelFormat: State == 'recording' || State == 'starting' ? Capture.ActualFormat : Settings.CaptureFormat.toUpperCase(),
       Encoder: Capture.EncoderName ?? '',
-      HasAudio: Settings.AudioDevice.isNotEmpty,
-      Audio: Settings.AudioDevice.isNotEmpty ? 'ok' : null,
-      AudioSource: Settings.AudioDevice.isNotEmpty ? '采集卡音频' : null,
+      HasAudio: HasAudio,
+      Audio: HasAudio ? 'ok' : null,
+      AudioSource: PlatformInfo.Mobile ? (HasAudio ? 'USB 音频' : null) : (HasAudio ? '采集卡音频' : null),
       Segments: Cache.$1,
       CacheStart: Cache.$2,
       CacheEnd: Cache.$3,
@@ -273,6 +282,7 @@ class AppController extends ChangeNotifier {
 
 
   void Navigate(String Value) {
+    if (PlatformInfo.Mobile && (Value == 'live' || Value == 'update')) return;
     Page = Value;
     notifyListeners();
   }
@@ -323,27 +333,6 @@ class AppController extends ChangeNotifier {
 
 
 
-  Future<void> StartMobileLive({String? VideoId}) async {
-    final Settings = SettingsValue;
-    final Url = PushTarget(Settings.RtmpPushUrl, Settings.RtmpPushKey);
-    if (Url.isEmpty) {
-      ShowNotice('请先填写 RTMP 推流地址');
-      return;
-    }
-    if (Capture.Running) await StopRecord();
-    final Area = Settings.Width * Settings.Height;
-    final Base = Area >= 1920 * 1080 ? 10000000 : Area >= 1280 * 720 ? 5000000 : 2500000;
-    final Scale = Settings.Quality >= 28 ? 0.6 : Settings.Quality >= 22 ? 1.0 : 1.5;
-    await MobileLive.Start(Url, VideoId: VideoId, Width: Settings.Width, Height: Settings.Height, Fps: Settings.Fps, Bitrate: (Base * Scale).round(), Uvc: Settings.MobileSource == 'uvc' && Platform.isAndroid);
-    final Failure = MobileLive.Error.value;
-    if (Failure != null) ShowNotice(Failure);
-    Notify();
-  }
-
-  Future<void> StopMobileLive() async {
-    await MobileLive.Stop();
-    Notify();
-  }
   void Notify() => notifyListeners();
 
   void ShowNotice(String Text) {
@@ -359,7 +348,6 @@ class AppController extends ChangeNotifier {
     NSOClock?.cancel();
     LinkSub?.cancel();
     unawaited(Capture.Dispose());
-    unawaited(MobileLive.Dispose());
     if (Ready) {
       Capture.State.removeListener(CaptureChanged);
       Capture.Error.removeListener(CaptureChanged);

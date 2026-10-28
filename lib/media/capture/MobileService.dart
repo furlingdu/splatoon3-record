@@ -8,17 +8,15 @@ import '../../domain/Models.dart';
 import '../ffmpeg/Service.dart';
 import 'CapturePlatform.dart';
 import 'ClipBuilder.dart';
-import 'mobile/AndroidCameraSource.dart';
 import 'mobile/AndroidUvcSource.dart';
 import 'mobile/IosCaptureSource.dart';
 import 'mobile/MobileCaptureSource.dart';
+import 'mobile/MobileModes.dart';
 import 'mobile/MobileRecorder.dart';
 
 class MobileCaptureService implements CapturePlatform {
   MobileCaptureService(this.Directories, this.FFmpeg)
-      : Sources = PlatformInfo.IOS
-            ? <MobileCaptureSource>[IosCaptureSource()]
-            : <MobileCaptureSource>[AndroidCameraSource(), AndroidUvcSource()];
+      : Sources = PlatformInfo.IOS ? <MobileCaptureSource>[IosCaptureSource()] : <MobileCaptureSource>[AndroidUvcSource()];
 
   final AppDirectories Directories;
   final FFmpegService FFmpeg;
@@ -70,7 +68,10 @@ class MobileCaptureService implements CapturePlatform {
   bool get Starting => _State.value == 'starting';
 
   @override
-  String? get EncoderName => null;
+  String? get EncoderName {
+    if (Active == null) return null;
+    return PlatformInfo.IOS ? 'h264_videotoolbox' : 'h264_mediacodec';
+  }
 
   @override
   String? get LiveTarget => null;
@@ -89,9 +90,11 @@ class MobileCaptureService implements CapturePlatform {
 
   MobileCaptureSource? SourceFor(RecordSettings Value) {
     final Device = Value.MobileDevice;
-    final Prefix = Device.contains(':') ? Device.split(':').first : Value.MobileSource;
-    for (final Item in Sources) {
-      if (Item.Prefix == Prefix) return Item;
+    if (Device.contains(':')) {
+      final Prefix = Device.split(':').first;
+      for (final Item in Sources) {
+        if (Item.Prefix == Prefix) return Item;
+      }
     }
     return Sources.isEmpty ? null : Sources.first;
   }
@@ -103,8 +106,6 @@ class MobileCaptureService implements CapturePlatform {
       try {
         Result.addAll(await Source.Devices());
       } catch (_) {}
-    }
-    for (final Source in Sources) {
       try {
         Result.addAll(await Source.AudioDevices());
       } catch (_) {}
@@ -128,35 +129,42 @@ class MobileCaptureService implements CapturePlatform {
     return <CaptureMode>[];
   }
 
-  CaptureMode Pick(List<CaptureMode> Items, RecordSettings Value) {
-    final Exact = Items.where((Item) => Item.Width == Value.Width && Item.Height == Value.Height).toList();
-    final Pool = Exact.isNotEmpty ? Exact : Items;
-    final Fps = Pool.where((Item) => Item.MaxFps >= Value.Fps).toList()..sort((Left, Right) => Left.MaxFps.compareTo(Right.MaxFps));
-    if (Fps.isNotEmpty) return Fps.first;
-    final Sorted = Pool.toList()..sort((Left, Right) => Right.MaxFps.compareTo(Left.MaxFps));
-    return Sorted.first;
+  CaptureMode? Pick(List<CaptureMode> Items, RecordSettings Value) {
+    if (Items.isEmpty) return null;
+    return MobileModes.Pick(Items, Value.Width, Value.Height, Value.Fps) ??
+        MobileModes.Best(Items, PreferredWidth: Value.Width, PreferredHeight: Value.Height, PreferredFps: Value.Fps);
   }
 
   @override
   Future<void> Start(RecordSettings Value, {String? LiveUrl, bool Record = true}) async {
     if (Running || Starting) return;
+    if (LiveUrl != null && LiveUrl.isNotEmpty) {
+      _Error.value = '移动端不支持直播';
+      return;
+    }
     await Stop(Fast: true);
     _Error.value = null;
     _State.value = 'starting';
+    final Source = SourceFor(Value);
+    if (Source == null) {
+      _State.value = 'error';
+      _Error.value = '没有可用的采集来源';
+      return;
+    }
+    Active = Source;
     try {
-      final Source = SourceFor(Value);
-      if (Source == null) throw StateError('没有可用的采集来源');
       final List<CaptureDevice> Items = await Source.Devices();
-      if (Items.isEmpty) throw StateError('没有可用的采集设备');
+      if (Items.isEmpty) throw StateError('没有检测到 USB 采集卡');
       final Device = Items.firstWhere((Item) => Item.Id == Value.MobileDevice, orElse: () => Items.first);
       final List<CaptureMode> Formats = await Source.Modes(Device.Id);
-      if (Formats.isEmpty) throw StateError('没有可用的采集格式');
+      if (Formats.isEmpty) throw StateError('采集卡没有报告可用档位');
       final Picked = Pick(Formats, Value);
+      if (Picked == null) throw StateError('采集卡没有可用档位');
       final Ready = await Source.Prepare(Device, Picked, Value);
-      Active = Source;
       Mode = Ready;
-      final Engine = MobileRecorder(Source, Directories, FFmpeg);
+      final Engine = MobileRecorder(Source, Directories, Value.MobileAudio);
       Recorder = Engine;
+      Engine.Error.addListener(RecorderChanged);
       await Engine.Start();
       Segments = Engine.Segments;
       _State.value = 'recording';
@@ -172,18 +180,35 @@ class MobileCaptureService implements CapturePlatform {
     }
   }
 
+  void RecorderChanged() {
+    final Value = Recorder?.Error.value;
+    if (Value == null || Value.isEmpty) return;
+    _Error.value = Value;
+    _State.value = 'error';
+    StatsClock?.cancel();
+    StatsClock = null;
+    _Stats.value = <String, dynamic>{'error': Value};
+  }
+
   void PushStats() {
     final Engine = Recorder;
-    _Stats.value = <String, dynamic>{
-      'captureFps': ActualFps,
-      'previewFps': ActualFps,
-      'latency': 0,
-      'dropped': 0,
+    final Source = Active;
+    final Dynamic = Source?.Stats() ?? const <String, dynamic>{};
+    final CaptureFps = (Dynamic['captureFps'] as num?)?.toInt() ?? 0;
+    final PreviewFps = (Dynamic['previewFps'] as num?)?.toInt() ?? 0;
+    final Base = <String, dynamic>{
+      'captureFps': CaptureFps > 0 ? CaptureFps : ActualFps,
+      'previewFps': PreviewFps > 0 ? PreviewFps : ActualFps,
+      'latency': Dynamic['latency'] ?? 0,
+      'dropped': Dynamic['dropped'] ?? 0,
       'written': Segments,
-      'queue': 0,
+      'queue': Dynamic['queue'] ?? 0,
       'convertMs': 0,
       'segments': Engine?.Segments ?? 0,
+      'audio': Engine?.AudioActive ?? false,
+      'audioError': Engine?.AudioError,
     };
+    _Stats.value = Base;
   }
 
   @override
@@ -193,9 +218,11 @@ class MobileCaptureService implements CapturePlatform {
     final Engine = Recorder;
     Recorder = null;
     if (Engine != null) {
+      Engine.Error.removeListener(RecorderChanged);
       try {
         await Engine.Stop();
       } catch (_) {}
+      Engine.Error.dispose();
     }
     final Source = Active;
     Active = null;
@@ -247,7 +274,7 @@ class MobileCaptureService implements CapturePlatform {
         Height: ActualHeight,
         Fps: ActualFps,
         Encoder: 'hardware',
-        HasAudio: false,
+        HasAudio: true,
         Flip: false,
       ));
     }
@@ -275,8 +302,9 @@ class MobileCaptureService implements CapturePlatform {
   Future<void> StopMonitor() async {}
 
   Future<void> Recover() async {
-    final Engine = MobileRecorder(Sources.first, Directories, FFmpeg);
+    final Engine = MobileRecorder(Sources.first, Directories, false);
     await Engine.Recover();
+    Engine.Error.dispose();
   }
 
   @override

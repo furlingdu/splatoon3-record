@@ -93,6 +93,10 @@ abstract final class MobileCapture {
     await Channel.invokeMethod<void>('Dispose');
   }
 
+  static Future<bool> Export(String Input, String Output) async {
+    return await Channel.invokeMethod<bool>('Export', <String, dynamic>{'input': Input, 'output': Output}) ?? false;
+  }
+
   static Widget Preview() {
     return const UiKitView(viewType: 'splatoon3record/capture_preview');
   }

@@ -17,6 +17,7 @@ extension AppNSOFlow on AppController {
   }
 
   Future<void> StartNSOLogin([String? AccountId]) async {
+    if (AuthBusy) return;
     if (AccountId == null) {
       await BeginNSOAuth();
       return;
@@ -29,6 +30,7 @@ extension AppNSOFlow on AppController {
 
   Future<void> BeginNSOAuth() async {
     try {
+      LastAuthState = null;
       PendingAuth = NSO.BeginAuth();
       final Data = Map<String, dynamic>.from(Vault.Data);
       Data['nsoAuth'] = <String, dynamic>{'url': PendingAuth!.Url, 'state': PendingAuth!.State, 'verifier': PendingAuth!.Verifier, 'at': DateTime.now().millisecondsSinceEpoch};
@@ -42,20 +44,32 @@ extension AppNSOFlow on AppController {
   }
 
   Future<void> HandleNSOLink(Uri Link) async {
-    if (!Link.scheme.startsWith('npf') || Link.host != 'auth') return;
+    final Callback = NSOAuthCallback.Parse(Link);
+    if (Callback == null) return;
+    await Logs.Login('nso callback fragment=${Link.fragment.isNotEmpty} query=${Link.query.isNotEmpty} code=${Callback.Code.isNotEmpty} error=${Callback.Error.isNotEmpty}');
+    if (AuthBusy) return;
+    if (Callback.State.isNotEmpty && Callback.State == LastAuthState) return;
     final Auth = PendingAuth;
-    if (Auth == null) return;
-    final State = Link.queryParameters['state'] ?? '';
-    final Code = Link.queryParameters['session_token_code'] ?? '';
-    if (State != Auth.State || Code.isEmpty) {
+    if (Auth == null) {
+      Notice = 'Nintendo 登录会话已过期，请重新登录';
+      Notify();
+      return;
+    }
+    if (Callback.Error.isNotEmpty) {
+      Notice = 'Nintendo 登录失败：${Callback.Error}';
+      Notify();
+      return;
+    }
+    if (Callback.State != Auth.State || Callback.Code.isEmpty) {
       Notice = 'Nintendo 登录回调无效';
       Notify();
       return;
     }
+    AuthBusy = true;
     Notice = '正在完成 Nintendo 登录…';
     Notify();
     try {
-      final Token = await NSO.Exchange(Code, Auth.Verifier);
+      final Token = await NSO.Exchange(Callback.Code, Auth.Verifier);
       final Session = await NSO.Login(Token);
       final Existing = Accounts.where((Item) => Item.Id == Session.NaId).toList();
       if (Existing.isEmpty && Accounts.length >= Config.MaxNSOAccounts) throw StateError('最多绑定 5 个 NSO 账户');
@@ -71,6 +85,7 @@ extension AppNSOFlow on AppController {
       if (Existing.isEmpty) Accounts.add(Account);
       NSOSessions[Account.Id] = Session;
       CurrentNSOId = Account.Id;
+      LastAuthState = Auth.State;
       PendingAuth = null;
       NSOErrorText = null;
       final Data = Map<String, dynamic>.from(Vault.Data);
@@ -98,6 +113,8 @@ extension AppNSOFlow on AppController {
       NSOErrorText = '$Cause';
       Notice = 'Nintendo 登录失败：$Cause';
       Notify();
+    } finally {
+      AuthBusy = false;
     }
   }
 

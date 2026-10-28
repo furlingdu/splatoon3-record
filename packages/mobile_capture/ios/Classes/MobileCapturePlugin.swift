@@ -57,6 +57,13 @@ import Flutter
     case "Dispose":
       Capture.Dispose()
       result(nil)
+    case "Export":
+      MobileCaptureExport.Run(
+        Input: Arguments["input"] as? String ?? "",
+        Output: Arguments["output"] as? String ?? ""
+      ) { Ok in
+        result(Ok)
+      }
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -125,6 +132,12 @@ final class MobileCapturePreviewContainer: UIView {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     Preview.frame = bounds
+    if let Connection = Preview.connection {
+      Connection.automaticallyAdjustsVideoMirroring = false
+      if Connection.isVideoMirroringSupported {
+        Connection.isVideoMirrored = false
+      }
+    }
     CATransaction.commit()
   }
 }

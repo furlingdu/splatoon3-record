@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 
 import '../../../domain/Models.dart';
+import 'MobileCaptureSource.dart';
 
 class AndroidAudio {
   static const MethodChannel Channel = MethodChannel('splatoon3record/mobile_audio');
@@ -12,12 +13,31 @@ class AndroidAudio {
     }).where((Item) => Item.Id != 'audio:').toList();
   }
 
-  static Future<void> Start(String Path, String DeviceId) async {
+  static Future<bool> EnsurePermission() async {
+    return await Channel.invokeMethod<bool>('EnsurePermission') ?? false;
+  }
+
+  static Future<MobileAudioClip?> Start(String Path, String DeviceId) async {
     final Id = DeviceId.contains(':') ? DeviceId.split(':').last : DeviceId;
-    await Channel.invokeMethod<void>('Start', <String, dynamic>{'path': Path, 'device': Id});
+    final Raw = await Channel.invokeMethod<Map<dynamic, dynamic>>('Start', <String, dynamic>{'path': Path, 'device': Id});
+    if (Raw == null) return null;
+    return MobileAudioClip(Path: '${Raw['path'] ?? Path}', StartNs: (Raw['startNs'] as num?)?.toInt() ?? 0);
   }
 
   static Future<String?> Stop() async {
     return Channel.invokeMethod<String>('Stop');
+  }
+
+  static Future<int> MonotonicNs() async {
+    return await Channel.invokeMethod<int>('MonotonicNs') ?? 0;
+  }
+
+  static Future<bool> Mux({required String Video, required String Audio, required String Output, required int AudioOffsetUs}) async {
+    return await Channel.invokeMethod<bool>('Mux', <String, dynamic>{
+      'video': Video,
+      'audio': Audio,
+      'output': Output,
+      'audioOffsetUs': AudioOffsetUs,
+    }) ?? false;
   }
 }

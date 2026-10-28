@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:mobile_capture/MobileCapture.dart';
 
@@ -18,10 +20,9 @@ class IosCaptureSource implements MobileCaptureSource {
 
   @override
   Future<List<CaptureDevice>> Devices() async {
-    final Items = await MobileCapture.Enumerate();
+    final Items = (await MobileCapture.Enumerate()).where((Item) => Item.External).toList();
     return Items.map((MobileCaptureDevice Item) {
-      final Name = Item.External ? '${Item.Name} · 外接' : '${Item.Name} · 内置';
-      return CaptureDevice(Id: '$Prefix:${Item.Id}', Name: Name, Kind: 'video');
+      return CaptureDevice(Id: '$Prefix:${Item.Id}', Name: '${Item.Name} · 外接', Kind: 'video');
     }).toList();
   }
 
@@ -38,12 +39,35 @@ class IosCaptureSource implements MobileCaptureSource {
   bool get HasSeparateAudio => false;
 
   @override
-  Future<String?> StartAudio(String Path) async {
+  Future<MobileAudioClip?> StartAudio(String Path) async {
     return null;
   }
 
   @override
   Future<void> StopAudio() async {}
+
+  @override
+  Future<int> MonotonicNs() async {
+    return DateTime.now().microsecondsSinceEpoch * 1000;
+  }
+
+  @override
+  Map<String, dynamic> Stats() {
+    return const <String, dynamic>{};
+  }
+
+  @override
+  Future<String?> Finish(String Video, String? Audio, String Target, {int AudioOffsetUs = 0}) async {
+    if (Video == Target) return Target;
+    final Exported = await MobileCapture.Export(Video, Target);
+    if (Exported && File(Target).existsSync()) {
+      try {
+        await File(Video).delete();
+      } catch (_) {}
+      return Target;
+    }
+    return File(Video).existsSync() ? Video : null;
+  }
 
   @override
   Future<List<CaptureMode>> Modes(String Id) async {

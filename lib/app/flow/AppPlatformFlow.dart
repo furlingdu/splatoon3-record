@@ -32,6 +32,11 @@ extension AppPlatformFlow on AppController {
   }
 
   Future<void> FinishSetup() async {
+    if (PlatformInfo.Mobile && !MobileSetupReady) {
+      Notice = '请先完成 Nintendo 账号和 QQBot 登录';
+      Notify();
+      return;
+    }
     final Next = AppConfig(
       Settings: SettingsValue,
       PushEnabled: Configs.Current.PushEnabled,

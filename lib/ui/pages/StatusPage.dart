@@ -22,7 +22,7 @@ class StatusPage extends StatelessWidget {
     return PageBody(
       Children: <Widget>[
         const AppPageTitle('状态'),
-        if (Mobile) const AppHint('移动端使用系统相机或 USB 采集卡采集，录制写入应用沙盒，可在相册中播放。'),
+        if (Mobile) const AppHint('移动端使用 USB 采集卡（UVC）采集，录制写入应用沙盒，可在相册中播放。'),
         CapturePreview(Controller: Controller),
         const SizedBox(height: 20),
         ...<Widget>[
@@ -83,9 +83,10 @@ class StatusPage extends StatelessWidget {
           const AppSectionTitle('录制'),
           StatusGrid(
             Children: <Widget>[
-              AppStatusItem(Label: '采集方式', Value: Text(Status.Settings.CaptureMode == 'rtmp' ? 'RTMP' : '软件内捕获')),
+              AppStatusItem(Label: '采集方式', Value: Text(Status.Settings.CaptureMode == 'rtmp' ? 'RTMP' : (Mobile ? 'USB 采集卡' : '软件内捕获'))),
               AppStatusItem(Label: '分辨率', Value: AppStatusText(Status.Width > 0 ? Formats.Resolution(Status.Width, Status.Height) : '未收到画面')),
               AppStatusItem(Label: '帧率', Value: AppStatusText(Status.Fps > 0 ? Formats.Fps(Status.Fps) : '未收到画面')),
+              if (Mobile) AppStatusItem(Label: '屏幕刷新率', Value: AppStatusText('${View.of(context).display.refreshRate.toStringAsFixed(0)} Hz')),
               AppStatusItem(Label: '采集画面格式', Value: AppStatusText(Status.Settings.CaptureMode == 'rtmp' ? 'RTMP / MP4' : Status.PixelFormat)),
               AppStatusItem(Label: '录制格式', Value: AppStatusText(Status.Settings.CaptureMode == 'rtmp' ? 'video/mp4' : Formats.FileFormat(Status.StreamFormat ?? ''))),
               AppStatusItem(Label: '录制编码', Value: AppStatusText(Status.Encoder.isEmpty ? '-' : Status.Encoder)),
@@ -100,6 +101,15 @@ class StatusPage extends StatelessWidget {
                   return AppStatusItem(Label: '实时链路', Value: AppStatusText(Value));
                 },
               ),
+              if (Mobile)
+                ValueListenableBuilder<Map<String, dynamic>?>(
+                  valueListenable: Controller.Capture.Stats,
+                  builder: (Context, Stats, _) {
+                    final Error = Stats?['audioError'];
+                    final Audio = Stats?['audio'] == true ? '录制中' : '未录制';
+                    return AppStatusItem(Label: '音频', Value: AppStatusText(Error == null ? Audio : '异常：$Error'));
+                  },
+                ),
               if (Status.RecordError != null) AppStatusItem(Label: '错误信息', Value: AppStatusText(Status.RecordError!)),
             ],
           ),
@@ -181,9 +191,11 @@ class CapturePreview extends StatelessWidget {
         decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12)),
         clipBehavior: Clip.antiAlias,
         child: Live != null
-            ? Transform.flip(
-                flipY: Controller.SettingsValue.FlipVertical,
-                child: Live,
+            ? RepaintBoundary(
+                child: Transform.flip(
+                  flipY: Controller.SettingsValue.FlipVertical,
+                  child: Live,
+                ),
               )
             : Center(
                 child: Padding(
@@ -195,7 +207,7 @@ class CapturePreview extends StatelessWidget {
                             ? Controller.PreviewError!
                             : Controller.PreviewMessage != null
                                 ? Controller.PreviewMessage!
-                                : Controller.SettingsValue.VideoDevice.isEmpty
+                                : (PlatformInfo.Mobile ? Controller.SettingsValue.MobileDevice.isEmpty : Controller.SettingsValue.VideoDevice.isEmpty)
                                     ? '未选择采集设备，请到设置页选择采集卡'
                                     : Controller.Capture.State.value == 'starting'
                                         ? '正在打开采集设备'

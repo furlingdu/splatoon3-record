@@ -6,9 +6,6 @@ abstract final class Config {
   static const String VideoToolbox = 'h264_videotoolbox';
   static const String MediaCodec = 'h264_mediacodec';
   static const int SegmentSeconds = 600;
-  static const int MobileDefaultFps = 30;
-  static const List<int> MobileWidths = <int>[1920, 1280, 854];
-  static const List<int> MobileHeights = <int>[1080, 720, 480];
   static const String BackgroundPath = 'assets/backgrounds/InformationBg.jpg';
   static const String AppIconPath = 'assets/images/AppIcon.png';
   static const String CharacterPath = 'assets/images/Character.png';

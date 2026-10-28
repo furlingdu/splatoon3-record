@@ -1,6 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 
 import '../../../domain/Models.dart';
+
+class MobileAudioClip {
+  const MobileAudioClip({required this.Path, required this.StartNs});
+
+  final String Path;
+  final int StartNs;
+}
 
 abstract class MobileCaptureSource {
   String get Prefix;
@@ -13,11 +22,30 @@ abstract class MobileCaptureSource {
 
   bool get HasSeparateAudio => false;
 
-  Future<String?> StartAudio(String Path) async {
+  Future<MobileAudioClip?> StartAudio(String Path) async {
     return null;
   }
 
   Future<void> StopAudio() async {}
+
+  Future<int> MonotonicNs() async {
+    return DateTime.now().microsecondsSinceEpoch * 1000;
+  }
+
+  Map<String, dynamic> Stats() {
+    return const <String, dynamic>{};
+  }
+
+  Future<String?> Finish(String Video, String? Audio, String Target, {int AudioOffsetUs = 0}) async {
+    if (Video == Target) return Target;
+    try {
+      if (File(Target).existsSync()) await File(Target).delete();
+      await File(Video).rename(Target);
+      return Target;
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<List<CaptureMode>> Modes(String Id);
 

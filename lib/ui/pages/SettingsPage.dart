@@ -5,6 +5,7 @@ import '../../app/AppController.dart';
 import '../../config/PlatformInfo.dart';
 import '../../domain/Models.dart';
 import '../../format/Formats.dart';
+import '../../media/capture/mobile/MobileModes.dart';
 import '../AppTheme.dart';
 import '../Controls.dart';
 import '../Shell.dart';
@@ -22,6 +23,7 @@ class SettingsPageState extends State<SettingsPage> {
   late RecordSettings Draft;
   List<CaptureMode> Modes = <CaptureMode>[];
   bool LoadingDevices = false;
+  bool LoadingModes = false;
   bool Picking = false;
   final TextEditingController SaveDir = TextEditingController();
   final TextEditingController RtmpPort = TextEditingController();
@@ -41,19 +43,86 @@ class SettingsPageState extends State<SettingsPage> {
     LoadModes();
   }
 
-  List<CaptureDevice> MobileDevices(String Prefix) {
-    return widget.Controller.Devices.where((Item) => Item.Kind == 'video' && Item.Id.startsWith('$Prefix:')).toList();
+  List<CaptureDevice> MobileVideoDevices() {
+    return widget.Controller.Devices.where((Item) => Item.Kind == 'video').toList();
   }
 
   List<CaptureDevice> MobileAudioDevices() {
     return widget.Controller.Devices.where((Item) => Item.Kind == 'audio').toList();
   }
 
+  String MobileDeviceName(List<CaptureDevice> Items, String Value) {
+    if (Value.isEmpty) return '未选择';
+    for (final Item in Items) {
+      if (Item.Id == Value) return Item.Name;
+    }
+    return Value;
+  }
+
   Future<void> LoadModes() async {
+    if (PlatformInfo.Mobile) {
+      if (Draft.MobileDevice.isEmpty) {
+        if (mounted) setState(() => Modes = <CaptureMode>[]);
+        return;
+      }
+      setState(() => LoadingModes = true);
+      final List = await widget.Controller.Capture.Modes(Draft.MobileDevice).catchError((_) => <CaptureMode>[]);
+      if (!mounted) return;
+      final Current = MobileModes.Pick(List, Draft.Width, Draft.Height, Draft.Fps);
+      final Refresh = View.of(context).display.refreshRate.round();
+      final Best = Current ?? MobileModes.Best(List, PreferredWidth: Draft.Width, PreferredHeight: Draft.Height, PreferredFps: Refresh > 0 ? Refresh : Draft.Fps);
+      setState(() {
+        Modes = List;
+        LoadingModes = false;
+      });
+      if (Best != null && (Draft.Width != Best.Width || Draft.Height != Best.Height || Draft.Fps != Best.MaxFps)) {
+        final Next = Draft.Copy(<String, dynamic>{'width': Best.Width, 'height': Best.Height, 'fps': Best.MaxFps});
+        setState(() => Draft = Next);
+        await widget.Controller.SaveSettingsSilent(Next);
+      }
+      return;
+    }
     if (Draft.VideoDevice.isEmpty) return;
     final List = await widget.Controller.Capture.Modes(Draft.VideoDevice).catchError((_) => <CaptureMode>[]);
     if (!mounted) return;
     setState(() => Modes = List);
+  }
+
+  Future<void> RefreshMobileDevices() async {
+    if (LoadingDevices) return;
+    setState(() => LoadingDevices = true);
+    await widget.Controller.DevicesRefresh();
+    await widget.Controller.EnsureDevice();
+    if (!mounted) return;
+    setState(() {
+      Draft = widget.Controller.SettingsValue;
+      Modes = <CaptureMode>[];
+      LoadingDevices = false;
+    });
+    await LoadModes();
+  }
+
+  Future<void> SelectMobileDevice(String Value) async {
+    await Update(Draft.Copy(<String, dynamic>{'mobileDevice': Value}));
+    await LoadModes();
+  }
+
+  Future<void> SelectMobileResolution(String Value) async {
+    final Parts = Value.split('x');
+    final NextWidth = int.tryParse(Parts.first) ?? Draft.Width;
+    final NextHeight = int.tryParse(Parts.length > 1 ? Parts[1] : '') ?? Draft.Height;
+    final FpsItems = MobileModes.FpsList(Modes, NextWidth, NextHeight);
+    final NextFps = FpsItems.contains(Draft.Fps) ? Draft.Fps : (FpsItems.isNotEmpty ? FpsItems.first : Draft.Fps);
+    await Update(Draft.Copy(<String, dynamic>{'width': NextWidth, 'height': NextHeight, 'fps': NextFps}));
+  }
+
+  Future<void> ToggleMobileAudio(bool Value) async {
+    var Next = Draft.Copy(<String, dynamic>{'mobileAudio': Value});
+    if (Value && Next.MobileAudioDevice.isEmpty) {
+      final Items = MobileAudioDevices();
+      if (Items.isNotEmpty) Next = Next.Copy(<String, dynamic>{'mobileAudioDevice': Items.first.Id});
+    }
+    await Update(Next);
   }
 
   @override
@@ -100,6 +169,10 @@ class SettingsPageState extends State<SettingsPage> {
     final Scheme = Theme.of(context).colorScheme;
     final Video = widget.Controller.Devices.where((Item) => Item.Kind == 'video').toList();
     final Audio = widget.Controller.Devices.where((Item) => Item.Kind == 'audio').toList();
+    final MobileVideo = MobileVideoDevices();
+    final MobileAudio = MobileAudioDevices();
+    final MobileResolutions = MobileModes.Resolutions(Modes);
+    final MobileFps = MobileModes.FpsList(Modes, Draft.Width, Draft.Height);
     final FormatModes = Modes.where((Item) => Item.Format == Draft.CaptureFormat).toList();
     final Resolutions = <String>{
       ...FormatModes.map((Item) => '${Item.Width}x${Item.Height}'),
@@ -123,54 +196,52 @@ class SettingsPageState extends State<SettingsPage> {
       const AppPageTitle('设置'),
       if (PlatformInfo.Mobile) ...<Widget>[
         const AppSectionTitle('采集设备'),
-        AppSelect<String>(
-          Label: '采集来源',
-          Value: Draft.MobileSource,
-          Items: PlatformInfo.IOS ? const <String>['external'] : const <String>['camera', 'uvc'],
-          Display: (Value) => Value == 'uvc' ? 'USB 采集卡' : '系统相机',
-          OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileSource': Value, 'mobileDevice': ''})),
-        ),
         Row(children: <Widget>[
           Expanded(
             child: AppSelect<String>(
-              Label: '设备',
+              Label: 'USB 采集卡',
               Value: Draft.MobileDevice,
-              Items: <String>['', ...MobileDevices(Draft.MobileSource).map((Item) => Item.Id)],
-              Display: (Value) => Value.isEmpty ? '未选择' : MobileDevices(Draft.MobileSource).firstWhere((Item) => Item.Id == Value, orElse: () => CaptureDevice(Id: Value, Name: Value, Kind: 'video')).Name,
-              OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileDevice': Value})),
+              Items: <String>['', ...MobileVideo.map((Item) => Item.Id)],
+              Display: (Value) => MobileDeviceName(MobileVideo, Value),
+              OnChanged: SelectMobileDevice,
             ),
           ),
-          AppIconButton(Glyph: Icons.refresh, OnPressed: () async {
-            setState(() => LoadingDevices = true);
-            await widget.Controller.DevicesRefresh();
-            if (mounted) setState(() => LoadingDevices = false);
-          }),
+          AppIconButton(Glyph: Icons.refresh, OnPressed: RefreshMobileDevices),
         ]),
-        if (LoadingDevices) const Padding(padding: EdgeInsets.only(bottom: 8), child: AppLinearProgress(Indeterminate: true)),
-        AppSelect<String>(
-          Label: '录制分辨率',
-          Value: '${Draft.Width}x${Draft.Height}',
-          Items: const <String>['1920x1080', '1280x720', '854x480'],
-          Display: (Value) => Value.replaceFirst('x', ' × ') + (Value == '1920x1080' ? '（1080p）' : Value == '1280x720' ? '（720p）' : '（480p）'),
-          OnChanged: (Value) {
-            final Parts = Value.split('x');
-            Update(Draft.Copy(<String, dynamic>{'width': int.tryParse(Parts[0]) ?? 1920, 'height': int.tryParse(Parts.last) ?? 1080}));
-          },
+        if (LoadingDevices || LoadingModes) const Padding(padding: EdgeInsets.only(bottom: 8), child: AppLinearProgress(Indeterminate: true)),
+        if (MobileVideo.isEmpty) AppHint(PlatformInfo.IOS ? '未检测到外接 USB 采集卡。需要 iPadOS 17 或更高版本。' : '未检测到 USB 采集卡。请通过 USB OTG 连接采集卡后点击刷新。', Error: true),
+        if (MobileResolutions.isNotEmpty) ...<Widget>[
+          AppSelect<String>(
+            Label: '录制分辨率',
+            Value: '${Draft.Width}x${Draft.Height}',
+            Items: MobileResolutions,
+            Display: (Value) {
+              final Parts = Value.split('x');
+              return Formats.Resolution(int.tryParse(Parts.first) ?? 0, int.tryParse(Parts.length > 1 ? Parts[1] : '') ?? 0);
+            },
+            OnChanged: SelectMobileResolution,
+          ),
+          AppSelect<int>(
+            Label: '录制帧率',
+            Value: Draft.Fps,
+            Items: MobileFps,
+            Display: (Value) => '$Value fps',
+            OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'fps': Value})),
+          ),
+        ] else if (Draft.MobileDevice.isNotEmpty)
+          const AppHint('未读取到采集卡档位，请检查 USB 连接后刷新。', Error: true),
+        AppFormSwitch(
+          Label: '录制音频',
+          Note: '采集卡的 HDMI 音频会作为 USB 音频设备出现；Android 使用原生 AAC 音轨并合流为 MP4，iOS 直接写入录制文件。',
+          Value: Draft.MobileAudio,
+          OnChanged: ToggleMobileAudio,
         ),
-        AppSelect<int>(
-          Label: '录制帧率',
-          Value: Draft.Fps,
-          Items: const <int>[30, 60],
-          Display: (Value) => '$Value fps',
-          OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'fps': Value})),
-        ),
-        AppFormSwitch(Label: '录制音频', Note: '采集卡的 HDMI 音频会作为 USB 音频设备出现；Android 先录 WAV 再与视频合流，iOS 直接写入录制文件。', Value: Draft.MobileAudio, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileAudio': Value}))),
-        if (Draft.MobileAudio && MobileAudioDevices().isNotEmpty)
+        if (Draft.MobileAudio && MobileAudio.isNotEmpty)
           AppSelect<String>(
             Label: '音频录制设备',
             Value: Draft.MobileAudioDevice,
-            Items: <String>['', ...MobileAudioDevices().map((Item) => Item.Id)],
-            Display: (Value) => Value.isEmpty ? '默认音频输入' : MobileAudioDevices().firstWhere((Item) => Item.Id == Value, orElse: () => CaptureDevice(Id: Value, Name: Value, Kind: 'audio')).Name,
+            Items: <String>['', ...MobileAudio.map((Item) => Item.Id)],
+            Display: (Value) => Value.isEmpty ? '默认音频输入' : MobileAudio.firstWhere((Item) => Item.Id == Value, orElse: () => CaptureDevice(Id: Value, Name: Value, Kind: 'audio')).Name,
             OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileAudioDevice': Value})),
           ),
         AppSelect<int>(
@@ -180,7 +251,7 @@ class SettingsPageState extends State<SettingsPage> {
           Display: (Value) => const <int, String>{18: '高质量、存储占用大', 22: '普通质量、存储占用适中', 28: '低质量、存储占用小'}[Value] ?? '$Value',
           OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'quality': Value})),
         ),
-        AppHint('移动端每 10 分钟自动分段，对局裁剪、归档与推送流程与桌面一致。'),
+        const AppHint('移动端只支持 USB 采集卡（UVC），不支持系统相机；每 10 分钟自动分段，对局裁剪、归档与推送流程与桌面一致。'),
       ],
       if (!PlatformInfo.Mobile)
         AppSelect<String>(
@@ -333,7 +404,9 @@ class SettingsPageState extends State<SettingsPage> {
       ],
       const AppSectionTitle('外观'),
       Text('背景图片', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurface)),
-      AppHint(Draft.BackgroundPath.isEmpty ? '正在使用默认背景和吉祥物。' : '正在使用自定义背景，吉祥物已自动隐藏。'),
+      AppHint(PlatformInfo.Mobile
+          ? (Draft.BackgroundPath.isEmpty ? '正在使用默认背景。' : '正在使用自定义背景。')
+          : (Draft.BackgroundPath.isEmpty ? '正在使用默认背景和吉祥物。' : '正在使用自定义背景，吉祥物已自动隐藏。')),
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: AppButton(Label: Picking ? '正在选择…' : '更换背景', Full: true, Enabled: !Picking, OnPressed: ChooseBackground),

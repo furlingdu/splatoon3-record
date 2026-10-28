@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -154,7 +155,7 @@ class ShellViewState extends State<ShellView> {
           child: Stack(
             children: <Widget>[
             Positioned.fill(child: BackgroundLayer(Path: Controller.SettingsValue.BackgroundPath, Dim: Controller.SettingsValue.BackgroundDim)),
-            if (Controller.SettingsValue.BackgroundPath.isEmpty)
+            if (!PlatformInfo.Mobile && Controller.SettingsValue.BackgroundPath.isEmpty)
               Positioned(
                 right: 0,
                 bottom: 0,
@@ -237,10 +238,21 @@ class ShellViewState extends State<ShellView> {
                 ),
               ),
             if (!Wide && DrawerOpen)
-              Positioned.fill(
+              Positioned(
+                left: 0,
+                right: 0,
+                top: PlatformInfo.Mobile ? 64 : 0,
+                bottom: 0,
                 child: GestureDetector(
                   onTap: () => setState(() => DrawerOpen = false),
-                  child: Container(color: Colors.black54),
+                  child: PlatformInfo.Mobile
+                      ? ClipRect(
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                            child: Container(color: Colors.black.withValues(alpha: 0.45)),
+                          ),
+                        )
+                      : Container(color: Colors.black54),
                 ),
               ),
             if (!Wide)
@@ -276,7 +288,7 @@ class ShellViewState extends State<ShellView> {
       case 'gallery':
         return GalleryPage(Controller: Controller);
       case 'live':
-        return LivePage(Controller: Controller);
+        return PlatformInfo.Live ? LivePage(Controller: Controller) : StatusPage(Controller: Controller);
       case 'settings':
         return SettingsPage(Controller: Controller);
       case 'update':
@@ -299,7 +311,7 @@ class TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0x9917161d),
+      color: PlatformInfo.Mobile ? AppTheme.ChromeSolid : const Color(0x9917161d),
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: <Widget>[
@@ -342,13 +354,13 @@ class DrawerPanel extends StatelessWidget {
 
   static final List<List<String>> VisibleItems = PlatformInfo.Desktop
       ? Items
-      : Items.where((Item) => Item[0] != 'update').toList();
+      : Items.where((Item) => Item[0] != 'update' && Item[0] != 'live').toList();
 
   @override
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
     return Container(
-      color: const Color(0x8017161d),
+      color: PlatformInfo.Mobile ? AppTheme.ChromeSolid : const Color(0x8017161d),
       padding: const EdgeInsets.only(top: 8),
       child: ListView.builder(
         itemCount: VisibleItems.length,

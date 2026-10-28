@@ -13,7 +13,39 @@ extension AppCaptureFlow on AppController {
     }
   }
 
+  Future<void> NormalizeMobileSettings() async {
+    if (!PlatformInfo.Mobile) return;
+    final Default = PlatformInfo.IOS ? 'external' : 'uvc';
+    var Next = SettingsValue;
+    var Changed = false;
+    if (Next.MobileSource != Default) {
+      Next = Next.Copy(<String, dynamic>{'mobileSource': Default});
+      Changed = true;
+    }
+    if (Next.MobileDevice.isNotEmpty && !Next.MobileDevice.startsWith('$Default:')) {
+      Next = Next.Copy(<String, dynamic>{'mobileDevice': ''});
+      Changed = true;
+    }
+    if (Changed) await Configs.SaveSettings(Next);
+  }
+
+  Future<void> EnsureMobileDevice() async {
+    final Videos = Devices.where((Item) => Item.Kind == 'video').toList();
+    var Next = SettingsValue;
+    var Changed = false;
+    final CurrentMissing = Next.MobileDevice.isNotEmpty && Videos.isNotEmpty && !Videos.any((Item) => Item.Id == Next.MobileDevice);
+    if ((Next.MobileDevice.isEmpty || CurrentMissing) && Videos.isNotEmpty) {
+      Next = Next.Copy(<String, dynamic>{'mobileDevice': Videos.first.Id});
+      Changed = true;
+    }
+    if (Changed) await Configs.SaveSettings(Next);
+  }
+
   Future<void> EnsureDevice() async {
+    if (PlatformInfo.Mobile) {
+      await EnsureMobileDevice();
+      return;
+    }
     final VideoDevices = Devices.where((Item) => Item.Kind == 'video').toList();
     final AudioDevices = Devices.where((Item) => Item.Kind == 'audio').toList();
     var Changed = false;
@@ -67,6 +99,12 @@ extension AppCaptureFlow on AppController {
 
   Future<void> StartPreview() async {
     PreviewStopping = false;
+    if (PlatformInfo.Mobile) {
+      PreviewReady = Capture.PreviewActive.value;
+      PreviewMessage = PreviewReady ? null : (Capture.Error.value ?? '正在打开采集设备');
+      Notify();
+      return;
+    }
     if (SettingsValue.CaptureMode == 'rtmp' || !CaptureBridge.Supported) {
       PreviewReady = false;
       PreviewMessage = SettingsValue.CaptureMode == 'rtmp' ? 'RTMP 采集模式不提供本地画面预览' : '当前平台暂不提供原生画面预览';
@@ -101,7 +139,19 @@ extension AppCaptureFlow on AppController {
     try {
       await Capture.Start(SettingsValue);
       Notice = Capture.Error.value ?? '已开始录制';
-      if (Capture.Error.value == null) await StartPreview();
+      if (Capture.Error.value == null) {
+        if (PlatformInfo.Mobile) {
+          final Next = SettingsValue.Copy(<String, dynamic>{
+            'width': Capture.ActualWidth,
+            'height': Capture.ActualHeight,
+            'fps': Capture.ActualFps,
+          });
+          if (Next.Width != SettingsValue.Width || Next.Height != SettingsValue.Height || Next.Fps != SettingsValue.Fps) {
+            await SaveSettingsSilent(Next);
+          }
+        }
+        await StartPreview();
+      }
     } finally {
       Busy = false;
       PushStatus();
@@ -131,6 +181,11 @@ extension AppCaptureFlow on AppController {
   }
 
   Future<void> StartLive() async {
+    if (PlatformInfo.Mobile) {
+      Notice = '移动端不支持直播';
+      Notify();
+      return;
+    }
     final Target = PushTarget(SettingsValue.RtmpPushUrl, SettingsValue.RtmpPushKey);
     if (Target.isEmpty) {
       Notice = '请先填写 RTMP 推流地址';
@@ -169,7 +224,12 @@ extension AppCaptureFlow on AppController {
         Previous.Height != Value.Height ||
         Previous.Fps != Value.Fps ||
         Previous.RtmpPort != Value.RtmpPort ||
-        Previous.RtmpStreamKey != Value.RtmpStreamKey;
+        Previous.RtmpStreamKey != Value.RtmpStreamKey ||
+        (PlatformInfo.Mobile &&
+            (Previous.MobileDevice != Value.MobileDevice ||
+                Previous.MobileAudio != Value.MobileAudio ||
+                Previous.MobileAudioDevice != Value.MobileAudioDevice ||
+                Previous.FlipVertical != Value.FlipVertical));
     await Configs.SaveSettings(Value);
     await ApplyAutoLaunch();
     if (Value.MonitorAudio && Capture.State.value == 'recording') {
