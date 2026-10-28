@@ -95,7 +95,7 @@ abstract final class MobileCapture {
     await Channel.invokeMethod<void>('Dispose');
   }
 
-  static Future<void> SetMonitor(bool Enabled) async {
+  static Future<void> Monitor(bool Enabled) async {
     await Channel.invokeMethod<void>('SetMonitor', <String, dynamic>{'enabled': Enabled});
   }
 

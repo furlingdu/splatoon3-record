@@ -106,7 +106,7 @@ class AboutPage extends StatelessWidget {
       return;
     }
     if (PlatformInfo.Mobile) {
-      await ShareTextFile(Context, Path, 'Splatoon3 Record 日志反馈');
+      await ShareText(Context, Path, 'Splatoon3 Record 日志反馈');
       AppSnack.Show(Context, '请在系统分享面板中选择“存储到文件”保存 TXT 文件。');
       return;
     }

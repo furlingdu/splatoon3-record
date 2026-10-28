@@ -52,7 +52,7 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
       AppSnack.Show(context, '请先粘贴 Nintendo 登录回调链接');
       return;
     }
-    await widget.Controller.CompleteNSOAuthInput(Text);
+    await widget.Controller.SubmitAuth(Text);
     if (!mounted) return;
     if (widget.Controller.PendingAuth == null) Callback.clear();
   }
@@ -80,7 +80,7 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
         Row(children: <Widget>[
           Expanded(child: AppButton(Label: '复制登录链接', Kind: AppButtonKind.Outlined, OnPressed: CopyLink)),
           const SizedBox(width: 12),
-          Expanded(child: AppButton(Label: '在浏览器中打开', Kind: AppButtonKind.Outlined, OnPressed: () => widget.Controller.OpenNSOAuthLink())),
+          Expanded(child: AppButton(Label: '在浏览器中打开', Kind: AppButtonKind.Outlined, OnPressed: () => widget.Controller.OpenAuth())),
         ]),
         AppButton(Label: '重新获取登录链接', Kind: AppButtonKind.Text, Enabled: !Busy, OnPressed: () => widget.Controller.StartNSOLogin()),
       ],
@@ -100,7 +100,7 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
   }
 }
 
-Future<void> ShowNSOLoginDialog(BuildContext Context, AppController Controller) async {
+Future<void> OpenNSOLogin(BuildContext Context, AppController Controller) async {
   if (Controller.PendingAuth == null) await Controller.StartNSOLogin();
   if (!Context.mounted) return;
   await showDialog<void>(

@@ -59,7 +59,7 @@ class StatusPage extends StatelessWidget {
                   AppSwitch(
                     Value: Status.Settings.MonitorAudio,
                     Enabled: Status.HasAudio,
-                    OnChanged: (Value) => Controller.SetMonitor(Value),
+                    OnChanged: (Value) => Controller.ToggleMonitor(Value),
                   ),
                   if (!Status.HasAudio)
                     Padding(
@@ -214,7 +214,7 @@ class CapturePreview extends StatelessWidget {
         Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onDoubleTap: () => ShowFullscreenPreview(context, Controller),
+            onDoubleTap: () => OpenFullscreen(context, Controller),
           ),
         ),
       ]);
@@ -252,7 +252,7 @@ Future<void> ShowPreviewDialog(BuildContext Context, AppController Controller) a
   );
 }
 
-Future<void> ShowFullscreenPreview(BuildContext Context, AppController Controller) async {
+Future<void> OpenFullscreen(BuildContext Context, AppController Controller) async {
   await showDialog<void>(
     context: Context,
     barrierColor: Colors.black,

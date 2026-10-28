@@ -41,8 +41,8 @@ class MatchesPageState extends State<MatchesPage> {
                 OnPlay: () => Play(Match),
                 OnOpen: Match.HasVideo ? () => widget.Controller.OpenPath(Match.VideoPath!) : null,
                 OnSave: Match.HasVideo ? () => widget.Controller.SaveMatchVideo(Match) : null,
-                OnSaveToGallery: Match.HasVideo ? () => SaveVideoToGallery(context, Match.VideoPath!) : null,
-                OnShare: Match.HasVideo ? () => ShareVideoFile(context, Match.VideoPath!, Formats.MatchTitle(Match.Kind, Match.EndAt)) : null,
+                OnSaveToGallery: Match.HasVideo ? () => SaveToGallery(context, Match.VideoPath!) : null,
+                OnShare: Match.HasVideo ? () => ShareVideo(context, Match.VideoPath!, Formats.MatchTitle(Match.Kind, Match.EndAt)) : null,
               )),
       ],
     );

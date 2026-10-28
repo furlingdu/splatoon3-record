@@ -45,8 +45,8 @@ class MobileRecorder {
     return Value.replaceFirst(RegExp(r'[.]mp4$'), '.m4a');
   }
 
-  Future<void> SetMonitor(bool Value) async {
-    await Source.SetMonitor(Value);
+  Future<void> Monitor(bool Value) async {
+    await Source.Monitor(Value);
   }
 
   Future<void> Start() async {

@@ -73,7 +73,7 @@ class MainActivity : FlutterActivity() {
         }
         "SetMonitor" -> {
           val Enabled = Call.argument<Boolean>("enabled") ?: false
-          Result.success(Audio?.SetMonitor(Enabled) ?: false)
+          Result.success(Audio?.Monitor(Enabled) ?: false)
         }
         "Mux" -> {
           val Video = Call.argument<String>("video") ?: ""

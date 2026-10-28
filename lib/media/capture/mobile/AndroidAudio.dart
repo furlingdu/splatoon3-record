@@ -28,7 +28,7 @@ class AndroidAudio {
     return Channel.invokeMethod<String>('Stop');
   }
 
-  static Future<bool> SetMonitor(bool Value) async {
+  static Future<bool> Monitor(bool Value) async {
     return await Channel.invokeMethod<bool>('SetMonitor', <String, dynamic>{'enabled': Value}) ?? false;
   }
 

@@ -26,7 +26,7 @@ import Flutter
     case "EnumerateAudio":
       result(Capture.AudioDevices())
     case "Prepare":
-      Capture.Configure(
+      Capture.Prepare(
         DeviceId: Arguments["device"] as? String ?? "",
         Width: Arguments["width"] as? Int ?? 1920,
         Height: Arguments["height"] as? Int ?? 1080,
@@ -72,7 +72,7 @@ import Flutter
         result(Ok)
       }
     case "SetMonitor":
-      Capture.SetMonitor(Arguments["enabled"] as? Bool ?? false)
+      Capture.Monitor(Arguments["enabled"] as? Bool ?? false)
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
@@ -151,8 +151,8 @@ final class CapturePreviewContainer: UIView {
     Preview.frame = bounds
     if let Connection = Preview.connection {
       if #available(iOS 17.0, *) {
-        if Connection.isVideoRotationAngleSupported(Capture.VideoRotationAngle) {
-          Connection.videoRotationAngle = Capture.VideoRotationAngle
+        if Connection.isVideoRotationAngleSupported(Capture.VideoAngle) {
+          Connection.videoRotationAngle = Capture.VideoAngle
         }
       }
       Connection.automaticallyAdjustsVideoMirroring = false

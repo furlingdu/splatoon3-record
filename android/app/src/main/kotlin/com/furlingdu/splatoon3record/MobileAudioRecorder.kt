@@ -34,7 +34,7 @@ class MobileAudioRecorder(
   var StartNs = 0L
   var Error: String? = null
 
-  fun SetMonitor(Value: Boolean): Boolean {
+  fun Monitor(Value: Boolean): Boolean {
     Monitor = Value
     if (Value) EnsurePlayer() else ReleasePlayer()
     return Value

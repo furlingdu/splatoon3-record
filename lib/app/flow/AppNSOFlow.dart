@@ -48,7 +48,7 @@ extension AppNSOFlow on AppController {
     Notify();
   }
 
-  Future<void> OpenNSOAuthLink() async {
+  Future<void> OpenAuth() async {
     final Auth = PendingAuth;
     if (Auth == null) {
       Notice = '请先获取 Nintendo 登录链接';
@@ -64,7 +64,7 @@ extension AppNSOFlow on AppController {
     Notify();
   }
 
-  Future<void> CompleteNSOAuthInput(String Value) async {
+  Future<void> SubmitAuth(String Value) async {
     final Text = Value.trim();
     if (Text.isEmpty) {
       Notice = '请粘贴 Nintendo 登录回调链接';

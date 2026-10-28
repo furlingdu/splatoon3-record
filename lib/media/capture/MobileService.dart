@@ -169,7 +169,7 @@ class MobileCaptureService implements CapturePlatform {
       Recorder = Engine;
       Engine.Error.addListener(RecorderChanged);
       await Engine.Start();
-      if (Value.MonitorAudio) await Engine.SetMonitor(true);
+      if (Value.MonitorAudio) await Engine.Monitor(true);
       Segments = Engine.Segments;
       _State.value = 'recording';
       _PreviewActive.value = true;
@@ -177,7 +177,7 @@ class MobileCaptureService implements CapturePlatform {
       ActiveDeviceId = Device.Id;
       DeviceMisses = 0;
       DeviceClock?.cancel();
-      DeviceClock = Timer.periodic(const Duration(seconds: 2), (_) => unawaited(CheckDevice()));
+      DeviceClock = Timer.periodic(const Duration(seconds: 2), (_) => unawaited(Check()));
       StatsClock?.cancel();
       StatsClock = Timer.periodic(const Duration(seconds: 2), (_) => PushStats());
       PushStats();
@@ -198,7 +198,7 @@ class MobileCaptureService implements CapturePlatform {
     _Stats.value = <String, dynamic>{'error': Value};
   }
 
-  Future<void> CheckDevice() async {
+  Future<void> Check() async {
     final Source = Active;
     final Id = ActiveDeviceId;
     if (Source == null || Id == null || _State.value != 'recording') return;
@@ -327,12 +327,12 @@ class MobileCaptureService implements CapturePlatform {
 
   @override
   Future<void> StartMonitor(RecordSettings Value) async {
-    await Recorder?.SetMonitor(true);
+    await Recorder?.Monitor(true);
   }
 
   @override
   Future<void> StopMonitor() async {
-    await Recorder?.SetMonitor(false);
+    await Recorder?.Monitor(false);
   }
 
   Future<void> Recover() async {

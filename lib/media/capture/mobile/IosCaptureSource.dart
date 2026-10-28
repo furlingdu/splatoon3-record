@@ -47,8 +47,8 @@ class IosCaptureSource implements MobileCaptureSource {
   Future<void> StopAudio() async {}
 
   @override
-  Future<void> SetMonitor(bool Value) async {
-    await MobileCapture.SetMonitor(Value);
+  Future<void> Monitor(bool Value) async {
+    await MobileCapture.Monitor(Value);
   }
 
   @override

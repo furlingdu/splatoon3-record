@@ -28,7 +28,7 @@ abstract class MobileCaptureSource {
 
   Future<void> StopAudio() async {}
 
-  Future<void> SetMonitor(bool Value) async {}
+  Future<void> Monitor(bool Value) async {}
 
   Future<int> MonotonicNs() async {
     return DateTime.now().microsecondsSinceEpoch * 1000;

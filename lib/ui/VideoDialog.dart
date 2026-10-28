@@ -83,8 +83,8 @@ class VideoDialogState extends State<VideoDialog> {
             if (PlatformInfo.Mobile) ...<Widget>[
               const SizedBox(height: 8),
               Wrap(spacing: 8, runSpacing: 8, children: <Widget>[
-                AppButton(Label: '保存到相册', Kind: AppButtonKind.Text, OnPressed: () => SaveVideoToGallery(context, widget.Path)),
-                AppButton(Label: '分享', Kind: AppButtonKind.Text, OnPressed: () => ShareVideoFile(context, widget.Path, widget.Title)),
+                AppButton(Label: '保存到相册', Kind: AppButtonKind.Text, OnPressed: () => SaveToGallery(context, widget.Path)),
+                AppButton(Label: '分享', Kind: AppButtonKind.Text, OnPressed: () => ShareVideo(context, widget.Path, widget.Title)),
               ]),
             ],
             const SizedBox(height: 16),

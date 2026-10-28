@@ -177,12 +177,12 @@ class AppController extends ChangeNotifier {
     final ErrorText = Capture.Error.value;
     if (ErrorText != null && ErrorText.isNotEmpty) {
       Notice = ErrorText;
-      if (Capture.Running || Capture.Starting) unawaited(AbortCapture(ErrorText));
+      if (Capture.Running || Capture.Starting) unawaited(Abort(ErrorText));
     }
     PushStatus();
   }
 
-  Future<void> AbortCapture(String Text) async {
+  Future<void> Abort(String Text) async {
     if (CaptureAborting) return;
     CaptureAborting = true;
     try {

@@ -6,8 +6,8 @@ import 'package:share_plus/share_plus.dart';
 import '../media/capture/mobile/MobileMedia.dart';
 import 'Controls.dart';
 
-Future<void> SaveVideoToGallery(BuildContext Context, String Path) async {
-  if (!VideoFileReady(Path)) {
+Future<void> SaveToGallery(BuildContext Context, String Path) async {
+  if (!FileReady(Path)) {
     AppSnack.Show(Context, '录像文件不存在');
     return;
   }
@@ -19,16 +19,16 @@ Future<void> SaveVideoToGallery(BuildContext Context, String Path) async {
   AppSnack.Show(Context, Ok ? '已保存到相册' : '保存到相册失败，请检查相册权限');
 }
 
-Future<void> ShareVideoFile(BuildContext Context, String Path, String Title) async {
+Future<void> ShareVideo(BuildContext Context, String Path, String Title) async {
   await ShareFile(Context, Path, Title, 'video/mp4');
 }
 
-Future<void> ShareTextFile(BuildContext Context, String Path, String Title) async {
+Future<void> ShareText(BuildContext Context, String Path, String Title) async {
   await ShareFile(Context, Path, Title, 'text/plain');
 }
 
 Future<void> ShareFile(BuildContext Context, String Path, String Title, String MimeType) async {
-  if (!VideoFileReady(Path)) {
+  if (!FileReady(Path)) {
     AppSnack.Show(Context, '文件不存在');
     return;
   }
@@ -46,7 +46,7 @@ Future<void> ShareFile(BuildContext Context, String Path, String Title, String M
   }
 }
 
-bool VideoFileReady(String Path) {
+bool FileReady(String Path) {
   if (Path.isEmpty) return false;
   try {
     final FileRef = File(Path);

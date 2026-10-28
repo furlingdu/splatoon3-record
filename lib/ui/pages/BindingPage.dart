@@ -39,7 +39,7 @@ class BindingPage extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
             children: <Widget>[
-              AppButton(Label: '添加 Nintendo 账号', Enabled: Accounts.length < 5, OnPressed: () => PlatformInfo.Mobile ? ShowNSOLoginDialog(context, Controller) : Controller.StartNSOLogin()),
+              AppButton(Label: '添加 Nintendo 账号', Enabled: Accounts.length < 5, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : Controller.StartNSOLogin()),
             ],
           ),
         ),
@@ -73,7 +73,7 @@ class BindingPage extends StatelessWidget {
                   ]);
                   final Actions = Wrap(spacing: 2, children: <Widget>[
                     AppButton(Label: '设为当前', Kind: AppButtonKind.Text, Enabled: Account.Id != Status?.NSOCurrentId, OnPressed: () => Controller.SelectNSOAccount(Account.Id)),
-                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, OnPressed: () => PlatformInfo.Mobile ? ShowNSOLoginDialog(context, Controller) : Controller.StartNSOLogin(Account.Id)),
+                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : Controller.StartNSOLogin(Account.Id)),
                     AppButton(Label: '删除', Kind: AppButtonKind.Text, Enabled: Accounts.length > 1, OnPressed: () => RemoveAccount(context, Account.Id)),
                   ]);
                   if (Constraints.maxWidth < 560) {

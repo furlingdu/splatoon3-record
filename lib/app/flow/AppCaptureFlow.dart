@@ -269,7 +269,7 @@ extension AppCaptureFlow on AppController {
     PushStatus();
   }
 
-  Future<void> SetMonitor(bool Value) async {
+  Future<void> ToggleMonitor(bool Value) async {
     final Next = SettingsValue.Copy(<String, dynamic>{'monitorAudio': Value});
     await SaveSettings(Next);
   }

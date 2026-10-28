@@ -63,8 +63,8 @@ class AndroidUvcSource implements MobileCaptureSource {
   }
 
   @override
-  Future<void> SetMonitor(bool Value) async {
-    await AndroidAudio.SetMonitor(Value);
+  Future<void> Monitor(bool Value) async {
+    await AndroidAudio.Monitor(Value);
   }
 
   @override
