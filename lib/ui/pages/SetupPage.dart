@@ -9,6 +9,7 @@ import '../../format/Formats.dart';
 import '../../media/capture/mobile/MobileModes.dart';
 import '../AppTheme.dart';
 import '../Controls.dart';
+import '../NSOLoginPanel.dart';
 
 class SetupPage extends StatefulWidget {
   const SetupPage({super.key, required this.Controller});
@@ -159,7 +160,7 @@ class SetupPageState extends State<SetupPage> {
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
                       Text('Splatoon3 Record', style: AppTheme.Style(Size: 18, Weight: FontWeight.w600)),
-                      Text('初始设置 · 步骤 ${Step + 1} / $Total：${Steps[Step]}', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
+                      Text('步骤 ${Step + 1} / $Total：${Steps[Step]}', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
                     ]),
                   ),
                 ]),
@@ -182,7 +183,7 @@ class SetupPageState extends State<SetupPage> {
                   ]),
                   if (DevicesLoading) const Padding(padding: EdgeInsets.only(bottom: 8), child: AppLinearProgress(Indeterminate: true)),
                   if (ModesLoading) const Padding(padding: EdgeInsets.only(bottom: 8), child: AppLinearProgress(Indeterminate: true)),
-                  if (MobileVideo.isEmpty) AppHint(PlatformInfo.IOS ? '未检测到外接 USB 采集卡。需要 iPadOS 17 或更高版本，并连接支持 UVC 的采集设备。' : '未检测到 USB 采集卡。请通过 USB OTG 连接采集卡后点击刷新。'),
+                  if (MobileVideo.isEmpty) AppHint(PlatformInfo.IOS ? '未检测到 USB 采集卡。需要 iPadOS 17 或更高版本，并连接支持 UVC 的采集设备。' : '未检测到 USB 采集卡。请通过 USB OTG 连接采集卡后点击刷新。'),
                   if (Modes.isNotEmpty) ...<Widget>[
                     AppSelect<String>(
                       Label: '录制分辨率',
@@ -200,7 +201,6 @@ class SetupPageState extends State<SetupPage> {
                     ),
                   ],
                   if (ModesError != null) AppHint(ModesError!, Error: true),
-                  const AppHint('移动端只支持 USB 采集卡（UVC），不支持系统相机；分辨率和帧率来自采集卡实际档位。'),
                   AppButton(
                     Label: '下一步',
                     Enabled: ModeReady(),
@@ -249,13 +249,10 @@ class SetupPageState extends State<SetupPage> {
                 if (Step == 1) ...<Widget>[
                   const AppSectionTitle('绑定 Nintendo 账号'),
                   const SizedBox(height: 8),
-                  Text('点击下方按钮登录 Nintendo 账号并授权鱿鱼圈 3 数据读取，登录成功后应用才能检测对局结果。每次登录前都会自动清除登录窗口的 cookies。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.6)),
-                  const SizedBox(height: 16),
-                  AppButton(Label: '登录 Nintendo 账号', OnPressed: () => widget.Controller.StartNSOLogin()),
+                  NSOLoginPanel(Controller: widget.Controller),
                   const SizedBox(height: 16),
                   StatusBox(Label: '当前状态', Value: Formats.BindingState(widget.Controller.Status?.NSOState ?? 'unbound')),
                   StatusBox(Label: '已绑定账户', Value: '${widget.Controller.Status?.NSOAccounts.length ?? 0} 个'),
-                  if (Mobile && !widget.Controller.NSOReady) const AppHint('Nintendo 账号登录成功后才能继续。', Error: true),
                   const SizedBox(height: 24),
                   Row(children: <Widget>[
                     if (Step > 0) ...<Widget>[

@@ -58,6 +58,12 @@ jobs:
           cp -R build/ios/iphoneos/Runner.app Payload/
           zip -qry Splatoon3Record-3.0.0-unsigned.ipa Payload
           ls -lh *.ipa
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: Splatoon3Record-3.0.0-unsigned.ipa
+          if-no-files-found: error
       - name: Upload release asset
         if: startsWith(github.ref, 'refs/tags/v')
         env:

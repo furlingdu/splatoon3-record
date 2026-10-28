@@ -22,7 +22,7 @@ class IosCaptureSource implements MobileCaptureSource {
   Future<List<CaptureDevice>> Devices() async {
     final Items = (await MobileCapture.Enumerate()).where((Item) => Item.External).toList();
     return Items.map((MobileCaptureDevice Item) {
-      return CaptureDevice(Id: '$Prefix:${Item.Id}', Name: '${Item.Name} · 外接', Kind: 'video');
+      return CaptureDevice(Id: '$Prefix:${Item.Id}', Name: Item.Name, Kind: 'video');
     }).toList();
   }
 

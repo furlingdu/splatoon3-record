@@ -209,7 +209,7 @@ class SettingsPageState extends State<SettingsPage> {
           AppIconButton(Glyph: Icons.refresh, OnPressed: RefreshMobileDevices),
         ]),
         if (LoadingDevices || LoadingModes) const Padding(padding: EdgeInsets.only(bottom: 8), child: AppLinearProgress(Indeterminate: true)),
-        if (MobileVideo.isEmpty) AppHint(PlatformInfo.IOS ? '未检测到外接 USB 采集卡。需要 iPadOS 17 或更高版本。' : '未检测到 USB 采集卡。请通过 USB OTG 连接采集卡后点击刷新。', Error: true),
+        if (MobileVideo.isEmpty) AppHint(PlatformInfo.IOS ? '未检测到 USB 采集卡。需要 iPadOS 17 或更高版本。' : '未检测到 USB 采集卡。请通过 USB OTG 连接采集卡后点击刷新。', Error: true),
         if (MobileResolutions.isNotEmpty) ...<Widget>[
           AppSelect<String>(
             Label: '录制分辨率',

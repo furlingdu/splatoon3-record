@@ -47,6 +47,25 @@ void main() {
     expect(NSOAuthCallback.Parse(Uri.parse('npf71b963c1b7b6d119://other#session_token_code=x')), isNull);
   });
 
+  test('Parse pasted callback input', () {
+    const Original = 'npf71b963c1b7b6d119://auth#state=paste-state&session_token_code=paste-code';
+    final Encoded = Uri.encodeComponent(Original);
+    final Wrapped = NSOAuthCallback.ParseInput('选择此人 $Encoded');
+    expect(Wrapped, isNotNull);
+    expect(Wrapped!.Code, 'paste-code');
+    expect(Wrapped.State, 'paste-state');
+    final Query = NSOAuthCallback.ParseInput('state=query-state&session_token_code=query-code');
+    expect(Query, isNotNull);
+    expect(Query!.Code, 'query-code');
+    expect(Query.State, 'query-state');
+    final Fragment = NSOAuthCallback.ParseInput('#state=fragment-state&session_token_code=fragment-code');
+    expect(Fragment, isNotNull);
+    expect(Fragment!.Code, 'fragment-code');
+    expect(Fragment.State, 'fragment-state');
+    expect(NSOAuthCallback.ParseInput('https://example.com/'), isNull);
+    expect(NSOAuthCallback.ParseInput('no callback here'), isNull);
+  });
+
   test('Normalize SplatNet detail', () {
     final Match = NSOBattle.FromDetail(<String, dynamic>{
       'data': <String, dynamic>{

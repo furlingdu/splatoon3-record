@@ -41,7 +41,7 @@ pwsh tool/Package.ps1
 - macOS：`packages/macos_capture` 用 AVFoundation 取 NV12 帧写入 ffmpeg stdin，`FlutterTexture` 预览；音频由 `AVCaptureAudioDataOutput` 转 s16le 写入 FIFO，作为 ffmpeg 第二路输入。
 - Linux：`packages/linux_capture` 用 V4L2 mmap 取帧（NV12/YUYV），转 NV12 后写入 ffmpeg stdin；音频由 ALSA 采集后写入 FIFO。
 - Android：`flutter_ffi_uvc` 走 libuvc + MediaCodec 原生采集与硬件编码分段 MP4；音频由 `AudioRecord` 原生录制为 AAC 伴轨，再用 `MediaExtractor + MediaMuxer` 无损合流。不使用系统相机，也不使用 Camera2。
-- iOS/iPadOS：`packages/mobile_capture` 用 AVFoundation 采集 iPadOS 17+ 外接 UVC 设备，`AVCaptureMovieFileOutput` 录制同一文件内的音视频，`AVAssetExportSession` 导出 MP4；不枚举内置相机。
+- iOS/iPadOS：`packages/mobile_capture` 用 AVFoundation 采集 iPadOS 17+ UVC 设备，`AVCaptureMovieFileOutput` 录制同一文件内的音视频，`AVAssetExportSession` 导出 MP4；不枚举内置相机。
 
 FFmpeg 按构建目标架构下载，不跨架构打包：
 

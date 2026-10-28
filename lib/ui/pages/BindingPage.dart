@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/AppController.dart';
+import '../../config/PlatformInfo.dart';
 import '../../domain/Models.dart';
 import '../../format/Formats.dart';
 import '../AppTheme.dart';
 import '../Controls.dart';
+import '../NSOLoginPanel.dart';
 import '../Shell.dart';
 
 class BindingPage extends StatelessWidget {
@@ -37,7 +39,7 @@ class BindingPage extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
             children: <Widget>[
-              AppButton(Label: '添加 Nintendo 账号', Enabled: Accounts.length < 5, OnPressed: () => Controller.StartNSOLogin()),
+              AppButton(Label: '添加 Nintendo 账号', Enabled: Accounts.length < 5, OnPressed: () => PlatformInfo.Mobile ? ShowNSOLoginDialog(context, Controller) : Controller.StartNSOLogin()),
             ],
           ),
         ),
@@ -71,7 +73,7 @@ class BindingPage extends StatelessWidget {
                   ]);
                   final Actions = Wrap(spacing: 2, children: <Widget>[
                     AppButton(Label: '设为当前', Kind: AppButtonKind.Text, Enabled: Account.Id != Status?.NSOCurrentId, OnPressed: () => Controller.SelectNSOAccount(Account.Id)),
-                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, OnPressed: () => Controller.StartNSOLogin(Account.Id)),
+                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, OnPressed: () => PlatformInfo.Mobile ? ShowNSOLoginDialog(context, Controller) : Controller.StartNSOLogin(Account.Id)),
                     AppButton(Label: '删除', Kind: AppButtonKind.Text, Enabled: Accounts.length > 1, OnPressed: () => RemoveAccount(context, Account.Id)),
                   ]);
                   if (Constraints.maxWidth < 560) {

@@ -35,6 +35,11 @@ extension AppNSOFlow on AppController {
       final Data = Map<String, dynamic>.from(Vault.Data);
       Data['nsoAuth'] = <String, dynamic>{'url': PendingAuth!.Url, 'state': PendingAuth!.State, 'verifier': PendingAuth!.Verifier, 'at': DateTime.now().millisecondsSinceEpoch};
       await Vault.Save(Data);
+      if (PlatformInfo.Mobile) {
+        Notice = '登录链接已生成，请在浏览器中完成 Nintendo 登录';
+        Notify();
+        return;
+      }
       final Ok = await launchUrl(Uri.parse(PendingAuth!.Url), mode: LaunchMode.externalApplication);
       Notice = Ok ? '请在浏览器中完成 Nintendo 登录' : '无法打开 Nintendo 登录页面';
     } catch (Cause) {
@@ -43,10 +48,47 @@ extension AppNSOFlow on AppController {
     Notify();
   }
 
+  Future<void> OpenNSOAuthLink() async {
+    final Auth = PendingAuth;
+    if (Auth == null) {
+      Notice = '请先获取 Nintendo 登录链接';
+      Notify();
+      return;
+    }
+    try {
+      final Ok = await launchUrl(Uri.parse(Auth.Url), mode: LaunchMode.externalApplication);
+      Notice = Ok ? '请在浏览器中完成 Nintendo 登录' : '无法打开 Nintendo 登录页面';
+    } catch (Cause) {
+      Notice = '$Cause';
+    }
+    Notify();
+  }
+
+  Future<void> CompleteNSOAuthInput(String Value) async {
+    final Text = Value.trim();
+    if (Text.isEmpty) {
+      Notice = '请粘贴 Nintendo 登录回调链接';
+      Notify();
+      return;
+    }
+    final Callback = NSOAuthCallback.ParseInput(Text);
+    if (Callback == null) {
+      Notice = '未识别 Nintendo 登录回调链接';
+      Notify();
+      return;
+    }
+    await Logs.Login('nso callback input length=${Text.length} code=${Callback.Code.isNotEmpty} error=${Callback.Error.isNotEmpty}');
+    await CompleteNSOAuth(Callback);
+  }
+
   Future<void> HandleNSOLink(Uri Link) async {
     final Callback = NSOAuthCallback.Parse(Link);
     if (Callback == null) return;
     await Logs.Login('nso callback fragment=${Link.fragment.isNotEmpty} query=${Link.query.isNotEmpty} code=${Callback.Code.isNotEmpty} error=${Callback.Error.isNotEmpty}');
+    await CompleteNSOAuth(Callback);
+  }
+
+  Future<void> CompleteNSOAuth(NSOAuthCallback Callback) async {
     if (AuthBusy) return;
     if (Callback.State.isNotEmpty && Callback.State == LastAuthState) return;
     final Auth = PendingAuth;
@@ -112,9 +154,9 @@ extension AppNSOFlow on AppController {
     } catch (Cause) {
       NSOErrorText = '$Cause';
       Notice = 'Nintendo 登录失败：$Cause';
-      Notify();
     } finally {
       AuthBusy = false;
+      Notify();
     }
   }
 

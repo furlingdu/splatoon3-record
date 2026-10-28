@@ -136,7 +136,7 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
   private func ConfigureNow(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Completion: @escaping (MobileCaptureModeInfo?, String?) -> Void) {
     CaptureQueue.async {
       guard let Device = self.Find(DeviceId) else {
-        DispatchQueue.main.async { Completion(nil, "未找到外接 USB 采集设备，需要 iPadOS 17 或更高版本") }
+        DispatchQueue.main.async { Completion(nil, "未找到 USB 采集设备，需要 iPadOS 17 或更高版本") }
         return
       }
       if self.Session.isRunning { self.Session.stopRunning() }
