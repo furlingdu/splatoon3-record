@@ -3,6 +3,7 @@ import Flutter
 
 @objc public class MobileCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   private let Capture = CaptureSession()
+  private let Picker = MobilePicker()
   private var Sink: FlutterEventSink?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
@@ -69,6 +70,14 @@ import Flutter
       }
     case "SaveVideo":
       MediaSave.Run(Path: Arguments["path"] as? String ?? "") { Ok in
+        result(Ok)
+      }
+    case "PickImage":
+      Picker.Pick { Path in
+        result(Path)
+      }
+    case "SaveFile":
+      Picker.Save(Path: Arguments["path"] as? String ?? "") { Ok in
         result(Ok)
       }
     case "SetMonitor":

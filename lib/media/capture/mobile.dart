@@ -14,6 +14,8 @@ import 'mobile/source.dart';
 import 'mobile/modes.dart';
 import 'mobile/recorder.dart';
 
+export 'mobile/mobileMedia.dart';
+
 class MobileCaptureService implements CapturePlatform {
   MobileCaptureService(this.Directories, this.FFmpeg)
       : Sources = PlatformInfo.IOS ? <MobileCaptureSource>[IosCaptureSource()] : <MobileCaptureSource>[AndroidUvcSource()];

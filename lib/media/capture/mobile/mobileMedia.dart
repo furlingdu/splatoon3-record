@@ -6,4 +6,12 @@ abstract final class MobileMedia {
   static Future<bool> SaveVideo(String Path) async {
     return await Channel.invokeMethod<bool>('SaveVideo', <String, dynamic>{'path': Path}) ?? false;
   }
+
+  static Future<String?> PickImage() async {
+    return Channel.invokeMethod<String>('PickImage');
+  }
+
+  static Future<bool> SaveFile(String Path) async {
+    return await Channel.invokeMethod<bool>('SaveFile', <String, dynamic>{'path': Path}) ?? false;
+  }
 }

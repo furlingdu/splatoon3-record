@@ -66,7 +66,9 @@ extension AppPlatformFlow on AppController {
   Future<void> PickBackground() async {
     try {
       String? SourcePath;
-      if (PlatformInfo.Mobile) {
+      if (PlatformInfo.IOS) {
+        SourcePath = await MobileMedia.PickImage();
+      } else if (PlatformInfo.Mobile) {
         final Picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 95);
         SourcePath = Picked?.path;
       } else {

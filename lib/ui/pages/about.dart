@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/controller.dart';
 import '../../config/system.dart';
 import '../../format/formats.dart';
+import '../../media/capture/mobile/mobileMedia.dart';
 import '../theme.dart';
 import '../controls.dart';
 import '../shell.dart';
@@ -103,6 +104,17 @@ class AboutPage extends StatelessWidget {
     if (!Context.mounted) return;
     if (Path == null) {
       AppSnack.Show(Context, '日志反馈内容保存失败，请稍后重试。');
+      return;
+    }
+    if (PlatformInfo.IOS) {
+      var Saved = false;
+      try {
+        Saved = await MobileMedia.SaveFile(Path);
+      } catch (Cause) {
+        if (Context.mounted) AppSnack.Show(Context, '保存日志反馈内容失败：$Cause');
+        return;
+      }
+      if (Context.mounted && Saved) AppSnack.Show(Context, '日志反馈内容已保存');
       return;
     }
     if (PlatformInfo.Mobile) {
