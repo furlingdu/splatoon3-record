@@ -314,44 +314,15 @@ final class MacCaptureHost: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
   }
 
   private func WriteAudio(_ Sample: CMSampleBuffer) {
-    guard let File = AudioFile else { return }
-    var List = AudioBufferList()
-    var Block: CMBlockBuffer?
-    let Status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-      Sample,
-      bufferListSizeNeededOut: nil,
-      bufferListOut: &List,
-      bufferListSize: MemoryLayout<AudioBufferList>.size,
-      blockBufferAllocator: nil,
-      blockBufferMemoryAllocator: nil,
-      flags: UInt32(kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment),
-      blockBufferOut: &Block)
-    if Status != noErr { return }
-    let Buffers = UnsafeMutableAudioBufferListPointer(&List)
-    if Buffers.count == 1 {
-      guard let DataPtr = Buffers[0].mData else { return }
-      let Size = Int(Buffers[0].mDataByteSize)
-      if Size <= 0 { return }
-      try? File.write(contentsOf: Data(bytes: DataPtr, count: Size))
-      return
+    guard let File = AudioFile, let Block = CMSampleBufferGetDataBuffer(Sample) else { return }
+    let Length = CMBlockBufferGetDataLength(Block)
+    if Length <= 0 { return }
+    var Bytes = Data(count: Length)
+    let Status = Bytes.withUnsafeMutableBytes { Target in
+      guard let Base = Target.baseAddress else { return OSStatus(-1) }
+      return CMBlockBufferCopyDataBytes(Block, atOffset: 0, dataLength: Length, destination: Base)
     }
-    if Buffers.count >= 2 {
-      guard let LeftPtr = Buffers[0].mData, let RightPtr = Buffers[1].mData else { return }
-      let Frames = Int(min(Buffers[0].mDataByteSize, Buffers[1].mDataByteSize)) / 2
-      if Frames <= 0 { return }
-      let Left = LeftPtr.assumingMemoryBound(to: Int16.self)
-      let Right = RightPtr.assumingMemoryBound(to: Int16.self)
-      var Scratch = [Int16](repeating: 0, count: Frames * 2)
-      for Index in 0..<Frames {
-        Scratch[Index * 2] = Left[Index]
-        Scratch[Index * 2 + 1] = Right[Index]
-      }
-      Scratch.withUnsafeBufferPointer { Pointer in
-        if let Base = Pointer.baseAddress {
-          try? File.write(contentsOf: Data(bytes: Base, count: Frames * 4))
-        }
-      }
-    }
+    if Status == noErr { try? File.write(contentsOf: Bytes) }
   }
 
   private func Write(_ Pixel: CVPixelBuffer) {
