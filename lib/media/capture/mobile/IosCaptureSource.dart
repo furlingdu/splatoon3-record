@@ -11,6 +11,7 @@ class IosCaptureSource implements MobileCaptureSource {
 
   bool Ready = false;
   String? Target;
+  int PreviewVersion = 0;
 
   @override
   String get Prefix => SourcePrefix;
@@ -29,9 +30,8 @@ class IosCaptureSource implements MobileCaptureSource {
   @override
   Future<List<CaptureDevice>> AudioDevices() async {
     final Items = await MobileCapture.EnumerateAudio();
-    return Items.map((MobileCaptureDevice Item) {
-      final Name = Item.External ? '${Item.Name} · USB' : '${Item.Name} · 内置';
-      return CaptureDevice(Id: 'audio:${Item.Id}', Name: Name, Kind: 'audio');
+    return Items.where((MobileCaptureDevice Item) => Item.External).map((MobileCaptureDevice Item) {
+      return CaptureDevice(Id: 'audio:${Item.Id}', Name: Item.Name, Kind: 'audio');
     }).toList();
   }
 
@@ -45,6 +45,11 @@ class IosCaptureSource implements MobileCaptureSource {
 
   @override
   Future<void> StopAudio() async {}
+
+  @override
+  Future<void> SetMonitor(bool Value) async {
+    await MobileCapture.SetMonitor(Value);
+  }
 
   @override
   Future<int> MonotonicNs() async {
@@ -85,8 +90,10 @@ class IosCaptureSource implements MobileCaptureSource {
       Fps: Mode.MaxFps,
       Audio: Value.MobileAudio,
       AudioDevice: Value.MobileAudioDevice.contains(':') ? Value.MobileAudioDevice.split(':').last : Value.MobileAudioDevice,
+      Orientation: Value.MobileOrientation,
     );
     Ready = true;
+    PreviewVersion++;
     return CaptureMode(Format: Mode.Format, Width: Result.Width, Height: Result.Height, MinFps: Result.Fps, MaxFps: Result.Fps);
   }
 
@@ -108,11 +115,12 @@ class IosCaptureSource implements MobileCaptureSource {
   Future<void> Release() async {
     Ready = false;
     Target = null;
+    PreviewVersion++;
     await MobileCapture.Dispose();
   }
 
   @override
   Widget BuildPreview() {
-    return MobileCapture.Preview();
+    return MobileCapture.Preview(Key: ValueKey<int>(PreviewVersion));
   }
 }

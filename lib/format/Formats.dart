@@ -72,6 +72,17 @@ class Formats {
 
   static String Resolution(int Width, int Height) => '$Width x $Height';
 
+  static String OrientationName(String Value) {
+    const Map<String, String> Names = <String, String>{
+      'auto': '自动识别',
+      'landscape': '横屏',
+      'portrait': '竖屏',
+      'landscapeFlipped': '横屏倒置',
+      'portraitFlipped': '竖屏倒置',
+    };
+    return Names[Value] ?? Names['auto']!;
+  }
+
   static String Size(int Bytes) {
     if (Bytes <= 0) return '0 MB';
     return '${(Bytes / 1048576).toStringAsFixed(1)} MB';

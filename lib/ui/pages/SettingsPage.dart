@@ -116,15 +116,6 @@ class SettingsPageState extends State<SettingsPage> {
     await Update(Draft.Copy(<String, dynamic>{'width': NextWidth, 'height': NextHeight, 'fps': NextFps}));
   }
 
-  Future<void> ToggleMobileAudio(bool Value) async {
-    var Next = Draft.Copy(<String, dynamic>{'mobileAudio': Value});
-    if (Value && Next.MobileAudioDevice.isEmpty) {
-      final Items = MobileAudioDevices();
-      if (Items.isNotEmpty) Next = Next.Copy(<String, dynamic>{'mobileAudioDevice': Items.first.Id});
-    }
-    await Update(Next);
-  }
-
   @override
   void dispose() {
     SaveDir.dispose();
@@ -228,15 +219,17 @@ class SettingsPageState extends State<SettingsPage> {
             Display: (Value) => '$Value fps',
             OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'fps': Value})),
           ),
+          if (PlatformInfo.IOS)
+            AppSelect<String>(
+              Label: '画面方向',
+              Value: Draft.MobileOrientation,
+              Items: const <String>['auto', 'landscape', 'portrait', 'landscapeFlipped', 'portraitFlipped'],
+              Display: Formats.OrientationName,
+              OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileOrientation': Value})),
+            ),
         ] else if (Draft.MobileDevice.isNotEmpty)
           const AppHint('未读取到采集卡档位，请检查 USB 连接后刷新。', Error: true),
-        AppFormSwitch(
-          Label: '录制音频',
-          Note: '采集卡的 HDMI 音频会作为 USB 音频设备出现；Android 使用原生 AAC 音轨并合流为 MP4，iOS 直接写入录制文件。',
-          Value: Draft.MobileAudio,
-          OnChanged: ToggleMobileAudio,
-        ),
-        if (Draft.MobileAudio && MobileAudio.isNotEmpty)
+        if (MobileAudio.isNotEmpty)
           AppSelect<String>(
             Label: '音频录制设备',
             Value: Draft.MobileAudioDevice,
@@ -251,7 +244,6 @@ class SettingsPageState extends State<SettingsPage> {
           Display: (Value) => const <int, String>{18: '高质量、存储占用大', 22: '普通质量、存储占用适中', 28: '低质量、存储占用小'}[Value] ?? '$Value',
           OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'quality': Value})),
         ),
-        const AppHint('移动端只支持 USB 采集卡（UVC），不支持系统相机；每 10 分钟自动分段，对局裁剪、归档与推送流程与桌面一致。'),
       ],
       if (!PlatformInfo.Mobile)
         AppSelect<String>(

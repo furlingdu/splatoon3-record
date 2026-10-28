@@ -2,7 +2,7 @@ import AVFoundation
 import Flutter
 
 @objc public class MobileCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
-  private let Capture = MobileCaptureSession()
+  private let Capture = CaptureSession()
   private var Sink: FlutterEventSink?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
@@ -11,7 +11,9 @@ import Flutter
     registrar.addMethodCallDelegate(Instance, channel: Channel)
     let Events = FlutterEventChannel(name: "splatoon3record/mobile_capture/events", binaryMessenger: registrar.messenger())
     Events.setStreamHandler(Instance)
-    registrar.register(MobileCapturePreviewFactory(Capture: Instance.Capture), withId: "splatoon3record/capture_preview")
+    let Media = FlutterMethodChannel(name: "splatoon3record/mobile_media", binaryMessenger: registrar.messenger())
+    registrar.addMethodCallDelegate(Instance, channel: Media)
+    registrar.register(CapturePreviewFactory(Capture: Instance.Capture), withId: "splatoon3record/capture_preview")
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -30,7 +32,8 @@ import Flutter
         Height: Arguments["height"] as? Int ?? 1080,
         Fps: Arguments["fps"] as? Int ?? 30,
         Audio: Arguments["audio"] as? Bool ?? false,
-        AudioDeviceId: Arguments["audioDevice"] as? String ?? ""
+        AudioDeviceId: Arguments["audioDevice"] as? String ?? "",
+        Orientation: Arguments["orientation"] as? String ?? "auto"
       ) { Mode, Error in
         if let Error = Error {
           result(FlutterError(code: "capture", message: Error, details: nil))
@@ -58,12 +61,19 @@ import Flutter
       Capture.Dispose()
       result(nil)
     case "Export":
-      MobileCaptureExport.Run(
+      CaptureExport.Run(
         Input: Arguments["input"] as? String ?? "",
         Output: Arguments["output"] as? String ?? ""
       ) { Ok in
         result(Ok)
       }
+    case "SaveVideo":
+      MediaSave.Run(Path: Arguments["path"] as? String ?? "") { Ok in
+        result(Ok)
+      }
+    case "SetMonitor":
+      Capture.SetMonitor(Arguments["enabled"] as? Bool ?? false)
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -86,37 +96,38 @@ import Flutter
   }
 }
 
-final class MobileCapturePreviewFactory: NSObject, FlutterPlatformViewFactory {
-  init(Capture: MobileCaptureSession) {
+final class CapturePreviewFactory: NSObject, FlutterPlatformViewFactory {
+  init(Capture: CaptureSession) {
     self.Capture = Capture
     super.init()
   }
 
-  let Capture: MobileCaptureSession
+  let Capture: CaptureSession
 
   func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
-    return MobileCapturePreviewView(Frame: frame, Capture: Capture)
+    return CapturePreviewView(Frame: frame, Capture: Capture)
   }
 }
 
-final class MobileCapturePreviewView: NSObject, FlutterPlatformView {
-  init(Frame: CGRect, Capture: MobileCaptureSession) {
-    Container = MobileCapturePreviewContainer(Frame: Frame, Session: Capture.Session)
+final class CapturePreviewView: NSObject, FlutterPlatformView {
+  init(Frame: CGRect, Capture: CaptureSession) {
+    Container = CapturePreviewContainer(Frame: Frame, Capture: Capture)
     super.init()
   }
 
-  private let Container: MobileCapturePreviewContainer
+  private let Container: CapturePreviewContainer
 
   func view() -> UIView {
     return Container
   }
 }
 
-final class MobileCapturePreviewContainer: UIView {
-  init(Frame: CGRect, Session: AVCaptureSession) {
+final class CapturePreviewContainer: UIView {
+  init(Frame: CGRect, Capture: CaptureSession) {
+    self.Capture = Capture
     super.init(frame: Frame)
     backgroundColor = .black
-    Preview.session = Session
+    Preview.session = Capture.Session
     Preview.videoGravity = .resizeAspect
     layer.addSublayer(Preview)
   }
@@ -125,19 +136,39 @@ final class MobileCapturePreviewContainer: UIView {
     super.init(coder: coder)
   }
 
+  private let Capture: CaptureSession
   private let Preview = AVCaptureVideoPreviewLayer()
 
   override func layoutSubviews() {
     super.layoutSubviews()
     CATransaction.begin()
     CATransaction.setDisableActions(true)
+    Preview.session = Capture.Session
+    if Preview.superlayer !== layer {
+      Preview.removeFromSuperlayer()
+      layer.addSublayer(Preview)
+    }
     Preview.frame = bounds
     if let Connection = Preview.connection {
+      if #available(iOS 17.0, *) {
+        if Connection.isVideoRotationAngleSupported(Capture.VideoRotationAngle) {
+          Connection.videoRotationAngle = Capture.VideoRotationAngle
+        }
+      }
       Connection.automaticallyAdjustsVideoMirroring = false
       if Connection.isVideoMirroringSupported {
         Connection.isVideoMirrored = false
       }
+      Connection.isEnabled = true
     }
     CATransaction.commit()
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window != nil {
+      Preview.session = Capture.Session
+      setNeedsLayout()
+    }
   }
 }

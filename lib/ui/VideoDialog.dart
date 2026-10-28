@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../config/PlatformInfo.dart';
 import '../format/Formats.dart';
 import '../ui/AppTheme.dart';
 import '../ui/Controls.dart';
+import '../ui/VideoActions.dart';
 
 class VideoDialog extends StatefulWidget {
   const VideoDialog({super.key, required this.Title, required this.Path});
@@ -37,9 +39,25 @@ class VideoDialogState extends State<VideoDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final Scheme = Theme.of(context).colorScheme;
+    final MobileControls = MaterialVideoControlsThemeData(
+      seekBarColor: Scheme.surfaceContainerHighest.withValues(alpha: 0.65),
+      seekBarPositionColor: Scheme.primary,
+      seekBarBufferColor: Scheme.primary.withValues(alpha: 0.25),
+      seekBarThumbColor: Scheme.primary,
+      buttonBarButtonColor: Scheme.onSurface,
+    );
+    final DesktopControls = MaterialDesktopVideoControlsThemeData(
+      seekBarColor: Scheme.surfaceContainerHighest.withValues(alpha: 0.65),
+      seekBarHoverColor: Scheme.surfaceContainerHighest.withValues(alpha: 0.8),
+      seekBarPositionColor: Scheme.primary,
+      seekBarBufferColor: Scheme.primary.withValues(alpha: 0.25),
+      seekBarThumbColor: Scheme.primary,
+      buttonBarButtonColor: Scheme.onSurface,
+    );
     return Dialog(
       insetPadding: EdgeInsets.symmetric(horizontal: MediaQuery.sizeOf(context).width < 640 ? 12 : 48, vertical: 24),
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+      backgroundColor: Scheme.surfaceContainerHigh,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 760),
         child: Padding(
@@ -51,9 +69,24 @@ class VideoDialogState extends State<VideoDialog> {
               aspectRatio: 16 / 9,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Video(controller: Controller),
+                child: MaterialVideoControlsTheme(
+                  normal: MobileControls,
+                  fullscreen: MobileControls,
+                  child: MaterialDesktopVideoControlsTheme(
+                    normal: DesktopControls,
+                    fullscreen: DesktopControls,
+                    child: Video(controller: Controller),
+                  ),
+                ),
               ),
             ),
+            if (PlatformInfo.Mobile) ...<Widget>[
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: <Widget>[
+                AppButton(Label: '保存到相册', Kind: AppButtonKind.Text, OnPressed: () => SaveVideoToGallery(context, widget.Path)),
+                AppButton(Label: '分享', Kind: AppButtonKind.Text, OnPressed: () => ShareVideoFile(context, widget.Path, widget.Title)),
+              ]),
+            ],
             const SizedBox(height: 16),
             Align(
               alignment: Alignment.centerRight,

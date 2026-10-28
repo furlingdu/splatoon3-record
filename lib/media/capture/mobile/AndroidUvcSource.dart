@@ -50,6 +50,8 @@ class AndroidUvcSource implements MobileCaptureSource {
   @override
   Future<MobileAudioClip?> StartAudio(String Path) async {
     if (!AudioEnabled) return null;
+    final Items = await AndroidAudio.Devices();
+    if (Items.isEmpty) return null;
     final Granted = await AndroidAudio.EnsurePermission();
     if (!Granted) throw StateError('未授权录音权限');
     return AndroidAudio.Start(Path, AudioDevice);
@@ -58,6 +60,11 @@ class AndroidUvcSource implements MobileCaptureSource {
   @override
   Future<void> StopAudio() async {
     await AndroidAudio.Stop();
+  }
+
+  @override
+  Future<void> SetMonitor(bool Value) async {
+    await AndroidAudio.SetMonitor(Value);
   }
 
   @override

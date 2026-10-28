@@ -35,6 +35,9 @@ class MobileCaptureService implements CapturePlatform {
   MobileRecorder? Recorder;
   CaptureMode? Mode;
   Timer? StatsClock;
+  Timer? DeviceClock;
+  String? ActiveDeviceId;
+  int DeviceMisses = 0;
   int Segments = 0;
 
   @override
@@ -166,10 +169,15 @@ class MobileCaptureService implements CapturePlatform {
       Recorder = Engine;
       Engine.Error.addListener(RecorderChanged);
       await Engine.Start();
+      if (Value.MonitorAudio) await Engine.SetMonitor(true);
       Segments = Engine.Segments;
       _State.value = 'recording';
       _PreviewActive.value = true;
       _LatestRecord.value = null;
+      ActiveDeviceId = Device.Id;
+      DeviceMisses = 0;
+      DeviceClock?.cancel();
+      DeviceClock = Timer.periodic(const Duration(seconds: 2), (_) => unawaited(CheckDevice()));
       StatsClock?.cancel();
       StatsClock = Timer.periodic(const Duration(seconds: 2), (_) => PushStats());
       PushStats();
@@ -188,6 +196,24 @@ class MobileCaptureService implements CapturePlatform {
     StatsClock?.cancel();
     StatsClock = null;
     _Stats.value = <String, dynamic>{'error': Value};
+  }
+
+  Future<void> CheckDevice() async {
+    final Source = Active;
+    final Id = ActiveDeviceId;
+    if (Source == null || Id == null || _State.value != 'recording') return;
+    try {
+      final Items = await Source.Devices();
+      if (_State.value != 'recording') return;
+      if (Items.any((Item) => Item.Id == Id)) {
+        DeviceMisses = 0;
+        return;
+      }
+      DeviceMisses++;
+      if (DeviceMisses < 2) return;
+      _Error.value = '采集设备已断开，录制已停止';
+      _State.value = 'error';
+    } catch (_) {}
   }
 
   void PushStats() {
@@ -213,6 +239,10 @@ class MobileCaptureService implements CapturePlatform {
 
   @override
   Future<void> Stop({bool Fast = false}) async {
+    DeviceClock?.cancel();
+    DeviceClock = null;
+    ActiveDeviceId = null;
+    DeviceMisses = 0;
     StatsClock?.cancel();
     StatsClock = null;
     final Engine = Recorder;
@@ -296,10 +326,14 @@ class MobileCaptureService implements CapturePlatform {
   }
 
   @override
-  Future<void> StartMonitor(RecordSettings Value) async {}
+  Future<void> StartMonitor(RecordSettings Value) async {
+    await Recorder?.SetMonitor(true);
+  }
 
   @override
-  Future<void> StopMonitor() async {}
+  Future<void> StopMonitor() async {
+    await Recorder?.SetMonitor(false);
+  }
 
   Future<void> Recover() async {
     final Engine = MobileRecorder(Sources.first, Directories, false);

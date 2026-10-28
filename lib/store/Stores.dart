@@ -259,8 +259,9 @@ class ArchiveStore {
         if (Data is! Map<String, dynamic>) continue;
         final Match = BattleMatch.FromMap(Data);
         if (Match.MatchId.isEmpty) continue;
-        if (Match.VideoPath != null && !File(Match.VideoPath!).existsSync()) {
-          Match.VideoPath = null;
+        if (Match.VideoPath != null) {
+          final Video = File(Match.VideoPath!);
+          if (!Video.existsSync() || Video.lengthSync() == 0) Match.VideoPath = null;
         }
         final BlurPath = BlurFile(Match.VideoPath);
         Match.BlurCopy = BlurPath != null && File(BlurPath).existsSync();

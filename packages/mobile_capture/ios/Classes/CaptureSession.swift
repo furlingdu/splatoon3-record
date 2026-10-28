@@ -1,23 +1,30 @@
 import AVFoundation
 import Flutter
 
-struct MobileCaptureModeInfo {
+struct CaptureModeInfo {
   let Width: Int
   let Height: Int
   let Fps: Int
 }
 
-final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate {
+final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
   let Session = AVCaptureSession()
 
   private let Output = AVCaptureMovieFileOutput()
   private let CaptureQueue = DispatchQueue(label: "splatoon3record.mobile_capture")
+  private let MonitorQueue = DispatchQueue(label: "splatoon3record.audio_monitor")
   private var VideoInput: AVCaptureDeviceInput?
   private var AudioInput: AVCaptureDeviceInput?
   private var Pending: ((String?) -> Void)?
   private var Prepared = false
+  private var AudioOutput: AVCaptureAudioDataOutput?
+  private var MonitorEngine: AVAudioEngine?
+  private var MonitorPlayer: AVAudioPlayerNode?
+  private var MonitorFormat: AVAudioFormat?
+  private var MonitorEnabled = false
 
   var OnState: ((String) -> Void)?
+  var VideoRotationAngle: CGFloat = 0
 
   private var DeviceTypes: [AVCaptureDevice.DeviceType] {
     if #available(iOS 17.0, *) {
@@ -35,22 +42,20 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
 
   private var AudioTypes: [AVCaptureDevice.DeviceType] {
     if #available(iOS 17.0, *) {
-      return [.microphone, .external]
+      return [.external]
     }
-    return [.builtInMicrophone]
+    return []
   }
 
   private func AudioDevicesList() -> [AVCaptureDevice] {
-    var Devices = AVCaptureDevice.DiscoverySession(deviceTypes: AudioTypes, mediaType: .audio, position: .unspecified).devices
-    for Device in AVCaptureDevice.devices(for: .audio) where !Devices.contains(where: { $0.uniqueID == Device.uniqueID }) {
-      Devices.append(Device)
-    }
-    return Devices
+    guard #available(iOS 17.0, *) else { return [] }
+    return AVCaptureDevice.DiscoverySession(deviceTypes: AudioTypes, mediaType: .audio, position: .unspecified).devices
   }
 
   private func FindAudio(_ DeviceId: String) -> AVCaptureDevice? {
-    guard !DeviceId.isEmpty else { return AVCaptureDevice.default(for: .audio) }
-    return AudioDevicesList().first(where: { $0.uniqueID == DeviceId }) ?? AVCaptureDevice.default(for: .audio)
+    let Devices = AudioDevicesList()
+    if DeviceId.isEmpty { return Devices.first }
+    return Devices.first(where: { $0.uniqueID == DeviceId })
   }
 
   func AudioDevices() -> [[String: Any]] {
@@ -104,18 +109,18 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
     }
   }
 
-  func Configure(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Completion: @escaping (MobileCaptureModeInfo?, String?) -> Void) {
+  func Configure(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Orientation: String, Completion: @escaping (CaptureModeInfo?, String?) -> Void) {
     RequestAccess(Video: true) { VideoOk in
       guard VideoOk else {
         Completion(nil, "相机权限被拒绝")
         return
       }
-      if Audio {
+      if Audio, self.FindAudio(AudioDeviceId) != nil {
         AVCaptureDevice.requestAccess(for: .audio) { Granted in
-          self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: Granted, AudioDeviceId: AudioDeviceId, Completion: Completion)
+          self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: Granted, AudioDeviceId: AudioDeviceId, Orientation: Orientation, Completion: Completion)
         }
       } else {
-        self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: false, AudioDeviceId: "", Completion: Completion)
+        self.ConfigureNow(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: false, AudioDeviceId: "", Orientation: Orientation, Completion: Completion)
       }
     }
   }
@@ -133,7 +138,7 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
     }
   }
 
-  private func ConfigureNow(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Completion: @escaping (MobileCaptureModeInfo?, String?) -> Void) {
+  private func ConfigureNow(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Orientation: String, Completion: @escaping (CaptureModeInfo?, String?) -> Void) {
     CaptureQueue.async {
       guard let Device = self.Find(DeviceId) else {
         DispatchQueue.main.async { Completion(nil, "未找到 USB 采集设备，需要 iPadOS 17 或更高版本") }
@@ -180,25 +185,60 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
             self.AudioInput = Input
           }
         }
-      } else if let Old = self.AudioInput {
-        self.Session.removeInput(Old)
-        self.AudioInput = nil
+        if self.AudioInput != nil { self.AddAudioOutput() }
+      } else {
+        if let Old = self.AudioInput {
+          self.Session.removeInput(Old)
+          self.AudioInput = nil
+        }
+        if let Output = self.AudioOutput {
+          self.Session.removeOutput(Output)
+          self.AudioOutput = nil
+        }
+        self.MonitorEnabled = false
+        self.StopMonitorEngine()
       }
       if !self.Session.outputs.contains(self.Output) {
         if self.Session.canAddOutput(self.Output) { self.Session.addOutput(self.Output) }
       }
+      let Size = CMVideoFormatDescriptionGetDimensions(Device.activeFormat.formatDescription)
+      self.VideoRotationAngle = Self.RotationAngle(Orientation, Width: Int(Size.width), Height: Int(Size.height))
       self.Session.commitConfiguration()
-      self.Prepared = true
-      self.Session.startRunning()
       if let Connection = self.Output.connection(with: .video) {
+        self.ApplyRotation(Connection, Angle: self.VideoRotationAngle)
         Connection.automaticallyAdjustsVideoMirroring = false
         if Connection.isVideoMirroringSupported {
           Connection.isVideoMirrored = false
         }
       }
-      let Size = CMVideoFormatDescriptionGetDimensions(Device.activeFormat.formatDescription)
-      let Mode = MobileCaptureModeInfo(Width: Int(Size.width), Height: Int(Size.height), Fps: UseFps)
+      self.Prepared = true
+      self.Session.startRunning()
+      let Mode = CaptureModeInfo(Width: Int(Size.width), Height: Int(Size.height), Fps: UseFps)
       DispatchQueue.main.async { Completion(Mode, nil) }
+    }
+  }
+
+  private static func RotationAngle(_ Orientation: String, Width: Int, Height: Int) -> CGFloat {
+    switch Orientation {
+    case "landscape":
+      return 0
+    case "portrait":
+      return 90
+    case "landscapeFlipped":
+      return 180
+    case "portraitFlipped":
+      return 270
+    default:
+      return Width >= Height ? 0 : 90
+    }
+  }
+
+  private func ApplyRotation(_ Connection: AVCaptureConnection?, Angle: CGFloat) {
+    guard let Connection = Connection else { return }
+    if #available(iOS 17.0, *) {
+      if Connection.isVideoRotationAngleSupported(Angle) {
+        Connection.videoRotationAngle = Angle
+      }
     }
   }
 
@@ -218,6 +258,105 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
       }
     }
     return Best
+  }
+
+  private func AddAudioOutput() {
+    if AudioOutput != nil { return }
+    let Output = AVCaptureAudioDataOutput()
+    Output.audioSettings = <String, Any>[
+      AVFormatIDKey: kAudioFormatLinearPCM,
+      AVSampleRateKey: 48000.0,
+      AVNumberOfChannelsKey: 2,
+      AVLinearPCMBitDepthKey: 16,
+      AVLinearPCMIsFloatKey: false,
+      AVLinearPCMIsNonInterleaved: false,
+      AVLinearPCMIsBigEndianKey: false,
+    ]
+    Output.setSampleBufferDelegate(self, queue: MonitorQueue)
+    if Session.canAddOutput(Output) {
+      Session.addOutput(Output)
+      AudioOutput = Output
+    }
+  }
+
+  func SetMonitor(_ Enabled: Bool) {
+    CaptureQueue.async {
+      if self.MonitorEnabled == Enabled { return }
+      if Enabled {
+        guard self.AudioInput != nil, self.AudioOutput != nil else {
+          self.MonitorEnabled = false
+          return
+        }
+        self.MonitorEnabled = true
+        self.StartMonitorEngine()
+      } else {
+        self.MonitorEnabled = false
+        self.StopMonitorEngine()
+      }
+    }
+  }
+
+  private func StartMonitorEngine() {
+    if MonitorEngine != nil {
+      MonitorPlayer?.play()
+      return
+    }
+    let AudioSession = AVAudioSession.sharedInstance()
+    try? AudioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetooth])
+    try? AudioSession.setActive(true)
+    guard let Format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 48000, channels: 2, interleaved: true) else { return }
+    let Engine = AVAudioEngine()
+    let Player = AVAudioPlayerNode()
+    Engine.attach(Player)
+    Engine.connect(Player, to: Engine.mainMixerNode, format: Format)
+    Engine.prepare()
+    do {
+      try Engine.start()
+      Player.play()
+    } catch {
+      return
+    }
+    MonitorEngine = Engine
+    MonitorPlayer = Player
+    MonitorFormat = Format
+  }
+
+  private func StopMonitorEngine() {
+    MonitorPlayer?.stop()
+    MonitorEngine?.stop()
+    if let Player = MonitorPlayer {
+      MonitorEngine?.detach(Player)
+    }
+    MonitorEngine = nil
+    MonitorPlayer = nil
+    MonitorFormat = nil
+  }
+
+  func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+    guard MonitorEnabled, let Player = MonitorPlayer, let Format = MonitorFormat else { return }
+    let Frames = CMSampleBufferGetNumSamples(sampleBuffer)
+    if Frames <= 0 { return }
+    guard let Buffer = AVAudioPCMBuffer(pcmFormat: Format, frameCapacity: AVAudioFrameCount(Frames)) else { return }
+    Buffer.frameLength = AVAudioFrameCount(Frames)
+    let List = AudioBufferList.allocate(maximumBuffers: 1)
+    defer { free(List.unsafeMutablePointer) }
+    var BlockBuffer: CMBlockBuffer?
+    let Status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+      sampleBuffer,
+      bufferListSizeNeededOut: nil,
+      bufferListOut: List.unsafeMutablePointer,
+      bufferListSize: AudioBufferList.sizeInBytes(maximumBuffers: 1),
+      blockBufferAllocator: nil,
+      blockBufferMemoryAllocator: nil,
+      flags: 0,
+      blockBufferOut: &BlockBuffer
+    )
+    if Status != noErr { return }
+    let Source = List[0]
+    guard let SourceData = Source.mData, let TargetData = Buffer.int16ChannelData?[0] else { return }
+    let Bytes = min(Int(Source.mDataByteSize), Int(Buffer.frameLength) * Int(Format.channelCount) * MemoryLayout<Int16>.size)
+    memcpy(TargetData, SourceData, Bytes)
+    Player.scheduleBuffer(Buffer, completionHandler: nil)
   }
 
   func StartRecording(_ Path: String, Completion: @escaping (String?) -> Void) {
@@ -248,6 +387,14 @@ final class MobileCaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate
   func Dispose() {
     CaptureQueue.async {
       if self.Output.isRecording { self.Output.stopRecording() }
+      self.MonitorEnabled = false
+      self.StopMonitorEngine()
+      if let Output = self.AudioOutput {
+        self.Session.beginConfiguration()
+        self.Session.removeOutput(Output)
+        self.Session.commitConfiguration()
+        self.AudioOutput = nil
+      }
       if self.Session.isRunning { self.Session.stopRunning() }
       self.Session.beginConfiguration()
       for Input in self.Session.inputs { self.Session.removeInput(Input) }

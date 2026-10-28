@@ -10,6 +10,8 @@ abstract final class AppLayout {
 
   static bool Wide(BuildContext Context) => Width(Context) >= WideWidth;
 
+  static bool Tablet(BuildContext Context) => MediaQuery.sizeOf(Context).shortestSide >= 600;
+
   static double Padding(BuildContext Context) => Compact(Context) ? 16 : 28;
 
   static double DrawerWidth(BuildContext Context) {

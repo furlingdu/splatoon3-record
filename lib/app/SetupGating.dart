@@ -5,8 +5,8 @@ abstract final class SetupGating {
     return Accounts.any((Item) => Item.State == 'connected');
   }
 
-  static bool QQReady(String State) {
-    return State == 'connected';
+  static bool QQReady(String State, bool OwnerBound) {
+    return State == 'connected' && OwnerBound;
   }
 
   static bool ModeReady(List<CaptureMode> Modes, int Width, int Height, int Fps) {

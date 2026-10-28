@@ -11,7 +11,11 @@
 	<key>NSCameraUsageDescription</key>
 	<string>用于采集游戏画面并分段录制。</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>用于在录制时录入麦克风声音。</string>
+	<string>用于录制采集卡返回的音频。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于将录制的对局视频保存到相册。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>用于从相册选择自定义背景图片。</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

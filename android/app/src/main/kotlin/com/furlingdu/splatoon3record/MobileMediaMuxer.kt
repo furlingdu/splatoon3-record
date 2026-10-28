@@ -1,4 +1,4 @@
-package cn.miodu.splatoon3record
+package com.furlingdu.splatoon3record
 
 import android.media.MediaCodec
 import android.media.MediaExtractor

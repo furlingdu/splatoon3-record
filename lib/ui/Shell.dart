@@ -77,12 +77,10 @@ class AppRootState extends State<AppRoot> {
       locale: const Locale('zh', 'CN'),
       supportedLocales: const <Locale>[Locale('zh', 'CN'), Locale('en', 'US')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      home: SafeArea(
-        child: Scaffold(
-          body: Controller.Ready
-              ? (Controller.SettingsValue.CaptureMode == 'internal' ? ShellView(Controller: Controller) : ShellView(Controller: Controller))
-              : BootView(Controller: Controller),
-        ),
+      home: Scaffold(
+        body: Controller.Ready
+            ? (Controller.SettingsValue.CaptureMode == 'internal' ? ShellView(Controller: Controller) : ShellView(Controller: Controller))
+            : BootView(Controller: Controller),
       ),
     );
   }
@@ -145,6 +143,8 @@ class ShellViewState extends State<ShellView> {
       builder: (Context, Constraints) {
         final Wide = Constraints.maxWidth >= AppLayout.WideWidth;
         final Drawer = AppLayout.DrawerWidth(context);
+        final TopInset = MediaQuery.paddingOf(context).top;
+        final TopHeight = 64.0 + TopInset;
         if (LastWide != Wide) {
           LastWide = Wide;
           DrawerOpen = Wide;
@@ -155,7 +155,7 @@ class ShellViewState extends State<ShellView> {
           child: Stack(
             children: <Widget>[
             Positioned.fill(child: BackgroundLayer(Path: Controller.SettingsValue.BackgroundPath, Dim: Controller.SettingsValue.BackgroundDim)),
-            if (!PlatformInfo.Mobile && Controller.SettingsValue.BackgroundPath.isEmpty)
+            if ((!PlatformInfo.Mobile || AppLayout.Tablet(context)) && Controller.SettingsValue.BackgroundPath.isEmpty)
               Positioned(
                 right: 0,
                 bottom: 0,
@@ -171,7 +171,7 @@ class ShellViewState extends State<ShellView> {
               left: 0,
               right: 0,
               top: 0,
-              height: 64,
+              height: TopHeight,
               child: TopBar(
                 OnMenu: () => setState(() => DrawerOpen = !DrawerOpen),
               ),
@@ -181,7 +181,7 @@ class ShellViewState extends State<ShellView> {
                 duration: AppMotion.DrawerDuration,
                 curve: AppMotion.DrawerCurve,
                 left: DrawerOpen ? 0 : -Drawer,
-                top: 64,
+                top: TopHeight,
                 bottom: 0,
                 width: Drawer,
                 child: DrawerPanel(
@@ -200,7 +200,7 @@ class ShellViewState extends State<ShellView> {
               curve: AppMotion.DrawerCurve,
               left: Wide && DrawerOpen ? Drawer : 0,
               right: 0,
-              top: 64,
+              top: TopHeight,
               bottom: 0,
               child: NotificationListener<ScrollNotification>(
                 onNotification: (Notification) {
@@ -213,17 +213,19 @@ class ShellViewState extends State<ShellView> {
                   thumbVisibility: false,
                   child: SingleChildScrollView(
                     controller: Scroll,
-                    child: TweenAnimationBuilder<double>(
-                      key: ValueKey<String>(Page),
-                      tween: Tween<double>(begin: 0.0, end: 1.0),
-                      duration: AppMotion.PageDuration,
-                      curve: AppMotion.PageCurve,
-                      builder: (Context, Value, Child) => Opacity(
-                        opacity: Value,
-                        child: Transform.translate(offset: Offset(0, AppMotion.PageOffset * (1 - Value)), child: Child),
-                      ),
-                      child: RepaintBoundary(child: BuildPage(Page, Controller)),
-                    ),
+                    child: PlatformInfo.Mobile && Page == 'status'
+                        ? RepaintBoundary(child: BuildPage(Page, Controller))
+                        : TweenAnimationBuilder<double>(
+                            key: ValueKey<String>(Page),
+                            tween: Tween<double>(begin: 0.0, end: 1.0),
+                            duration: AppMotion.PageDuration,
+                            curve: AppMotion.PageCurve,
+                            builder: (Context, Value, Child) => Opacity(
+                              opacity: Value,
+                              child: Transform.translate(offset: Offset(0, AppMotion.PageOffset * (1 - Value)), child: Child),
+                            ),
+                            child: RepaintBoundary(child: BuildPage(Page, Controller)),
+                          ),
                   ),
                 ),
               ),
@@ -241,7 +243,7 @@ class ShellViewState extends State<ShellView> {
               Positioned(
                 left: 0,
                 right: 0,
-                top: PlatformInfo.Mobile ? 64 : 0,
+                top: PlatformInfo.Mobile ? TopHeight : 0,
                 bottom: 0,
                 child: GestureDetector(
                   onTap: () => setState(() => DrawerOpen = false),
@@ -260,7 +262,7 @@ class ShellViewState extends State<ShellView> {
                 duration: AppMotion.DrawerDuration,
                 curve: AppMotion.DrawerCurve,
                 left: DrawerOpen ? 0 : -Drawer,
-                top: 64,
+                top: TopHeight,
                 bottom: 0,
                 width: Drawer,
                 child: DrawerPanel(
@@ -310,10 +312,14 @@ class TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: PlatformInfo.Mobile ? AppTheme.ChromeSolid : const Color(0x9917161d),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Row(
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          color: AppTheme.Chrome,
+          alignment: Alignment.center,
+          padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top, left: 8, right: 8),
+          child: Row(
         children: <Widget>[
           Tooltip(
             message: '打开/关闭菜单',
@@ -329,6 +335,8 @@ class TopBar extends StatelessWidget {
           Text('Splatoon3 Record', style: AppTheme.Style(Size: 17, Weight: FontWeight.w600)),
           const Spacer(),
         ],
+          ),
+        ),
       ),
     );
   }
@@ -359,10 +367,13 @@ class DrawerPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
-    return Container(
-      color: PlatformInfo.Mobile ? AppTheme.ChromeSolid : const Color(0x8017161d),
-      padding: const EdgeInsets.only(top: 8),
-      child: ListView.builder(
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          color: PlatformInfo.Mobile ? AppTheme.Chrome : AppTheme.ChromeSoft,
+          padding: const EdgeInsets.only(top: 8),
+          child: ListView.builder(
         itemCount: VisibleItems.length,
         itemBuilder: (Context, Index) {
           final Item = VisibleItems[Index];
@@ -389,6 +400,8 @@ class DrawerPanel extends StatelessWidget {
             ),
           );
         },
+          ),
+        ),
       ),
     );
   }
@@ -435,11 +448,12 @@ class PageBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final Compact = AppLayout.Compact(context);
     final Horizontal = AppLayout.Padding(context);
+    final Bottom = PlatformInfo.Mobile ? MediaQuery.paddingOf(context).bottom : 0.0;
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1120),
         child: Padding(
-          padding: EdgeInsets.fromLTRB(Horizontal, Compact ? 16 : 24, Horizontal, Compact ? 24 : 48),
+          padding: EdgeInsets.fromLTRB(Horizontal, Compact ? 16 : 24, Horizontal, (Compact ? 24 : 48) + Bottom),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: Children),
         ),
       ),
@@ -448,12 +462,14 @@ class PageBody extends StatelessWidget {
 }
 
 class MatchRow extends StatelessWidget {
-  const MatchRow({super.key, required this.Match, this.OnPlay, this.OnOpen, this.OnSave});
+  const MatchRow({super.key, required this.Match, this.OnPlay, this.OnOpen, this.OnSave, this.OnSaveToGallery, this.OnShare});
 
   final BattleMatch Match;
   final VoidCallback? OnPlay;
   final VoidCallback? OnOpen;
   final VoidCallback? OnSave;
+  final VoidCallback? OnSaveToGallery;
+  final VoidCallback? OnShare;
 
   @override
   Widget build(BuildContext context) {
@@ -463,7 +479,7 @@ class MatchRow extends StatelessWidget {
     final String Title = Kind == Rule ? Kind : '$Kind · $Rule';
     final String Account = Match.AccountNickname == null ? '' : '${Match.AccountNickname} · ';
     final String State = Match.IsDisconnected ? '掉线' : Formats.Result(Match.Result);
-    final String RecordState = Match.VideoPath != null ? '已录制' : Match.SkipReason != null ? '账户冲突，未自动裁剪' : '未录制';
+    final String RecordState = Match.HasVideo ? '已录制' : Match.SkipReason != null ? '账户冲突，未自动裁剪' : '未录制';
     final Info = Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
       Text(Title, style: AppTheme.Style(Size: 15, Weight: FontWeight.w600)),
       const SizedBox(height: 4),
@@ -474,10 +490,14 @@ class MatchRow extends StatelessWidget {
     final Actions = Wrap(
       spacing: 2,
       children: <Widget>[
-        AppButton(Label: '播放录像', Kind: AppButtonKind.Text, Enabled: Match.VideoPath != null, OnPressed: OnPlay ?? () {}),
+        AppButton(Label: '播放录像', Kind: AppButtonKind.Text, Enabled: Match.HasVideo, OnPressed: OnPlay ?? () {}),
+        if (PlatformInfo.Mobile && OnSaveToGallery != null)
+          AppButton(Label: '保存到相册', Kind: AppButtonKind.Text, Enabled: Match.HasVideo, OnPressed: OnSaveToGallery!),
+        if (PlatformInfo.Mobile && OnShare != null)
+          AppButton(Label: '分享', Kind: AppButtonKind.Text, Enabled: Match.HasVideo, OnPressed: OnShare!),
         if (PlatformInfo.Desktop) ...<Widget>[
-          AppButton(Label: '打开位置', Kind: AppButtonKind.Text, Enabled: Match.VideoPath != null, OnPressed: OnOpen ?? () {}),
-          AppButton(Label: '保存录像', Kind: AppButtonKind.Text, Enabled: Match.VideoPath != null, OnPressed: OnSave ?? () {}),
+          AppButton(Label: '打开位置', Kind: AppButtonKind.Text, Enabled: Match.HasVideo, OnPressed: OnOpen ?? () {}),
+          AppButton(Label: '保存录像', Kind: AppButtonKind.Text, Enabled: Match.HasVideo, OnPressed: OnSave ?? () {}),
         ],
       ],
     );

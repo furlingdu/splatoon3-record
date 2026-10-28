@@ -5,7 +5,6 @@ class AppTheme {
   static const Color Ink = Color(0xff141218);
   static const Color Chrome = Color(0x9917161d);
   static const Color ChromeSoft = Color(0x8017161d);
-  static const Color ChromeSolid = Color(0xff17161d);
   static const List<String> FontFallback = <String>[
     'SplatoonZhL1',
     'SplatoonZhL2',

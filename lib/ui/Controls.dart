@@ -175,7 +175,7 @@ class AppTextFieldState extends State<AppTextField> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: TextField(
         controller: _Controller,
         readOnly: widget.ReadOnly,
@@ -211,7 +211,7 @@ class AppSelect<T> extends StatelessWidget {
     final Scheme = Theme.of(context).colorScheme;
     final SafeValue = Items.contains(Value) ? Value : (Items.isEmpty ? Value : Items.first);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: DropdownButtonFormField<T>(
         initialValue: SafeValue,
         isExpanded: true,
@@ -251,7 +251,7 @@ class AppSectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 28, bottom: 8),
+      padding: const EdgeInsets.only(top: 32, bottom: 12),
       child: Text(Content, style: AppTheme.Style(Size: 16, Weight: FontWeight.w600)),
     );
   }
@@ -282,7 +282,7 @@ class AppStatusItem extends StatelessWidget {
     final Scheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Scheme.outlineVariant))),
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -325,7 +325,7 @@ class AppHint extends StatelessWidget {
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.only(top: 8),
       child: Text(Content, style: AppTheme.Style(Size: 12, ColorValue: Error ? Scheme.error : Scheme.onSurfaceVariant, Height: 1.5)),
     );
   }
@@ -361,7 +361,7 @@ class AppFormSwitch extends StatelessWidget {
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[

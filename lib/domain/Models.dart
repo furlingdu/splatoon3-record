@@ -35,8 +35,9 @@ class RecordSettings {
     this.BackgroundDim = 40,
     this.MobileSource = 'uvc',
     this.MobileDevice = '',
-    this.MobileAudio = false,
+    this.MobileAudio = true,
     this.MobileAudioDevice = '',
+    this.MobileOrientation = 'auto',
   });
 
   String CaptureMode;
@@ -72,6 +73,7 @@ class RecordSettings {
   String MobileDevice;
   bool MobileAudio;
   String MobileAudioDevice;
+  String MobileOrientation;
 
   static RecordSettings FromMap(Map<String, dynamic> Data, [RecordSettings? Current]) {
     final Fallback = Current ?? RecordSettings();
@@ -98,6 +100,7 @@ class RecordSettings {
     final CaptureFormat = Text(Data['captureFormat'], Fallback.CaptureFormat);
     final ThemeColor = Text(Data['themeColor'], Fallback.ThemeColor);
     final MobileSource = Text(Data['mobileSource'], Fallback.MobileSource);
+    final MobileOrientation = Text(Data['mobileOrientation'], Fallback.MobileOrientation);
     final Quality = Number(Data['quality'], 0, 51, Fallback.Quality);
     final Port = Number(Data['rtmpPort'], 1024, 65535, Fallback.RtmpPort);
     final Key = Text(Data['rtmpStreamKey'], Fallback.RtmpStreamKey);
@@ -138,7 +141,8 @@ class RecordSettings {
       MobileSource: const ['uvc', 'external', 'camera'].contains(MobileSource) ? MobileSource : 'uvc',
       MobileDevice: Text(Data['mobileDevice'], Fallback.MobileDevice),
       MobileAudio: Flag(Data['mobileAudio'], Fallback.MobileAudio),
-    MobileAudioDevice: Text(Data['mobileAudioDevice'], Fallback.MobileAudioDevice),
+      MobileAudioDevice: Text(Data['mobileAudioDevice'], Fallback.MobileAudioDevice),
+      MobileOrientation: const ['auto', 'landscape', 'portrait', 'landscapeFlipped', 'portraitFlipped'].contains(MobileOrientation) ? MobileOrientation : 'auto',
     );
   }
 
@@ -181,7 +185,8 @@ class RecordSettings {
         'mobileSource': MobileSource,
         'mobileDevice': MobileDevice,
         'mobileAudio': MobileAudio,
-    'mobileAudioDevice': MobileAudioDevice,
+        'mobileAudioDevice': MobileAudioDevice,
+        'mobileOrientation': MobileOrientation,
       };
 
   RecordSettings Copy([Map<String, dynamic>? Part]) {
@@ -312,6 +317,17 @@ class BattleMatch {
       TimeExact: Data['timeExact'] == true,
       Key: KeyValue != null && KeyValue.isNotEmpty ? KeyValue : ((Account != null && Account.isNotEmpty) ? '$Account:$MatchId' : MatchId),
     );
+  }
+
+  bool get HasVideo {
+    final Value = VideoPath;
+    if (Value == null || Value.isEmpty) return false;
+    try {
+      final FileRef = File(Value);
+      return FileRef.existsSync() && FileRef.lengthSync() > 0;
+    } catch (_) {
+      return false;
+    }
   }
 
   Map<String, dynamic> ToMap() {

@@ -6,6 +6,7 @@ import 'package:app_links/app_links.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
@@ -56,6 +57,7 @@ class AppController extends ChangeNotifier {
   String Version = '3.0.0';
   bool Ready = false;
   bool Busy = false;
+  bool CaptureAborting = false;
   String? Notice;
   String? LastNotice;
   Timer? Clock;
@@ -90,7 +92,7 @@ class AppController extends ChangeNotifier {
   RecordSettings get SettingsValue => Configs.Current.Settings;
   List<BattleMatch> get Matches => Archive.Matches;
   bool get NSOReady => SetupGating.NSOReady(Accounts);
-  bool get QQReady => SetupGating.QQReady(QQState);
+  bool get QQReady => SetupGating.QQReady(QQState, Configs.Current.QQOwner != null);
   bool get MobileSetupReady => !PlatformInfo.Mobile || (NSOReady && QQReady);
   String? get PreviewError => Capture.Error.value;
   int? get PreviewTextureId => Capture.PreviewTexture.value;
@@ -172,8 +174,27 @@ class AppController extends ChangeNotifier {
 
   void CaptureChanged() {
     _CacheRangeTick = 0;
-    if (Capture.Error.value != null) Notice = Capture.Error.value;
+    final ErrorText = Capture.Error.value;
+    if (ErrorText != null && ErrorText.isNotEmpty) {
+      Notice = ErrorText;
+      if (Capture.Running || Capture.Starting) unawaited(AbortCapture(ErrorText));
+    }
     PushStatus();
+  }
+
+  Future<void> AbortCapture(String Text) async {
+    if (CaptureAborting) return;
+    CaptureAborting = true;
+    try {
+      await Capture.Stop(Fast: true);
+      await Capture.Records();
+      Notice = '采集设备已断开，录制已停止：$Text';
+    } catch (_) {
+      Notice = '采集设备已断开，录制已停止';
+    } finally {
+      CaptureAborting = false;
+      PushStatus();
+    }
   }
 
   Future<void> PushStatus() async {
@@ -182,7 +203,7 @@ class AppController extends ChangeNotifier {
     final State = Capture.State.value;
     final Cache = CacheRange();
     final Settings = SettingsValue;
-    final HasAudio = PlatformInfo.Mobile ? Settings.MobileAudio : Settings.AudioDevice.isNotEmpty;
+    final HasAudio = PlatformInfo.Mobile ? Settings.MobileAudio && Devices.any((Item) => Item.Kind == 'audio') : Settings.AudioDevice.isNotEmpty;
     Status = AppStatus(
       RecordState: State == 'recording' ? 'recording' : State == 'starting' ? 'starting' : State == 'error' ? 'error' : 'idle',
       RecordError: Capture.Error.value,
@@ -203,7 +224,7 @@ class AppController extends ChangeNotifier {
       NSOAccounts: Accounts,
       NSOCurrentId: CurrentNSOId,
       NSOCurrentNickname: NSOName(),
-      QQState: QQState,
+      QQState: QQState == 'connected' && Configs.Current.QQOwner == null ? 'connecting' : QQState,
       QQOwner: Configs.Current.QQOwner,
       QrCode: QrCode,
       SetupDone: Configs.Current.SetupDone,

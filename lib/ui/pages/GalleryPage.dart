@@ -29,8 +29,8 @@ class GalleryPageState extends State<GalleryPage> {
   Widget build(BuildContext context) {
     final All = widget.Controller.Matches.where((Item) => !Item.IsSalmon && Item.Kind != 'salmon').toList();
     final Kinds = <String>{'all', ...All.map((Item) => Item.Kind)}.toList();
-    final Visible = All.where((Item) => (Kind == 'all' || Item.Kind == Kind) && (!HideUnrecorded || Item.VideoPath != null)).toList();
-    final PickedList = Visible.where((Item) => Picked.contains(Item.Key) && Item.VideoPath != null).toList();
+    final Visible = All.where((Item) => (Kind == 'all' || Item.Kind == Kind) && (!HideUnrecorded || Item.HasVideo)).toList();
+    final PickedList = Visible.where((Item) => Picked.contains(Item.Key) && Item.HasVideo).toList();
     return PageBody(
       Children: <Widget>[
         const AppPageTitle('相册'),
@@ -126,7 +126,7 @@ class GalleryPageState extends State<GalleryPage> {
                     Image.file(File(Thumb), fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink())
                   else
                     Center(child: Icon(Icons.movie, size: 40, color: Scheme.onSurfaceVariant)),
-                  if (Match.VideoPath != null)
+                  if (Match.HasVideo)
                     Positioned(
                       right: 4,
                       top: 4,
@@ -180,8 +180,8 @@ class GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> Open(BattleMatch Match) async {
-    if (Match.VideoPath == null) {
-      AppSnack.Show(context, '此对局未录制');
+    if (!Match.HasVideo) {
+      AppSnack.Show(context, '此对局未录制或录像文件不存在');
       return;
     }
     await ShowVideoDialog(context, Match.VideoPath!, Match.Kind, Match.EndAt);

@@ -6,6 +6,7 @@ import '../../format/Formats.dart';
 import '../AppTheme.dart';
 import '../Controls.dart';
 import '../Shell.dart';
+import '../VideoActions.dart';
 import '../VideoDialog.dart';
 
 class MatchesPage extends StatefulWidget {
@@ -38,15 +39,20 @@ class MatchesPageState extends State<MatchesPage> {
           ...Matches.map((Match) => MatchRow(
                 Match: Match,
                 OnPlay: () => Play(Match),
-                OnOpen: Match.VideoPath == null ? null : () => widget.Controller.OpenPath(Match.VideoPath!),
-                OnSave: Match.VideoPath == null ? null : () => widget.Controller.SaveMatchVideo(Match),
+                OnOpen: Match.HasVideo ? () => widget.Controller.OpenPath(Match.VideoPath!) : null,
+                OnSave: Match.HasVideo ? () => widget.Controller.SaveMatchVideo(Match) : null,
+                OnSaveToGallery: Match.HasVideo ? () => SaveVideoToGallery(context, Match.VideoPath!) : null,
+                OnShare: Match.HasVideo ? () => ShareVideoFile(context, Match.VideoPath!, Formats.MatchTitle(Match.Kind, Match.EndAt)) : null,
               )),
       ],
     );
   }
 
   Future<void> Play(BattleMatch Match) async {
-    if (Match.VideoPath == null) return;
+    if (!Match.HasVideo) {
+      AppSnack.Show(context, '录像文件不存在');
+      return;
+    }
     await ShowVideoDialog(context, Match.VideoPath!, Match.Kind, Match.EndAt);
   }
 

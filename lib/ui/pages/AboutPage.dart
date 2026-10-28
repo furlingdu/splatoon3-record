@@ -3,10 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../app/AppController.dart';
+import '../../config/PlatformInfo.dart';
 import '../../format/Formats.dart';
 import '../AppTheme.dart';
 import '../Controls.dart';
 import '../Shell.dart';
+import '../VideoActions.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key, required this.Controller});
@@ -29,9 +31,7 @@ class AboutPage extends StatelessWidget {
             ]),
           ),
         ]),
-        const SizedBox(height: 16),
         Text('一款斯普拉遁3录制机，通过采集卡自动采集整局录像，并通过 QQBot 推送。', style: AppTheme.Style(Size: 14, Height: 1.7)),
-        const SizedBox(height: 16),
         AppButton(Label: '保存日志反馈内容', OnPressed: () => SaveReport(context)),
       ]),
       AboutCard(Children: <Widget>[
@@ -45,10 +45,8 @@ class AboutPage extends StatelessWidget {
             ]),
           ),
         ]),
-        const SizedBox(height: 12),
         Text('斯普拉遁3录制机作者，梦想是把巨齿刮水刀打到十星！', style: AppTheme.Style(Size: 14, Height: 1.7)),
         Text('喜欢我的话，欢迎关注项目主页。', style: AppTheme.Style(Size: 14, Height: 1.7)),
-        const SizedBox(height: 12),
         AppButton(Label: '项目主页', Kind: AppButtonKind.Tonal, StartIcon: Icons.link, OnPressed: () => Controller.OpenFile('https://github.com/furlingdu/splatoon3-record')),
       ]),
       AboutCard(Children: <Widget>[
@@ -62,7 +60,6 @@ class AboutPage extends StatelessWidget {
             ]),
           ),
         ]),
-        const SizedBox(height: 12),
         Text('这是一支由四名成员组成的乐队，他们以朗朗上口的电子音乐和主唱脉子的歌声在音乐排行榜上掀起热潮。在演唱会上，他们让复古游戏机与音乐联动，并通过自身发光进行表演，这使得他们收获了很高的人气。收录的歌声使用了大量的后期修音，所以现场表演经常是对口型假唱。', style: AppTheme.Style(Size: 14, Height: 1.7)),
         Text('作者是ABXY小粉丝~~', style: AppTheme.Style(Size: 14, Height: 1.7)),
       ]),
@@ -104,8 +101,17 @@ class AboutPage extends StatelessWidget {
     ].join('\n');
     final Path = await Controller.Logs.Report(Text);
     if (!Context.mounted) return;
-    if (Path != null) await Controller.OpenPath(Path);
-    AppSnack.Show(Context, Path == null ? '日志反馈内容保存失败，请稍后重试。' : '日志反馈内容已保存到 $Path');
+    if (Path == null) {
+      AppSnack.Show(Context, '日志反馈内容保存失败，请稍后重试。');
+      return;
+    }
+    if (PlatformInfo.Mobile) {
+      await ShareTextFile(Context, Path, 'Splatoon3 Record 日志反馈');
+      AppSnack.Show(Context, '请在系统分享面板中选择“存储到文件”保存 TXT 文件。');
+      return;
+    }
+    await Controller.OpenPath(Path);
+    AppSnack.Show(Context, '日志反馈内容已保存到 $Path');
   }
 }
 
@@ -118,10 +124,10 @@ class AboutCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       decoration: BoxDecoration(border: Border.all(color: Scheme.outlineVariant), borderRadius: BorderRadius.circular(16)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: Children),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, spacing: 12, children: Children),
     );
   }
 }

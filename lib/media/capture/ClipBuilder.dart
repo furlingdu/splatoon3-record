@@ -33,7 +33,7 @@ abstract final class ClipBuilder {
       ];
       await Directory(File(Output).parent.path).create(recursive: true);
       final Result = await FFmpeg.Run(Args, Timeout: const Duration(minutes: 10));
-      return Result.exitCode == 0 && File(Output).existsSync() ? Output : null;
+      return Result.exitCode == 0 && File(Output).existsSync() && File(Output).lengthSync() > 0 ? Output : null;
     } finally {
       try {
         await File(Temp).delete();

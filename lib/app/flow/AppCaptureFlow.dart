@@ -26,6 +26,19 @@ extension AppCaptureFlow on AppController {
       Next = Next.Copy(<String, dynamic>{'mobileDevice': ''});
       Changed = true;
     }
+    final Audio = Devices.where((Item) => Item.Kind == 'audio').toList();
+    if (Next.MobileAudioDevice.isNotEmpty && !Audio.any((Item) => Item.Id == Next.MobileAudioDevice)) {
+      Next = Next.Copy(<String, dynamic>{'mobileAudioDevice': ''});
+      Changed = true;
+    }
+    if (!Next.MobileAudio) {
+      Next = Next.Copy(<String, dynamic>{'mobileAudio': true});
+      Changed = true;
+    }
+    if (Next.MobileAudio && Next.MobileAudioDevice.isEmpty && Audio.isNotEmpty) {
+      Next = Next.Copy(<String, dynamic>{'mobileAudioDevice': Audio.first.Id});
+      Changed = true;
+    }
     if (Changed) await Configs.SaveSettings(Next);
   }
 
@@ -229,6 +242,7 @@ extension AppCaptureFlow on AppController {
             (Previous.MobileDevice != Value.MobileDevice ||
                 Previous.MobileAudio != Value.MobileAudio ||
                 Previous.MobileAudioDevice != Value.MobileAudioDevice ||
+                Previous.MobileOrientation != Value.MobileOrientation ||
                 Previous.FlipVertical != Value.FlipVertical));
     await Configs.SaveSettings(Value);
     await ApplyAutoLaunch();

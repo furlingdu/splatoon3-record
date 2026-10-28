@@ -13,7 +13,7 @@ extension AppMatchFlow on AppController {
   }
 
   Future<bool> BlurMatch(BattleMatch Match) async {
-    if (Match.VideoPath == null) return false;
+    if (!Match.HasVideo) return false;
     final Output = Archive.BlurFile(Match.VideoPath);
     if (Output == null) return false;
     final Path = await Blur.Blur(Match.VideoPath!, Output);
@@ -25,14 +25,14 @@ extension AppMatchFlow on AppController {
   }
 
   Future<void> SaveMatchVideo(BattleMatch Match) async {
-    if (Match.VideoPath == null) return;
+    if (!Match.HasVideo) return;
     final Target = await getSaveLocation(suggestedName: '${Match.MatchId}.mp4');
     if (Target == null) return;
     await File(Match.VideoPath!).copy(Target.path);
   }
 
   bool CanCrop(BattleMatch Match) {
-    if (Match.VideoPath != null) return false;
+    if (Match.HasVideo) return false;
     final Start = Status?.CacheStart;
     final End = Status?.CacheEnd;
     return Start != null && End != null && Match.EndAt >= Start && Match.EndAt <= End;
@@ -42,7 +42,7 @@ extension AppMatchFlow on AppController {
     final Name = Formats.MatchFileName(Match.Kind, Match.EndAt, Match.Key);
     final Output = '${Directories.Videos}${Platform.pathSeparator}$Name.mp4';
     final Path = await Capture.Crop(Match, Output, SettingsValue);
-    if (Path == null) return false;
+    if (Path == null || !File(Path).existsSync() || File(Path).lengthSync() == 0) return false;
     Match.VideoPath = Path;
     await Archive.Save(Match);
     await FFmpeg.Thumbnail(Path, '${Directories.Thumbs}${Platform.pathSeparator}${Archive.SafeName(Match.Key)}.jpg');
@@ -63,7 +63,7 @@ extension AppMatchFlow on AppController {
     final Start = Records.first.StartAt;
     final End = Records.last.EndAt;
     for (final Match in Archive.Matches) {
-      if (Match.VideoPath != null || Match.SkipReason != null) continue;
+      if (Match.HasVideo || Match.SkipReason != null) continue;
       if (Match.EndAt < Start || Match.EndAt > End) continue;
       await ArchiveMatch(Match);
     }
@@ -73,7 +73,7 @@ extension AppMatchFlow on AppController {
 
   Future<void> GenerateThumbs() async {
     for (final Match in List<BattleMatch>.of(Archive.Matches)) {
-      if (Match.VideoPath == null || Match.VideoPath!.isEmpty) continue;
+      if (!Match.HasVideo) continue;
       final Path = '${Directories.Thumbs}${Platform.pathSeparator}${Archive.SafeName(Match.Key)}.jpg';
       if (File(Path).existsSync()) continue;
       final Ok = await FFmpeg.Thumbnail(Match.VideoPath!, Path);

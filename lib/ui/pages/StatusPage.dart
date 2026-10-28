@@ -22,7 +22,6 @@ class StatusPage extends StatelessWidget {
     return PageBody(
       Children: <Widget>[
         const AppPageTitle('状态'),
-        if (Mobile) const AppHint('移动端使用 USB 采集卡（UVC）采集，录制写入应用沙盒，可在相册中播放。'),
         CapturePreview(Controller: Controller),
         const SizedBox(height: 20),
         ...<Widget>[
@@ -53,7 +52,7 @@ class StatusPage extends StatelessWidget {
                 ),
               if (Status.RecordError != null)
                 AppButton(Label: '重试采集', Kind: AppButtonKind.Text, OnPressed: () => Controller.RetryRecord()),
-              if (!Mobile && Status.Settings.CaptureMode != 'rtmp')
+              if (Status.Settings.CaptureMode != 'rtmp')
                 Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
                   Text('声音返听', style: AppTheme.Style(Size: 15)),
                   const SizedBox(width: 4),
@@ -86,21 +85,11 @@ class StatusPage extends StatelessWidget {
               AppStatusItem(Label: '采集方式', Value: Text(Status.Settings.CaptureMode == 'rtmp' ? 'RTMP' : (Mobile ? 'USB 采集卡' : '软件内捕获'))),
               AppStatusItem(Label: '分辨率', Value: AppStatusText(Status.Width > 0 ? Formats.Resolution(Status.Width, Status.Height) : '未收到画面')),
               AppStatusItem(Label: '帧率', Value: AppStatusText(Status.Fps > 0 ? Formats.Fps(Status.Fps) : '未收到画面')),
-              if (Mobile) AppStatusItem(Label: '屏幕刷新率', Value: AppStatusText('${View.of(context).display.refreshRate.toStringAsFixed(0)} Hz')),
               AppStatusItem(Label: '采集画面格式', Value: AppStatusText(Status.Settings.CaptureMode == 'rtmp' ? 'RTMP / MP4' : Status.PixelFormat)),
               AppStatusItem(Label: '录制格式', Value: AppStatusText(Status.Settings.CaptureMode == 'rtmp' ? 'video/mp4' : Formats.FileFormat(Status.StreamFormat ?? ''))),
               AppStatusItem(Label: '录制编码', Value: AppStatusText(Status.Encoder.isEmpty ? '-' : Status.Encoder)),
-              AppStatusItem(Label: '硬件加速', Value: AppStatusText(Status.HwAccel == null ? '未启用' : '${Status.HwAccel} 硬件解码')),
+              if (!Mobile) AppStatusItem(Label: '硬件加速', Value: AppStatusText(Status.HwAccel == null ? '未启用' : '${Status.HwAccel} 硬件解码')),
               AppStatusItem(Label: '编码器', Value: AppStatusText(Status.StreamEncoder ?? '-')),
-              ValueListenableBuilder<Map<String, dynamic>?>(
-                valueListenable: Controller.Capture.Stats,
-                builder: (Context, Stats, _) {
-                  final Value = Stats == null
-                      ? '等待画面'
-                      : '采集 ${Stats['captureFps'] ?? 0} fps · 预览 ${Stats['previewFps'] ?? 0} fps · ${Stats['latency'] ?? 0} ms';
-                  return AppStatusItem(Label: '实时链路', Value: AppStatusText(Value));
-                },
-              ),
               if (Mobile)
                 ValueListenableBuilder<Map<String, dynamic>?>(
                   valueListenable: Controller.Capture.Stats,
@@ -155,7 +144,7 @@ class StatusPage extends StatelessWidget {
               children: Recent.map((Match) {
                 final State = Controller.Status?.Processing.contains(Match.Key) == true
                     ? '正在保存'
-                    : Match.VideoPath != null
+                    : Match.HasVideo
                         ? '已归档'
                         : Match.SkipReason != null
                             ? '账户冲突'
@@ -173,10 +162,11 @@ class StatusPage extends StatelessWidget {
 }
 
 class CapturePreview extends StatelessWidget {
-  const CapturePreview({super.key, required this.Controller, this.Height = 0});
+  const CapturePreview({super.key, required this.Controller, this.Height = 0, this.EnableFullscreen = true});
 
   final AppController Controller;
   final double Height;
+  final bool EnableFullscreen;
 
   @override
   Widget build(BuildContext context) {
@@ -185,7 +175,7 @@ class CapturePreview extends StatelessWidget {
       final Width = Constraints.maxWidth;
       final BoxHeight = Height > 0 ? Height : Width * 9 / 16;
       final Live = Controller.Capture.BuildPreview(context);
-      return Container(
+      final Preview = Container(
         height: BoxHeight,
         width: double.infinity,
         decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12)),
@@ -218,6 +208,16 @@ class CapturePreview extends StatelessWidget {
                 ),
               ),
       );
+      if (!PlatformInfo.Mobile || Live == null || !EnableFullscreen) return Preview;
+      return Stack(children: <Widget>[
+        Preview,
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onDoubleTap: () => ShowFullscreenPreview(context, Controller),
+          ),
+        ),
+      ]);
     });
   }
 }
@@ -243,6 +243,35 @@ Future<void> ShowPreviewDialog(BuildContext Context, AppController Controller) a
             Positioned(
               right: 8,
               top: 8,
+              child: AppIconButton(Glyph: Icons.close, OnPressed: () => Navigator.of(Context).pop()),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> ShowFullscreenPreview(BuildContext Context, AppController Controller) async {
+  await showDialog<void>(
+    context: Context,
+    barrierColor: Colors.black,
+    builder: (Context) => Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(
+          children: <Widget>[
+            Positioned.fill(
+              child: ListenableBuilder(
+                listenable: Controller,
+                builder: (Context, _) => LayoutBuilder(
+                  builder: (Context, Constraints) => CapturePreview(Controller: Controller, Height: Constraints.maxHeight, EnableFullscreen: false),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 12,
+              top: 12,
               child: AppIconButton(Glyph: Icons.close, OnPressed: () => Navigator.of(Context).pop()),
             ),
           ],

@@ -45,6 +45,10 @@ class MobileRecorder {
     return Value.replaceFirst(RegExp(r'[.]mp4$'), '.m4a');
   }
 
+  Future<void> SetMonitor(bool Value) async {
+    await Source.SetMonitor(Value);
+  }
+
   Future<void> Start() async {
     Error.value = null;
     AudioError = null;
@@ -159,7 +163,7 @@ class MobileRecorder {
     final Video = SourcePath ?? FinalTarget;
     if (!File(Video).existsSync() && !File(FinalTarget).existsSync()) return;
     final Result = await Source.Finish(Video, HadAudio ? Audio : null, FinalTarget, AudioOffsetUs: Offset);
-    if (Result == null || !File(Result).existsSync()) {
+    if (Result == null || !File(Result).existsSync() || File(Result).lengthSync() == 0) {
       Error.value = '录像合流失败：$FinalTarget';
       return;
     }

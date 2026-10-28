@@ -19,7 +19,11 @@ extension AppQQFlow on AppController {
   }
 
   Future<void> StartQQLogin() async {
-    if (QQState == 'connected') return;
+    if (QQState == 'connected') {
+      Notice = QQReady ? 'QQBot 已绑定' : '请在机器人私聊窗口发送 /bind 完成绑定';
+      Notify();
+      return;
+    }
     await QQBindRef?.Stop();
     final Bind = QQBind(
       OnQr: (Url) {
@@ -34,6 +38,10 @@ extension AppQQFlow on AppController {
         QQAppId = AppId;
         QQSecret = Secret;
         QrCode = null;
+        final Current = Configs.Current;
+        if (Current.QQOwner != null) {
+          await Configs.Save(AppConfig(Settings: Current.Settings, PushEnabled: Current.PushEnabled, SetupDone: Current.SetupDone, QQOwner: null, HandledIds: Current.HandledIds, Raw: Current.Raw));
+        }
         final Data = Map<String, dynamic>.from(Vault.Data);
         Data['qqAppId'] = AppId;
         Data['qqSecret'] = Secret;
@@ -64,6 +72,10 @@ extension AppQQFlow on AppController {
     Data.remove('qqAppId');
     Data.remove('qqSecret');
     await Vault.Save(Data);
+    final Current = Configs.Current;
+    if (Current.QQOwner != null) {
+      await Configs.Save(AppConfig(Settings: Current.Settings, PushEnabled: Current.PushEnabled, SetupDone: Current.SetupDone, QQOwner: null, HandledIds: Current.HandledIds, Raw: Current.Raw));
+    }
     PushStatus();
   }
 
@@ -110,7 +122,7 @@ extension AppQQFlow on AppController {
       return;
     }
     if (Command == 'last' || Command == 'record') {
-      if (Archive.Matches.isEmpty || Archive.Matches.first.VideoPath == null) {
+      if (Archive.Matches.isEmpty || !Archive.Matches.first.HasVideo) {
         await Bot.SendText(OpenId, '尚无可发送的录像');
         return;
       }
@@ -143,7 +155,7 @@ extension AppQQFlow on AppController {
       '| 耗时 | ${Formats.Duration(Match.Duration)} |',
       '| 是否掉线 | ${Match.IsDisconnected ? '是' : '否'} |',
     ];
-    return '# 新对局，${Match.VideoPath != null ? '已成功录制对局' : '未成功录制对局'}\n\n${Stats.join('\n')}';
+    return '# 新对局，${Match.HasVideo ? '已成功录制对局' : '未成功录制对局'}\n\n${Stats.join('\n')}';
   }
 
 }

@@ -1,8 +1,10 @@
-package cn.miodu.splatoon3record
+package com.furlingdu.splatoon3record
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioRecord
+import android.media.AudioTrack
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
@@ -27,8 +29,52 @@ class MobileAudioRecorder(
   private var SampleRate = 48000
   private var Channels = 2
   private var LastPtsUs = 0L
+  @Volatile private var Monitor = false
+  @Volatile private var Player: AudioTrack? = null
   var StartNs = 0L
   var Error: String? = null
+
+  fun SetMonitor(Value: Boolean): Boolean {
+    Monitor = Value
+    if (Value) EnsurePlayer() else ReleasePlayer()
+    return Value
+  }
+
+  private fun EnsurePlayer() {
+    if (Player != null || Recorder == null) return
+    val ChannelMask = if (Channels == 2) AudioFormat.CHANNEL_OUT_STEREO else AudioFormat.CHANNEL_OUT_MONO
+    val Minimum = AudioTrack.getMinBufferSize(SampleRate, ChannelMask, AudioFormat.ENCODING_PCM_16BIT)
+    if (Minimum <= 0) return
+    val Track = try {
+      AudioTrack.Builder()
+        .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
+        .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(SampleRate).setChannelMask(ChannelMask).build())
+        .setTransferMode(AudioTrack.MODE_STREAM)
+        .setBufferSizeInBytes(Minimum * 4)
+        .build()
+    } catch (_: Exception) {
+      null
+    }
+    if (Track == null) return
+    try {
+      Track.play()
+      Player = Track
+    } catch (_: Exception) {
+      Track.release()
+    }
+  }
+
+  private fun ReleasePlayer() {
+    val Track = Player
+    Player = null
+    if (Track != null) {
+      try {
+        Track.stop()
+      } catch (_: Exception) {
+      }
+      Track.release()
+    }
+  }
 
   fun Start(): Long {
     val Target = File(Path)
@@ -36,12 +82,18 @@ class MobileAudioRecorder(
     if (Target.exists()) Target.delete()
     if (!Configure()) throw IllegalStateException(Error ?: "无法初始化音频录制")
     Running.set(true)
+    if (Monitor) EnsurePlayer()
     StartNs = System.nanoTime()
     try {
       Recorder?.startRecording()
     } catch (Failure: Exception) {
       Stop()
       throw Failure
+    }
+    val Routed = Recorder?.routedDevice
+    if (Routed != null && !MobileAudioDevices.IsExternal(Routed)) {
+      Stop()
+      throw IllegalStateException("未能使用采集卡音频")
     }
     Worker = Thread {
       RecordLoop()
@@ -66,7 +118,16 @@ class MobileAudioRecorder(
         continue
       }
       val Target = MobileAudioDevices.Find(ContextValue, DeviceId)
-      if (Target != null) Record.setPreferredDevice(Target)
+      if (Target == null) {
+        Record.release()
+        Error = "未找到采集卡音频"
+        continue
+      }
+      if (!Record.setPreferredDevice(Target)) {
+        Record.release()
+        Error = "无法切换到采集卡音频"
+        continue
+      }
       val CodecRef = try {
         MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
       } catch (Failure: Exception) {
@@ -117,6 +178,15 @@ class MobileAudioRecorder(
             Input.clear()
             val Count = Record.read(Input, Input.capacity())
             if (Count > 0) {
+              if (Monitor) {
+                val Copy = Input.duplicate()
+                Copy.position(0)
+                Copy.limit(Count)
+                try {
+                  Player?.write(Copy, Count, AudioTrack.WRITE_NON_BLOCKING)
+                } catch (_: Exception) {
+                }
+              }
               CodecRef.queueInputBuffer(InputIndex, 0, Count, LastPtsUs, 0)
               LastPtsUs += Count * 1_000_000L / (SampleRate.toLong() * Channels.toLong() * 2L)
             } else {
@@ -204,6 +274,8 @@ class MobileAudioRecorder(
     Muxer = null
     MuxerStarted = false
     Track = -1
+    Monitor = false
+    ReleasePlayer()
     return if (File(Path).exists() && File(Path).length() > 0) Path else null
   }
 }

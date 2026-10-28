@@ -7,6 +7,7 @@ import '../../config/PlatformInfo.dart';
 import '../../domain/Models.dart';
 import '../../format/Formats.dart';
 import '../../media/capture/mobile/MobileModes.dart';
+import '../AppLayout.dart';
 import '../AppTheme.dart';
 import '../Controls.dart';
 import '../NSOLoginPanel.dart';
@@ -28,6 +29,7 @@ class SetupPageState extends State<SetupPage> {
   late int Height;
   late int Fps;
   late String MobileDevice;
+  late String MobileOrientation;
   List<CaptureMode> Modes = <CaptureMode>[];
   bool ModesLoading = false;
   bool DevicesLoading = false;
@@ -43,6 +45,7 @@ class SetupPageState extends State<SetupPage> {
     Height = Settings.Height;
     Fps = Settings.Fps;
     MobileDevice = Settings.MobileDevice;
+    MobileOrientation = Settings.MobileOrientation;
     if (PlatformInfo.Mobile && MobileDevice.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => LoadMobileModes());
     }
@@ -152,7 +155,12 @@ class SetupPageState extends State<SetupPage> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 640),
             child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(MediaQuery.sizeOf(context).width < 640 ? 20 : 32, 24, MediaQuery.sizeOf(context).width < 640 ? 20 : 32, 40),
+              padding: EdgeInsets.fromLTRB(
+                MediaQuery.sizeOf(context).width < 640 ? 20 : 32,
+                MediaQuery.paddingOf(context).top + 24,
+                MediaQuery.sizeOf(context).width < 640 ? 20 : 32,
+                40 + MediaQuery.paddingOf(context).bottom,
+              ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
                 Row(children: <Widget>[
                   Image.asset('assets/images/AppIcon.png', width: 56, height: 56),
@@ -199,8 +207,17 @@ class SetupPageState extends State<SetupPage> {
                       Display: (Value) => '$Value fps',
                       OnChanged: (Value) => setState(() => Fps = Value),
                     ),
+                    if (PlatformInfo.IOS)
+                      AppSelect<String>(
+                        Label: '画面方向',
+                        Value: MobileOrientation,
+                        Items: const <String>['auto', 'landscape', 'portrait', 'landscapeFlipped', 'portraitFlipped'],
+                        Display: Formats.OrientationName,
+                        OnChanged: (Value) => setState(() => MobileOrientation = Value),
+                      ),
                   ],
                   if (ModesError != null) AppHint(ModesError!, Error: true),
+                  const SizedBox(height: 8),
                   AppButton(
                     Label: '下一步',
                     Enabled: ModeReady(),
@@ -211,6 +228,7 @@ class SetupPageState extends State<SetupPage> {
                         'width': Width,
                         'height': Height,
                         'fps': Fps,
+                        'mobileOrientation': MobileOrientation,
                       });
                       setState(() => Step = 1);
                     },
@@ -240,7 +258,7 @@ class SetupPageState extends State<SetupPage> {
                     Expanded(child: AppTextField(Label: '录制帧率', Value: '$Fps fps', ReadOnly: true)),
                   ]),
                   AppFormSwitch(Label: '垂直翻转画面', Value: widget.Controller.SettingsValue.FlipVertical, OnChanged: (Value) => Save(<String, dynamic>{'flipVertical': Value})),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 16),
                   AppButton(Label: '下一步', OnPressed: () async {
                     await Save(<String, dynamic>{'videoDevice': VideoDevice, 'audioDevice': AudioDevice});
                     setState(() => Step = 1);
@@ -264,7 +282,7 @@ class SetupPageState extends State<SetupPage> {
                 ],
                 if (Step == Total - 1) ...<Widget>[
                   const AppSectionTitle('绑定 QQBot'),
-                  Text('绑定后可将对局录像推送到你的 QQ。点击按钮获取二维码，并使用创建机器人的 QQ 扫码授权。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.6)),
+                  Text('绑定后可将对局录像推送到你的 QQ。点击按钮获取二维码，使用创建机器人的 QQ 扫码授权，并在机器人私聊窗口发送 /bind 完成绑定。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.6)),
                   const SizedBox(height: 16),
                   AppButton(Label: '获取绑定机器人二维码', OnPressed: () => widget.Controller.StartQQLogin()),
                   if (widget.Controller.Status?.QrCode != null) ...<Widget>[
@@ -274,16 +292,15 @@ class SetupPageState extends State<SetupPage> {
                   const SizedBox(height: 16),
                   StatusBox(Label: '当前状态', Value: Formats.BindingState(widget.Controller.Status?.QQState ?? 'unbound')),
                   StatusBox(Label: '推送用户', Value: widget.Controller.Status?.QQOwner == null ? '未绑定' : '已绑定'),
-                  if (Mobile && !widget.Controller.QQReady) const AppHint('QQBot 连接成功后才能完成配置。', Error: true),
                   const SizedBox(height: 24),
                   Row(children: <Widget>[
                     AppButton(Label: '上一步', Kind: AppButtonKind.Text, OnPressed: () => setState(() => Step = Step - 1)),
                     const SizedBox(width: 12),
-                    AppButton(Label: '完成并进入应用', Enabled: !Mobile || widget.Controller.QQReady, OnPressed: () => widget.Controller.FinishSetup()),
+                    AppButton(Label: '完成并进入应用', Enabled: widget.Controller.QQReady, OnPressed: () => widget.Controller.FinishSetup()),
                   ]),
                 ],
                 const SizedBox(height: 24),
-                if (!Mobile)
+                if (!Mobile || AppLayout.Tablet(context))
                   Align(
                     alignment: Alignment.bottomRight,
                     child: Opacity(

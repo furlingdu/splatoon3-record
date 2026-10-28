@@ -1,6 +1,6 @@
 import AVFoundation
 
-final class MobileCaptureExport {
+final class CaptureExport {
   static func Run(Input: String, Output: String, Completion: @escaping (Bool) -> Void) {
     let Source = URL(fileURLWithPath: Input)
     let Target = URL(fileURLWithPath: Output)

@@ -67,8 +67,9 @@ void main() {
   test('Setup gating needs NSO and QQBot connectivity', () {
     expect(SetupGating.NSOReady(<NSOAccount>[Account('expired')]), false);
     expect(SetupGating.NSOReady(<NSOAccount>[Account('expired'), Account('connected')]), true);
-    expect(SetupGating.QQReady('connecting'), false);
-    expect(SetupGating.QQReady('connected'), true);
+    expect(SetupGating.QQReady('connecting', true), false);
+    expect(SetupGating.QQReady('connected', false), false);
+    expect(SetupGating.QQReady('connected', true), true);
     final Items = <CaptureMode>[Mode(1920, 1080, 60, 'mjpeg')];
     expect(SetupGating.ModeReady(Items, 1920, 1080, 60), true);
     expect(SetupGating.ModeReady(Items, 1920, 1080, 30), false);

@@ -68,6 +68,7 @@ abstract final class MobileCapture {
     required int Fps,
     required bool Audio,
     String AudioDevice = '',
+    String Orientation = 'auto',
   }) async {
     final Raw = await Channel.invokeMethod<Map<dynamic, dynamic>>('Prepare', <String, dynamic>{
       'device': Device,
@@ -76,6 +77,7 @@ abstract final class MobileCapture {
       'fps': Fps,
       'audio': Audio,
       'audioDevice': AudioDevice,
+      'orientation': Orientation,
     });
     if (Raw == null) throw const MobileCaptureException('无法打开采集设备');
     return MobileCaptureMode.FromMap(Raw);
@@ -93,11 +95,15 @@ abstract final class MobileCapture {
     await Channel.invokeMethod<void>('Dispose');
   }
 
+  static Future<void> SetMonitor(bool Enabled) async {
+    await Channel.invokeMethod<void>('SetMonitor', <String, dynamic>{'enabled': Enabled});
+  }
+
   static Future<bool> Export(String Input, String Output) async {
     return await Channel.invokeMethod<bool>('Export', <String, dynamic>{'input': Input, 'output': Output}) ?? false;
   }
 
-  static Widget Preview() {
-    return const UiKitView(viewType: 'splatoon3record/capture_preview');
+  static Widget Preview({Key? Key}) {
+    return UiKitView(key: Key, viewType: 'splatoon3record/capture_preview');
   }
 }

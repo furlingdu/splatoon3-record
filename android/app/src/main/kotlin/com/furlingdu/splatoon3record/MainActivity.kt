@@ -1,4 +1,4 @@
-package cn.miodu.splatoon3record
+package com.furlingdu.splatoon3record
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -15,6 +15,7 @@ import java.util.concurrent.Executors
 class MainActivity : FlutterActivity() {
   private var Audio: MobileAudioRecorder? = null
   private var PendingPermission: MethodChannel.Result? = null
+  private var PendingGallery: Pair<MethodChannel.Result, String>? = null
   private val Worker: ExecutorService = Executors.newSingleThreadExecutor()
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,6 +71,10 @@ class MainActivity : FlutterActivity() {
             }
           }
         }
+        "SetMonitor" -> {
+          val Enabled = Call.argument<Boolean>("enabled") ?: false
+          Result.success(Audio?.SetMonitor(Enabled) ?: false)
+        }
         "Mux" -> {
           val Video = Call.argument<String>("video") ?: ""
           val AudioPath = Call.argument<String>("audio") ?: ""
@@ -78,6 +83,26 @@ class MainActivity : FlutterActivity() {
           Worker.execute {
             val Ok = MobileMediaMuxer.Mux(Video, AudioPath, Output, Offset)
             runOnUiThread { Result.success(Ok) }
+          }
+        }
+        else -> Result.notImplemented()
+      }
+    }
+    MethodChannel(Engine.dartExecutor.binaryMessenger, "splatoon3record/mobile_media").setMethodCallHandler { Call, Result ->
+      when (Call.method) {
+        "SaveVideo" -> {
+          val Path = Call.argument<String>("path") ?: ""
+          if (Path.isEmpty()) {
+            Result.error("media", "path is required", null)
+          } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            PendingGallery?.first?.success(false)
+            PendingGallery = Result to Path
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), GalleryPermissionRequest)
+          } else {
+            Worker.execute {
+              val Ok = MobileMediaStore.SaveVideo(this, Path)
+              runOnUiThread { Result.success(Ok) }
+            }
           }
         }
         else -> Result.notImplemented()
@@ -97,10 +122,25 @@ class MainActivity : FlutterActivity() {
 
   override fun onRequestPermissionsResult(RequestCode: Int, Permissions: Array<out String>, GrantResults: IntArray) {
     super.onRequestPermissionsResult(RequestCode, Permissions, GrantResults)
+    val Granted = GrantResults.isNotEmpty() && GrantResults[0] == PackageManager.PERMISSION_GRANTED
+    if (RequestCode == GalleryPermissionRequest) {
+      val Pending = PendingGallery
+      PendingGallery = null
+      if (Pending == null) return
+      if (!Granted) {
+        Pending.first.success(false)
+        return
+      }
+      val Path = Pending.second
+      Worker.execute {
+        val Ok = MobileMediaStore.SaveVideo(this, Path)
+        runOnUiThread { Pending.first.success(Ok) }
+      }
+      return
+    }
     if (RequestCode != AudioPermissionRequest) return
     val Result = PendingPermission
     PendingPermission = null
-    val Granted = GrantResults.isNotEmpty() && GrantResults[0] == PackageManager.PERMISSION_GRANTED
     Result?.success(Granted)
   }
 
@@ -127,5 +167,6 @@ class MainActivity : FlutterActivity() {
 
   companion object {
     private const val AudioPermissionRequest = 9002
+    private const val GalleryPermissionRequest = 9003
   }
 }

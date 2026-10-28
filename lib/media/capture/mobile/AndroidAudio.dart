@@ -28,6 +28,10 @@ class AndroidAudio {
     return Channel.invokeMethod<String>('Stop');
   }
 
+  static Future<bool> SetMonitor(bool Value) async {
+    return await Channel.invokeMethod<bool>('SetMonitor', <String, dynamic>{'enabled': Value}) ?? false;
+  }
+
   static Future<int> MonotonicNs() async {
     return await Channel.invokeMethod<int>('MonotonicNs') ?? 0;
   }

@@ -37,6 +37,11 @@ extension AppPlatformFlow on AppController {
       Notify();
       return;
     }
+    if (!QQReady) {
+      Notice = '请在机器人私聊窗口发送 /bind 完成 QQBot 绑定';
+      Notify();
+      return;
+    }
     final Next = AppConfig(
       Settings: SettingsValue,
       PushEnabled: Configs.Current.PushEnabled,
@@ -60,20 +65,27 @@ extension AppPlatformFlow on AppController {
 
   Future<void> PickBackground() async {
     try {
-      await windowManager.focus();
-      final Type = const XTypeGroup(label: '图片', extensions: <String>['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp']);
-      final FileRef = await openFile(acceptedTypeGroups: <XTypeGroup>[Type], confirmButtonText: '选择背景图片');
-      if (FileRef == null) return;
-      final Info = await File(FileRef.path).stat();
+      String? SourcePath;
+      if (PlatformInfo.Mobile) {
+        final Picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 95);
+        SourcePath = Picked?.path;
+      } else {
+        await windowManager.focus();
+        final Type = const XTypeGroup(label: '图片', extensions: <String>['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp']);
+        final FileRef = await openFile(acceptedTypeGroups: <XTypeGroup>[Type], confirmButtonText: '选择背景图片');
+        SourcePath = FileRef?.path;
+      }
+      if (SourcePath == null) return;
+      final Info = await File(SourcePath).stat();
       if (Info.size > 20 * 1024 * 1024) {
         Notice = '背景图片超过 20MB 或无法读取';
         Notify();
         return;
       }
       await Directory(Directories.Backgrounds).create(recursive: true);
-      final Ext = FileRef.path.contains('.') ? FileRef.path.substring(FileRef.path.lastIndexOf('.')) : '.png';
+      final Ext = SourcePath.contains('.') ? SourcePath.substring(SourcePath.lastIndexOf('.')) : '.png';
       final Target = '${Directories.Backgrounds}${Platform.pathSeparator}background-${DateTime.now().millisecondsSinceEpoch}$Ext';
-      await File(FileRef.path).copy(Target);
+      await File(SourcePath).copy(Target);
       await SaveSettings(SettingsValue.Copy(<String, dynamic>{'backgroundPath': Target}));
     } catch (Cause) {
       Notice = '选择背景图片失败：$Cause';
