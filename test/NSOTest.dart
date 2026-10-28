@@ -62,6 +62,10 @@ void main() {
     expect(Fragment, isNotNull);
     expect(Fragment!.Code, 'fragment-code');
     expect(Fragment.State, 'fragment-state');
+    final Html = NSOAuthCallback.ParseInput('npf71b963c1b7b6d119://auth#state=html-state&amp;session_token_code=html-code');
+    expect(Html, isNotNull);
+    expect(Html!.Code, 'html-code');
+    expect(Html.State, 'html-state');
     expect(NSOAuthCallback.ParseInput('https://example.com/'), isNull);
     expect(NSOAuthCallback.ParseInput('no callback here'), isNull);
   });

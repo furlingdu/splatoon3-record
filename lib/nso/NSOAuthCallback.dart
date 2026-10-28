@@ -23,12 +23,15 @@ class NSOAuthCallback {
       Decoded.replaceAll('&amp;', '&'),
       if (Decoded.contains('npf')) Decoded.substring(Decoded.indexOf('npf')).trim(),
     };
+    NSOAuthCallback? Partial;
     for (final Candidate in Candidates) {
       if (Candidate.isEmpty) continue;
       final Callback = _ParseText(Candidate);
-      if (Callback != null) return Callback;
+      if (Callback == null) continue;
+      if (Callback.Code.isNotEmpty || Callback.Error.isNotEmpty) return Callback;
+      Partial ??= Callback;
     }
-    return null;
+    return Partial;
   }
 
   static NSOAuthCallback? _ParseText(String Text) {
