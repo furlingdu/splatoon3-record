@@ -7,6 +7,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   ffmpeg_kit_flutter_new_min_gpl
   file_selector_linux
   flutter_ffi_uvc
+  linux_capture
   media_kit_libs_linux
   media_kit_video
   screen_retriever_linux

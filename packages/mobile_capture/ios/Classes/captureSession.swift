@@ -302,15 +302,6 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
   private func AttachAudio() {
     if AudioOutput != nil { return }
     let Data = AVCaptureAudioDataOutput()
-    Data.audioSettings = [
-      AVFormatIDKey: kAudioFormatLinearPCM,
-      AVSampleRateKey: 48000.0,
-      AVNumberOfChannelsKey: 2,
-      AVLinearPCMBitDepthKey: 16,
-      AVLinearPCMIsFloatKey: false,
-      AVLinearPCMIsBigEndianKey: false,
-      AVLinearPCMIsNonInterleaved: false,
-    ]
     Data.setSampleBufferDelegate(self, queue: MonitorQueue)
     if Session.canAddOutput(Data) {
       Session.addOutput(Data)
@@ -381,19 +372,14 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
 
   private func CopyAudio(_ SampleBuffer: CMSampleBuffer, To Buffer: AVAudioPCMBuffer, Format: AVAudioFormat) -> Bool {
     guard let Description = CMSampleBufferGetFormatDescription(SampleBuffer),
-          let Stream = CMAudioFormatDescriptionGetStreamBasicDescription(Description)?.pointee else { return false }
-    var StreamValue = Stream
-    guard let SourceFormat = AVAudioFormat(streamDescription: &StreamValue) else { return false }
+          var Stream = CMAudioFormatDescriptionGetStreamBasicDescription(Description)?.pointee else { return false }
+    guard let SourceFormat = AVAudioFormat(streamDescription: &Stream) else { return false }
     let Frames = CMSampleBufferGetNumSamples(SampleBuffer)
     if Frames <= 0 { return false }
-    guard SourceFormat.isInterleaved else { return false }
     guard let Input = AVAudioPCMBuffer(pcmFormat: SourceFormat, frameCapacity: AVAudioFrameCount(Frames)) else { return false }
     Input.frameLength = AVAudioFrameCount(Frames)
-    guard let Block = CMSampleBufferGetDataBuffer(SampleBuffer) else { return false }
-    let Targets = UnsafeMutableAudioBufferListPointer(Input.mutableAudioBufferList)
-    guard Targets.count > 0, let Target = Targets[0].mData else { return false }
-    let Length = min(CMBlockBufferGetDataLength(Block), Int(Targets[0].mDataByteSize))
-    if CMBlockBufferCopyDataBytes(Block, atOffset: 0, dataLength: Length, destination: Target) != noErr { return false }
+    let Copied = CMSampleBufferCopyPCMDataIntoAudioBufferList(SampleBuffer, at: 0, frameCount: Int32(Frames), into: Input.mutableAudioBufferList)
+    if Copied != noErr { return false }
     guard let Converter = AVAudioConverter(from: SourceFormat, to: Format) else { return false }
     var ConversionError: NSError?
     var Consumed = false
