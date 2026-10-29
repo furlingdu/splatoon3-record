@@ -19,6 +19,8 @@ class FlutterWindow : public Win32Window {
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
 
+  void SetShowOnFirstFrame(bool show);
+
  protected:
   // Win32Window:
   bool OnCreate() override;
@@ -34,6 +36,8 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 
   std::unique_ptr<Capture::CaptureHost> capture_host_;
+
+  bool show_on_first_frame_ = true;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

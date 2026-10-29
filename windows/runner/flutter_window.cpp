@@ -10,6 +10,10 @@ FlutterWindow::FlutterWindow(const flutter::DartProject& project)
 
 FlutterWindow::~FlutterWindow() {}
 
+void FlutterWindow::SetShowOnFirstFrame(bool show) {
+  show_on_first_frame_ = show;
+}
+
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
@@ -30,7 +34,9 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    if (show_on_first_frame_) {
+      this->Show();
+    }
   });
 
   // Flutter can complete the first frame before the "show window" callback is
