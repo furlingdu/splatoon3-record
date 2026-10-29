@@ -185,15 +185,19 @@ class LogStore {
 
   final AppDirectories Directories;
 
-  Future<void> Write(String Name, String Message) async {
-    try {
-      await Directory(Directories.Logs).create(recursive: true);
-      await File('${Directories.Logs}${Platform.pathSeparator}$Name.log').writeAsString(
-        '${DateTime.now().toIso8601String()} $Message\n',
-        mode: FileMode.append,
-        flush: true,
-      );
-    } catch (_) {}
+  final Map<String, Future<void>> Writes = <String, Future<void>>{};
+
+  Future<void> Write(String Name, String Message) {
+    final Path = '${Directories.Logs}${Platform.pathSeparator}$Name.log';
+    final Previous = Writes[Name] ?? Future<void>.value();
+    final Next = Previous.then((_) async {
+      try {
+        await Directory(Directories.Logs).create(recursive: true);
+        await File(Path).writeAsString('${DateTime.now().toIso8601String()} $Message\n', mode: FileMode.append, flush: true);
+      } catch (_) {}
+    });
+    Writes[Name] = Next;
+    return Next;
   }
 
   Future<void> App(String Message) => Write('app', Message);

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
@@ -10,6 +11,7 @@ import '../config/system.dart';
 import '../domain/models.dart';
 import '../format/formats.dart';
 import '../match/stats.dart';
+import '../media/capture/mobile/mobileMedia.dart';
 import 'layout.dart';
 import 'motion.dart';
 import 'theme.dart';
@@ -33,14 +35,22 @@ class AppRoot extends StatefulWidget {
   State<AppRoot> createState() => AppRootState();
 }
 
-class AppRootState extends State<AppRoot> {
+class AppRootState extends State<AppRoot> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldMessengerState> MessengerKey = GlobalKey<ScaffoldMessengerState>();
 
   @override
   void initState() {
     super.initState();
     widget.Controller.addListener(OnChanged);
+    WidgetsBinding.instance.addObserver(this);
+    if (PlatformInfo.Mobile) unawaited(MobileMedia.KeepAwake(true));
     widget.Controller.Boot();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState State) {
+    if (!PlatformInfo.Mobile) return;
+    unawaited(MobileMedia.KeepAwake(State == AppLifecycleState.resumed));
   }
 
   String? _LastNotice;
@@ -61,6 +71,8 @@ class AppRootState extends State<AppRoot> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (PlatformInfo.Mobile) unawaited(MobileMedia.KeepAwake(false));
     widget.Controller.removeListener(OnChanged);
     super.dispose();
   }
@@ -122,6 +134,7 @@ class ShellViewState extends State<ShellView> {
   bool? LastWide;
   bool ShowTop = false;
   final ScrollController Scroll = ScrollController();
+  final ScrollController StatusScroll = ScrollController();
 
   @override
   void initState() {
@@ -131,7 +144,33 @@ class ShellViewState extends State<ShellView> {
     }
   }
 
+  @override
+  void dispose() {
+    StatusScroll.dispose();
+    super.dispose();
+  }
+
   Future<void> _SetupWindow() async {}
+
+  Widget PageScroll(ScrollController Controller, Widget Child) {
+    return NotificationListener<ScrollNotification>(
+      onNotification: (Notification) {
+        final Next = Notification.metrics.pixels > 240;
+        if (Next != ShowTop) setState(() => ShowTop = Next);
+        return false;
+      },
+      child: Scrollbar(
+        controller: Controller,
+        thumbVisibility: false,
+        child: SingleChildScrollView(controller: Controller, child: Child),
+      ),
+    );
+  }
+
+  void ScrollTop(String Page) {
+    final Target = Page == 'status' ? StatusScroll : Scroll;
+    if (Target.hasClients) Target.jumpTo(0);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -189,7 +228,7 @@ class ShellViewState extends State<ShellView> {
                   Controller: Controller,
                   OnSelect: (Value) {
                     Controller.Navigate(Value);
-                    WidgetsBinding.instance.addPostFrameCallback((_) => Scroll.jumpTo(0));
+                    WidgetsBinding.instance.addPostFrameCallback((_) => ScrollTop(Value));
                     if (ShowTop) setState(() => ShowTop = false);
                     if (!Wide) setState(() => DrawerOpen = false);
                   },
@@ -202,33 +241,46 @@ class ShellViewState extends State<ShellView> {
               right: 0,
               top: TopHeight,
               bottom: 0,
-              child: NotificationListener<ScrollNotification>(
-                onNotification: (Notification) {
-                  final Next = Notification.metrics.pixels > 240;
-                  if (Next != ShowTop) setState(() => ShowTop = Next);
-                  return false;
-                },
-                child: Scrollbar(
-                  controller: Scroll,
-                  thumbVisibility: false,
-                  child: SingleChildScrollView(
-                    controller: Scroll,
-                    child: PlatformInfo.Mobile && Page == 'status'
-                        ? RepaintBoundary(child: BuildPage(Page, Controller))
-                        : TweenAnimationBuilder<double>(
-                            key: ValueKey<String>(Page),
-                            tween: Tween<double>(begin: 0.0, end: 1.0),
-                            duration: AppMotion.PageDuration,
-                            curve: AppMotion.PageCurve,
-                            builder: (Context, Value, Child) => Opacity(
-                              opacity: Value,
-                              child: Transform.translate(offset: Offset(0, AppMotion.PageOffset * (1 - Value)), child: Child),
+              child: PlatformInfo.Mobile
+                  ? Stack(children: <Widget>[
+                      Positioned.fill(
+                        child: Offstage(
+                          offstage: Page != 'status',
+                          child: PageScroll(StatusScroll, RepaintBoundary(child: StatusPage(Controller: Controller))),
+                        ),
+                      ),
+                      if (Page != 'status')
+                        Positioned.fill(
+                          child: PageScroll(
+                            Scroll,
+                            TweenAnimationBuilder<double>(
+                              key: ValueKey<String>(Page),
+                              tween: Tween<double>(begin: 0.0, end: 1.0),
+                              duration: AppMotion.PageDuration,
+                              curve: AppMotion.PageCurve,
+                              builder: (Context, Value, Child) => Opacity(
+                                opacity: Value,
+                                child: Transform.translate(offset: Offset(0, AppMotion.PageOffset * (1 - Value)), child: Child),
+                              ),
+                              child: RepaintBoundary(child: BuildPage(Page, Controller)),
                             ),
-                            child: RepaintBoundary(child: BuildPage(Page, Controller)),
                           ),
-                  ),
-                ),
-              ),
+                        ),
+                    ])
+                  : PageScroll(
+                      Scroll,
+                      TweenAnimationBuilder<double>(
+                        key: ValueKey<String>(Page),
+                        tween: Tween<double>(begin: 0.0, end: 1.0),
+                        duration: AppMotion.PageDuration,
+                        curve: AppMotion.PageCurve,
+                        builder: (Context, Value, Child) => Opacity(
+                          opacity: Value,
+                          child: Transform.translate(offset: Offset(0, AppMotion.PageOffset * (1 - Value)), child: Child),
+                        ),
+                        child: RepaintBoundary(child: BuildPage(Page, Controller)),
+                      ),
+                    ),
             ),
             if (Page == 'matches' && ShowTop)
               Positioned(

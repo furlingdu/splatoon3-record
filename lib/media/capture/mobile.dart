@@ -30,6 +30,11 @@ class MobileCaptureService implements CapturePlatform {
   final List<MobileCaptureSource> Sources;
   StreamSubscription<dynamic>? Events;
   void Function(String Message)? OnLog;
+  RecordSettings? LastSettings;
+  bool Stopping = false;
+  bool Recovered = false;
+  bool AutoRecover = false;
+  bool PendingIdle = false;
 
   void HandleEvent(dynamic Value) {
     if (Value is! Map) return;
@@ -38,9 +43,36 @@ class MobileCaptureService implements CapturePlatform {
     if (Text.isEmpty) return;
     if (Type == 'state') {
       OnLog?.call('采集状态：$Text');
+      if (Text == 'idle') {
+        if (_State.value == 'recording' && !Stopping) {
+          final Value = LastSettings;
+          if (!Recovered && Value != null) {
+            Recovered = true;
+            _State.value = 'idle';
+            OnLog?.call('录制意外中断，正在自动恢复');
+            unawaited(ResumeRecording(Value));
+          } else {
+            _State.value = 'error';
+            _Error.value = '录制意外中断，请检查采集卡连接后点击重试采集';
+          }
+        } else if (_State.value == 'starting' && !Stopping) {
+          PendingIdle = true;
+        }
+      }
       return;
     }
     OnLog?.call(Text);
+  }
+
+  Future<void> ResumeRecording(RecordSettings Value) async {
+    await Future<void>.delayed(const Duration(seconds: 1));
+    if (_State.value != 'idle') return;
+    AutoRecover = true;
+    try {
+      await Start(Value);
+    } finally {
+      AutoRecover = false;
+    }
   }
 
   final ValueNotifier<String?> _Error = ValueNotifier<String?>(null);
@@ -169,6 +201,9 @@ class MobileCaptureService implements CapturePlatform {
     await Stop(Fast: true);
     _Error.value = null;
     _State.value = 'starting';
+    LastSettings = Value;
+    PendingIdle = false;
+    if (!AutoRecover) Recovered = false;
     OnLog?.call('移动端开始采集 source=${Value.MobileSource} device=${Value.MobileDevice} audio=${Value.MobileAudio} audioDevice=${Value.MobileAudioDevice} monitor=${Value.MonitorAudio} ${Value.Width}x${Value.Height}@${Value.Fps}');
     final Source = SourceFor(Value);
     if (Source == null) {
@@ -195,6 +230,19 @@ class MobileCaptureService implements CapturePlatform {
       if (Value.MonitorAudio) await Engine.Monitor(true);
       Segments = Engine.Segments;
       _State.value = 'recording';
+      if (PendingIdle) {
+        PendingIdle = false;
+        OnLog?.call('录制启动后立即中断');
+        _State.value = 'idle';
+        if (!Recovered) {
+          Recovered = true;
+          unawaited(ResumeRecording(Value));
+        } else {
+          _State.value = 'error';
+          _Error.value = '录制意外中断，请检查采集卡连接后点击重试采集';
+        }
+        return;
+      }
       _PreviewActive.value = true;
       _LatestRecord.value = null;
       ActiveDeviceId = Device.Id;
@@ -264,6 +312,7 @@ class MobileCaptureService implements CapturePlatform {
 
   @override
   Future<void> Stop({bool Fast = false}) async {
+    Stopping = true;
     OnLog?.call('移动端停止采集 state=${_State.value}');
     DeviceClock?.cancel();
     DeviceClock = null;
@@ -290,6 +339,7 @@ class MobileCaptureService implements CapturePlatform {
     _PreviewActive.value = false;
     _Stats.value = null;
     _State.value = 'idle';
+    Stopping = false;
   }
 
   @override

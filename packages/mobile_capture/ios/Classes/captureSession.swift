@@ -33,10 +33,26 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
   override init() {
     super.init()
     NotificationCenter.default.addObserver(self, selector: #selector(RouteChanged(_:)), name: AVAudioSession.routeChangeNotification, object: nil)
+    NotificationCenter.default.addObserver(self, selector: #selector(SessionInterrupted(_:)), name: AVCaptureSession.wasInterruptedNotification, object: Session)
+    NotificationCenter.default.addObserver(self, selector: #selector(SessionResumed(_:)), name: AVCaptureSession.interruptionEndedNotification, object: Session)
+    NotificationCenter.default.addObserver(self, selector: #selector(SessionFailed(_:)), name: AVCaptureSession.runtimeErrorNotification, object: Session)
   }
 
   deinit {
     NotificationCenter.default.removeObserver(self)
+  }
+
+  @objc private func SessionInterrupted(_ Note: Notification) {
+    OnLog?("采集会话被系统中断")
+  }
+
+  @objc private func SessionResumed(_ Note: Notification) {
+    OnLog?("采集会话中断结束")
+  }
+
+  @objc private func SessionFailed(_ Note: Notification) {
+    let Failure = Note.userInfo?[AVCaptureSessionErrorKey] as? NSError
+    OnLog?("采集会话错误：\(Failure?.localizedDescription ?? "未知")")
   }
 
   @objc private func RouteChanged(_ Note: Notification) {
@@ -220,6 +236,20 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
         DispatchQueue.main.async { Completion(nil, "未找到 USB 采集设备，需要 iPadOS 17 或更高版本") }
         return
       }
+      var AudioPort: AVAudioSessionPortDescription?
+      if Audio {
+        AudioPort = self.InputPort(AudioDeviceId)
+        if let Port = AudioPort {
+          self.PreferredInputId = Port.uid
+          try? self.AudioSession.setPreferredInput(Port)
+          self.OnLog?("音频路由选择：\(Port.portName)（\(Port.portType.rawValue)）")
+          let Deadline = Date().addingTimeInterval(1.5)
+          while Date() < Deadline, self.AudioSession.currentRoute.inputs.first?.uid != Port.uid {
+            Thread.sleep(forTimeInterval: 0.05)
+          }
+          self.OnLog?("当前音频路由：\(self.AudioSession.currentRoute.inputs.first?.portName ?? "无")")
+        }
+      }
       if self.Session.isRunning { self.Session.stopRunning() }
       self.Session.beginConfiguration()
       self.Session.sessionPreset = .inputPriority
@@ -253,9 +283,8 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
         Device.unlockForConfiguration()
       } catch {
       }
-      if Audio, let Port = self.InputPort(AudioDeviceId) {
-        try? self.AudioSession.setPreferredInput(Port)
-        self.OnLog?("音频路由选择：\(Port.portName)（\(Port.portType.rawValue)）")
+      if Audio, let Port = AudioPort {
+        self.OnLog?("音频路由确认：\(Port.portName)")
         if let Old = self.AudioInput {
           self.Session.removeInput(Old)
           self.AudioInput = nil
@@ -496,6 +525,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
 
   func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
     let Path = error == nil ? outputFileURL.path : nil
+    OnLog?("录制分段结束 error=\(error?.localizedDescription ?? "无") path=\(Path ?? "无效")")
     let Callback = Pending
     Pending = nil
     OnState?("idle")

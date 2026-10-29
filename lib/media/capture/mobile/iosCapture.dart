@@ -83,13 +83,14 @@ class IosCaptureSource implements MobileCaptureSource {
   @override
   Future<CaptureMode> Prepare(CaptureDevice Device, CaptureMode Mode, RecordSettings Value) async {
     await Release();
+    final AudioId = Value.MobileAudioDevice.startsWith('audio:') ? Value.MobileAudioDevice.substring('audio:'.length) : Value.MobileAudioDevice;
     final Result = await MobileCapture.Prepare(
       Device: Device.Id.split(':').last,
       Width: Mode.Width,
       Height: Mode.Height,
       Fps: Mode.MaxFps,
       Audio: Value.MobileAudio,
-      AudioDevice: Value.MobileAudioDevice.contains(':') ? Value.MobileAudioDevice.split(':').last : Value.MobileAudioDevice,
+      AudioDevice: AudioId,
       Orientation: Value.MobileOrientation,
     );
     Ready = true;

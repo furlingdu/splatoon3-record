@@ -1,5 +1,6 @@
 import AVFoundation
 import Flutter
+import UIKit
 
 @objc public class MobileCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   private let Capture = CaptureSession()
@@ -86,6 +87,9 @@ import Flutter
       }
     case "SetMonitor":
       Capture.Monitor(Arguments["enabled"] as? Bool ?? false)
+      result(nil)
+    case "KeepAwake":
+      UIApplication.shared.isIdleTimerDisabled = Arguments["enabled"] as? Bool ?? false
       result(nil)
     default:
       result(FlutterMethodNotImplemented)

@@ -105,6 +105,12 @@ class MainActivity : FlutterActivity() {
             }
           }
         }
+        "KeepAwake" -> {
+          val Enabled = Call.argument<Boolean>("enabled") ?: false
+          val Flag = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+          if (Enabled) window.addFlags(Flag) else window.clearFlags(Flag)
+          Result.success(true)
+        }
         else -> Result.notImplemented()
       }
     }
