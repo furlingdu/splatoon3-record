@@ -83,24 +83,115 @@ class AboutPage extends StatelessWidget {
 
   Future<void> SaveReport(BuildContext Context) async {
     final Status = Controller.Status;
-    final Text = <String>[
-      'Splatoon3 Record 设备反馈信息',
+    final Settings = Controller.SettingsValue;
+    final Devices = Controller.Devices;
+    final Videos = Devices.where((Item) => Item.Kind == 'video').toList();
+    final Audios = Devices.where((Item) => Item.Kind == 'audio').toList();
+    final Stats = Controller.Capture.Stats.value ?? const <String, dynamic>{};
+    final Accounts = Controller.Accounts;
+    final Records = Controller.Archive.Matches;
+    final Size = MediaQuery.sizeOf(Context);
+    final Ratio = MediaQuery.devicePixelRatioOf(Context);
+    final Insets = MediaQuery.paddingOf(Context);
+    final Now = DateTime.now();
+    final Offset = Now.timeZoneOffset;
+    String NameOf(String Id) {
+      if (Id.isEmpty) return '未选择';
+      for (final Item in Devices) {
+        if (Item.Id == Id) return '${Item.Name}（$Id）';
+      }
+      return Id;
+    }
+
+    String TimeText(int? Value) => Value == null ? '无' : Formats.DateTimeText(Value);
+    final Lines = <String>[
+      'Splatoon3 Record 反馈报告',
+      '生成时间：${Now.toIso8601String()}',
+      '',
+      '===== 应用 =====',
       '应用版本：${Controller.Version}',
       'Flutter：3.47.8',
-      'Dart：3.13.7',
+      'Dart：${Platform.version}',
       '系统：${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
-      '采集卡：${Controller.Devices.where((Item) => Item.Kind == 'video').map((Item) => Item.Name).join('、')}',
-      '已选采集卡：${Status?.Settings.VideoDevice ?? '未选择'}',
-      '视频设备：${Controller.Devices.where((Item) => Item.Kind == 'video').length}',
-      '音频设备：${Controller.Devices.where((Item) => Item.Kind == 'audio').length}',
-      '采集画面：${Status?.Width ?? 0}x${Status?.Height ?? 0} @ ${Formats.Fps(Status?.Fps ?? 0)}',
-      '录制编码格式：${Status?.StreamEncoder ?? '未知'}',
-      '录制质量：${Status?.Settings.Quality ?? '未知'}',
-      '捕获方式：${Status?.Settings.CaptureMode == 'rtmp' ? 'RTMP' : '软件内捕获'}',
+      '处理器核心：${Platform.numberOfProcessors}',
+      '时区：${Now.timeZoneName}（${Offset.inMinutes >= 0 ? '+' : '-'}${(Offset.inMinutes.abs() ~/ 60).toString().padLeft(2, '0')}:${(Offset.inMinutes.abs() % 60).toString().padLeft(2, '0')}）',
+      '屏幕：${Size.width.toStringAsFixed(0)}x${Size.height.toStringAsFixed(0)}，像素比 ${Ratio.toStringAsFixed(2)}',
+      '安全区：上 ${Insets.top.toStringAsFixed(0)} / 下 ${Insets.bottom.toStringAsFixed(0)} / 左 ${Insets.left.toStringAsFixed(0)} / 右 ${Insets.right.toStringAsFixed(0)}',
+      '界面类别：${Size.shortestSide >= 600 ? '平板' : '手机'}',
+      '',
+      '===== 采集 =====',
+      '平台：${PlatformInfo.Windows ? 'Windows' : PlatformInfo.MacOS ? 'macOS' : PlatformInfo.Linux ? 'Linux' : PlatformInfo.IOS ? 'iOS' : PlatformInfo.Android ? 'Android' : Platform.operatingSystem}',
+      '捕获方式：${Settings.CaptureMode == 'rtmp' ? 'RTMP' : '软件内捕获'}',
+      '移动端采集来源：${Settings.MobileSource}',
+      '视频设备数量：${Videos.length}',
+      ...Videos.map((Item) => '  视频设备：${Item.Name}（${Item.Id}）'),
+      '音频设备数量：${Audios.length}',
+      ...Audios.map((Item) => '  音频设备：${Item.Name}（${Item.Id}）'),
+      '已选视频设备：${NameOf(PlatformInfo.Mobile ? Settings.MobileDevice : Settings.VideoDevice)}',
+      '已选音频设备：${NameOf(PlatformInfo.Mobile ? Settings.MobileAudioDevice : Settings.AudioDevice)}',
+      '音频录制：${Settings.MobileAudio ? '开' : '关'}',
+      '声音返听：${Settings.MonitorAudio ? '开' : '关'}',
+      '设置分辨率：${Settings.Width}x${Settings.Height} @ ${Settings.Fps}fps',
+      '实际分辨率：${Status?.Width ?? 0}x${Status?.Height ?? 0} @ ${Formats.Fps(Status?.Fps ?? 0)}',
+      '采集像素格式：${Status?.PixelFormat ?? '未知'}',
+      '录制编码：${Status?.Encoder ?? '未知'}',
+      '编码器：${Status?.StreamEncoder ?? '未知'}',
+      '硬件加速：${Status?.HwAccel ?? '未启用'}',
+      '录制质量：${Settings.Quality}',
+      '画面方向：${Settings.MobileOrientation}',
+      '垂直翻转：${Settings.FlipVertical ? '开' : '关'}',
+      '',
+      '===== 录制状态 =====',
+      '录制状态：${Status?.RecordState ?? '未知'}',
+      '录制错误：${Status?.RecordError ?? '无'}',
+      '缓存分段：${Status?.Segments ?? 0}',
+      '缓存开始：${TimeText(Status?.CacheStart)}',
+      '缓存结束：${TimeText(Status?.CacheEnd)}',
+      '采集帧率：${Stats['captureFps'] ?? 0}',
+      '预览帧率：${Stats['previewFps'] ?? 0}',
+      '预览延迟：${Stats['latency'] ?? 0}',
+      '丢帧计数：${Stats['dropped'] ?? 0}',
+      '队列积压：${Stats['queue'] ?? 0}',
+      '音频录制状态：${Stats['audio'] == true ? '录制中' : '未录制'}',
+      '音频错误：${Stats['audioError'] ?? '无'}',
+      '',
+      '===== Nintendo Switch Online =====',
+      '状态：${Formats.BindingState(Status?.NSOState ?? 'unbound')}',
+      '当前账户：${Status?.NSOCurrentNickname ?? '未选择'}',
+      '失败原因：${Status?.NSOError ?? '无'}',
+      '已绑定账户：${Accounts.length}',
+      ...Accounts.map((Item) => '  ${Item.Nickname}：${Formats.BindingState(Item.State)}${Item.Error == null ? '' : '，${Item.Error}'}'),
+      '',
+      '===== QQBot =====',
+      '状态：${Formats.BindingState(Status?.QQState ?? 'unbound')}',
+      '绑定用户：${Status?.QQOwner != null ? '已绑定' : '未绑定'}',
+      '错误：${Controller.QQError ?? '无'}',
+      '二维码：${Status?.QrCode == null ? '无' : '已生成'}',
+      '',
+      '===== 归档与目录 =====',
+      '对局数量：${Records.length}',
+      '最新对局：${Records.isEmpty ? '无' : Formats.DateTimeText(Records.first.EndAt)}',
+      '数据目录：${Controller.Directories.Root}',
+      '缓存目录：${Controller.Directories.Cache}',
+      '归档目录：${Controller.Directories.Videos}',
+      '保存目录：${Settings.SaveDir.isEmpty ? '默认' : Settings.SaveDir}',
+      '背景图片：${Settings.BackgroundPath.isEmpty ? '无' : Settings.BackgroundPath}',
+      '',
+      '===== 设置摘要 =====',
+      '自动录制：${Settings.AutoRecord ? '开' : '关'}',
+      '自动推送：${Settings.AutoPush ? '开' : '关'}',
+      '开机启动：${Settings.AutoLaunch ? '开' : '关'}',
+      '昵称打码：${Settings.BlurNickname ? '开' : '关'}',
+      '轮询间隔：${Settings.PollSeconds} 秒',
+      '检查更新：${Settings.UpdateCheck ? '开' : '关'}',
+      '更新代理：${Settings.UpdateProxy ? '开' : '关'}',
+      '主题色：${Settings.ThemeColor}',
+      '背景暗度：${Settings.BackgroundDim}',
+      'RTMP 端口：${Settings.RtmpPort}',
       'RTMP 输入：${Status?.RtmpInputUrl ?? '未启用'}',
       'RTMP 推流状态：${Status?.RtmpPushState ?? '未知'}',
-    ].join('\n');
-    final Path = await Controller.Logs.Report(Text);
+    ];
+    final Path = await Controller.Logs.Report(Lines.join('\n'));
     if (!Context.mounted) return;
     if (Path == null) {
       AppSnack.Show(Context, '日志反馈内容保存失败，请稍后重试。');

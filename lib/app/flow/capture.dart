@@ -11,6 +11,9 @@ extension AppCaptureFlow on AppController {
     } catch (_) {
       Devices = <CaptureDevice>[];
     }
+    final Videos = Devices.where((Item) => Item.Kind == 'video').toList();
+    final Audios = Devices.where((Item) => Item.Kind == 'audio').toList();
+    await Logs.App('devices video=${Videos.length} [${Videos.map((Item) => '${Item.Name}（${Item.Id}）').join('、')}] audio=${Audios.length} [${Audios.map((Item) => '${Item.Name}（${Item.Id}）').join('、')}]');
   }
 
   Future<void> NormalizeMobileSettings() async {
@@ -30,7 +33,10 @@ extension AppCaptureFlow on AppController {
       Next = Next.Copy(<String, dynamic>{'mobileAudio': true});
       Changed = true;
     }
-    if (Changed) await Configs.SaveSettings(Next);
+    if (Changed) {
+      await Configs.SaveSettings(Next);
+      await Logs.App('mobile settings normalized source=${Next.MobileSource} device=${Next.MobileDevice} audio=${Next.MobileAudio}');
+    }
   }
 
   CaptureDevice PreferredAudio(List<CaptureDevice> Items) {
@@ -54,7 +60,10 @@ extension AppCaptureFlow on AppController {
       Next = Next.Copy(<String, dynamic>{'mobileAudioDevice': PreferredAudio(Audios).Id});
       Changed = true;
     }
-    if (Changed) await Configs.SaveSettings(Next);
+    if (Changed) {
+      await Configs.SaveSettings(Next);
+      await Logs.App('mobile device selected video=${Next.MobileDevice} audio=${Next.MobileAudioDevice}');
+    }
   }
 
   Future<void> EnsureDevice() async {
@@ -148,9 +157,11 @@ extension AppCaptureFlow on AppController {
     Busy = true;
     Notice = '正在开始录制…';
     Notify();
+    await Logs.App('record start mode=${SettingsValue.CaptureMode} device=${PlatformInfo.Mobile ? SettingsValue.MobileDevice : SettingsValue.VideoDevice} audio=${SettingsValue.MobileAudio ? 'on' : 'off'} audioDevice=${PlatformInfo.Mobile ? SettingsValue.MobileAudioDevice : SettingsValue.AudioDevice} monitor=${SettingsValue.MonitorAudio} ${SettingsValue.Width}x${SettingsValue.Height}@${SettingsValue.Fps}');
     try {
       await Capture.Start(SettingsValue);
       Notice = Capture.Error.value ?? '已开始录制';
+      await Logs.App('record start result=${Capture.Error.value ?? 'ok'} actual=${Capture.ActualWidth}x${Capture.ActualHeight}@${Capture.ActualFps}');
       if (Capture.Error.value == null) {
         if (PlatformInfo.Mobile) {
           final Next = SettingsValue.Copy(<String, dynamic>{
@@ -175,6 +186,7 @@ extension AppCaptureFlow on AppController {
     Busy = true;
     Notice = '正在停止录制并保存分段…';
     Notify();
+    await Logs.App('record stop');
     try {
       await StopPreview();
       await Capture.Stop();
@@ -187,6 +199,7 @@ extension AppCaptureFlow on AppController {
   }
 
   Future<void> RetryRecord() async {
+    await Logs.App('record retry');
     await StopPreview();
     await Capture.Stop();
     await StartRecord();
@@ -243,6 +256,9 @@ extension AppCaptureFlow on AppController {
                 Previous.MobileAudioDevice != Value.MobileAudioDevice ||
                 Previous.MobileOrientation != Value.MobileOrientation ||
                 Previous.FlipVertical != Value.FlipVertical));
+    if (DeviceChanged) {
+      await Logs.App('settings change mode=${Value.CaptureMode} video=${Value.VideoDevice} audio=${Value.AudioDevice} mobile=${Value.MobileDevice} mobileAudio=${Value.MobileAudio} mobileAudioDevice=${Value.MobileAudioDevice} ${Value.Width}x${Value.Height}@${Value.Fps}');
+    }
     await Configs.SaveSettings(Value);
     await ApplyAutoLaunch();
     if (Value.MonitorAudio && Capture.State.value == 'recording') {
@@ -269,6 +285,7 @@ extension AppCaptureFlow on AppController {
   }
 
   Future<void> ToggleMonitor(bool Value) async {
+    await Logs.App('monitor ${Value ? 'on' : 'off'}');
     final Next = SettingsValue.Copy(<String, dynamic>{'monitorAudio': Value});
     await SaveSettings(Next);
   }

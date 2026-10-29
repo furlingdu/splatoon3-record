@@ -22,9 +22,44 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
   private var MonitorPlayer: AVAudioPlayerNode?
   private var MonitorFormat: AVAudioFormat?
   private var MonitorEnabled = false
+  private var PreferredInputId = ""
+  private var LastRouteFix: TimeInterval = 0
 
   var OnState: ((String) -> Void)?
+  var OnAudio: ((String) -> Void)?
+  var OnLog: ((String) -> Void)?
   var VideoAngle: CGFloat = 0
+
+  override init() {
+    super.init()
+    NotificationCenter.default.addObserver(self, selector: #selector(RouteChanged(_:)), name: AVAudioSession.routeChangeNotification, object: nil)
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
+  }
+
+  @objc private func RouteChanged(_ Note: Notification) {
+    guard AudioInput != nil, !PreferredInputId.isEmpty else { return }
+    let Session = AVAudioSession.sharedInstance()
+    if Session.currentRoute.inputs.first?.uid != PreferredInputId, let Port = Session.availableInputs?.first(where: { $0.uid == PreferredInputId }) {
+      let Now = Date().timeIntervalSince1970
+      if Now - LastRouteFix > 2 {
+        LastRouteFix = Now
+        try? Session.setPreferredInput(Port)
+        OnLog?("音频路由被系统切换，已切回采集卡输入：\(Port.portName)")
+      }
+    }
+    ReportAudio()
+  }
+
+  private func ReportAudio() {
+    let Session = AVAudioSession.sharedInstance()
+    let Input = Session.currentRoute.inputs.first
+    let Name = Input?.portName ?? "无"
+    let Type = Input?.portType.rawValue ?? ""
+    OnAudio?("音频输入：\(Name) \(Type)")
+  }
 
   private var DeviceTypes: [AVCaptureDevice.DeviceType] {
     if #available(iOS 17.0, *) {
@@ -45,7 +80,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
   }
 
   private func OpenAudio() {
-    try? AudioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+    try? AudioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers])
     try? AudioSession.setActive(true)
   }
 
@@ -96,13 +131,15 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
   }
 
   private func InputAudioDevices() -> [[String: Any]] {
-    return InputPorts().map { Port in
+    let Items = InputPorts().map { Port in
       [
         "id": Port.uid,
         "name": Port.portName,
         "external": IsExternal(Port),
       ]
     }
+    OnLog?("音频输入 \(Items.count) 个：" + Items.map({ "\($0["name"] ?? "")" }).joined(separator: "、"))
+    return Items
   }
 
   private func IsExternal(_ Device: AVCaptureDevice) -> Bool {
@@ -147,6 +184,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
   }
 
   func Prepare(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Orientation: String, Completion: @escaping (CaptureModeInfo?, String?) -> Void) {
+    OnLog?("准备采集 device=\(DeviceId) \(Width)x\(Height)@\(Fps) audio=\(Audio) audioDevice=\(AudioDeviceId) orientation=\(Orientation)")
     Request(Video: true) { VideoOk in
       guard VideoOk else {
         Completion(nil, "相机权限被拒绝")
@@ -178,6 +216,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
   private func Apply(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Orientation: String, Completion: @escaping (CaptureModeInfo?, String?) -> Void) {
     CaptureQueue.async {
       guard let Device = self.Find(DeviceId) else {
+        self.OnLog?("未找到采集设备：\(DeviceId)")
         DispatchQueue.main.async { Completion(nil, "未找到 USB 采集设备，需要 iPadOS 17 或更高版本") }
         return
       }
@@ -216,6 +255,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       }
       if Audio, let Port = self.InputPort(AudioDeviceId) {
         try? self.AudioSession.setPreferredInput(Port)
+        self.OnLog?("音频路由选择：\(Port.portName)（\(Port.portType.rawValue)）")
         if let Old = self.AudioInput {
           self.Session.removeInput(Old)
           self.AudioInput = nil
@@ -223,9 +263,13 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
         if let Mic = self.Microphone(), let Input = try? AVCaptureDeviceInput(device: Mic), self.Session.canAddInput(Input) {
           self.Session.addInput(Input)
           self.AudioInput = Input
+          self.OnLog?("已加入音频输入：\(Mic.localizedName)")
+        } else {
+          self.OnLog?("无法加入音频输入")
         }
         if self.AudioInput != nil { self.AttachAudio() }
       } else {
+        self.OnLog?("音频采集已关闭或没有可用的外部输入")
         if let Old = self.AudioInput {
           self.Session.removeInput(Old)
           self.AudioInput = nil
@@ -252,6 +296,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       }
       self.Prepared = true
       self.Session.startRunning()
+      self.OnLog?("采集已启动 \(Int(Size.width))x\(Int(Size.height))@\(UseFps) 音频输入=\(self.AudioInput?.device.localizedName ?? "无") 当前路由=\(self.AudioSession.currentRoute.inputs.first?.portName ?? "无")")
       let Mode = CaptureModeInfo(Width: Int(Size.width), Height: Int(Size.height), Fps: UseFps)
       DispatchQueue.main.async { Completion(Mode, nil) }
     }
@@ -315,13 +360,16 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       if Enabled {
         guard self.AudioInput != nil, self.AudioOutput != nil else {
           self.MonitorEnabled = false
+          self.OnLog?("声音返听不可用：未检测到音频输入")
           return
         }
         self.MonitorEnabled = true
         self.StartMonitor()
+        self.OnLog?("声音返听已开启")
       } else {
         self.MonitorEnabled = false
         self.StopMonitor()
+        self.OnLog?("声音返听已关闭")
       }
     }
   }
@@ -342,6 +390,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       try Engine.start()
       Player.play()
     } catch {
+      OnLog?("声音返听启动失败：\(error)")
       return
     }
     MonitorEngine = Engine
@@ -403,6 +452,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       }
       if self.Output.isRecording { self.Output.stopRecording() }
       try? FileManager.default.removeItem(atPath: Path)
+      self.OnLog?("开始录制：\(Path)")
       self.Output.startRecording(to: URL(fileURLWithPath: Path), recordingDelegate: self)
       self.OnState?("recording")
       DispatchQueue.main.async { Completion(nil) }
@@ -416,12 +466,14 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
         return
       }
       self.Pending = Completion
+      self.OnLog?("停止录制")
       self.Output.stopRecording()
     }
   }
 
   func Dispose() {
     CaptureQueue.async {
+      self.OnLog?("释放采集会话")
       if self.Output.isRecording { self.Output.stopRecording() }
       self.MonitorEnabled = false
       self.StopMonitor()

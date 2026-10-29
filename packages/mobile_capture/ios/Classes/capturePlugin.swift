@@ -99,12 +99,24 @@ import Flutter
         events(["type": "state", "value": Value])
       }
     }
+    Capture.OnAudio = { Value in
+      DispatchQueue.main.async {
+        events(["type": "log", "value": Value])
+      }
+    }
+    Capture.OnLog = { Value in
+      DispatchQueue.main.async {
+        events(["type": "log", "value": Value])
+      }
+    }
     return nil
   }
 
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {
     Sink = nil
     Capture.OnState = nil
+    Capture.OnAudio = nil
+    Capture.OnLog = nil
     return nil
   }
 }

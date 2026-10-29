@@ -107,13 +107,17 @@ class AppController extends ChangeNotifier {
     Archive = ArchiveStore(Directories);
     FFmpeg = FFmpegService(Directories);
     Capture = PlatformInfo.Mobile ? MobileCaptureService(Directories, FFmpeg) : DesktopCaptureAdapter(CaptureService(Directories, FFmpeg));
+    if (Capture is MobileCaptureService) {
+      (Capture as MobileCaptureService).OnLog = (Message) => unawaited(Logs.Capture(Message));
+    }
     Blur = NicknameBlur(FFmpeg, Directories);
     Vault = SecretStore(Directories);
     await Vault.Load();
     final Package = await PackageInfo.fromPlatform();
     Version = Package.version;
-    await Logs.App('app start');
+    await Logs.App('app start version=$Version platform=${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
     await Configs.Load();
+    await Logs.App('config setupDone=${Configs.Current.SetupDone} captureMode=${SettingsValue.CaptureMode} autoRecord=${SettingsValue.AutoRecord} monitor=${SettingsValue.MonitorAudio} mobileAudio=${SettingsValue.MobileAudio}');
     await Archive.Load();
     await MigrateHandled();
     await LoadLegacy();
@@ -151,6 +155,7 @@ class AppController extends ChangeNotifier {
     Clock = Timer.periodic(const Duration(seconds: 2), (_) => PushStatus());
     Ready = true;
     Page = Configs.Current.SetupDone ? 'status' : 'setup';
+    await Logs.App('ready page=$Page accounts=${Accounts.length} qq=${QQState} devices=${Devices.length}');
     PushStatus();
     if (QQAppId != null && QQSecret != null) {
       unawaited(StartQQBot(QQAppId!, QQSecret!));
@@ -180,6 +185,7 @@ class AppController extends ChangeNotifier {
       Notice = ErrorText;
       if (Capture.Running || Capture.Starting) unawaited(Abort(ErrorText));
     }
+    unawaited(Logs.App('capture state=${Capture.State.value} error=${ErrorText ?? '无'}'));
     PushStatus();
   }
 
@@ -306,6 +312,7 @@ class AppController extends ChangeNotifier {
   void Navigate(String Value) {
     if (PlatformInfo.Mobile && (Value == 'live' || Value == 'update')) return;
     Page = Value;
+    unawaited(Logs.App('page $Value'));
     notifyListeners();
   }
 

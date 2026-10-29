@@ -185,27 +185,22 @@ class LogStore {
 
   final AppDirectories Directories;
 
-  Future<void> App(String Message) async {
+  Future<void> Write(String Name, String Message) async {
     try {
       await Directory(Directories.Logs).create(recursive: true);
-      await File('${Directories.Logs}${Platform.pathSeparator}app.log').writeAsString(
-        '${DateTime.now().toIso8601String()} ${Message}\n',
+      await File('${Directories.Logs}${Platform.pathSeparator}$Name.log').writeAsString(
+        '${DateTime.now().toIso8601String()} $Message\n',
         mode: FileMode.append,
         flush: true,
       );
     } catch (_) {}
   }
 
-  Future<void> Login(String Message) async {
-    try {
-      await Directory(Directories.Logs).create(recursive: true);
-      await File('${Directories.Logs}${Platform.pathSeparator}loginDebug.log').writeAsString(
-        '${DateTime.now().toIso8601String()} ${Message}\n',
-        mode: FileMode.append,
-        flush: true,
-      );
-    } catch (_) {}
-  }
+  Future<void> App(String Message) => Write('app', Message);
+
+  Future<void> Capture(String Message) => Write('capture', Message);
+
+  Future<void> Login(String Message) => Write('loginDebug', Message);
 
   Future<String?> Report(String Text) async {
     try {
@@ -214,15 +209,20 @@ class LogStore {
       String Pad(int Value) => Value.toString().padLeft(2, '0');
       final Name = 'report-${Now.year}${Pad(Now.month)}${Pad(Now.day)}-${Pad(Now.hour)}${Pad(Now.minute)}${Pad(Now.second)}.txt';
       final Path = '${Directories.Logs}${Platform.pathSeparator}$Name';
-      final Lines = <String>[Text, '', '===== 运行日志 =====', '日志目录：${Directories.Logs}'];
-      for (final FileName in ['app.log', 'loginDebug.log']) {
+      final Lines = <String>[Text, '', '===== 运行日志 =====', '日志目录：${Directories.Logs}', '生成时间：${Now.toIso8601String()}'];
+      for (final FileName in ['app.log', 'capture.log', 'loginDebug.log']) {
         final LogFile = File('${Directories.Logs}${Platform.pathSeparator}$FileName');
+        Lines.add('');
         Lines.add('===== $FileName =====');
         if (LogFile.existsSync()) {
           final All = LogFile.readAsLinesSync();
-          Lines.addAll(All.length > 300 ? All.sublist(All.length - 300) : All);
+          final Kept = All.length > 400 ? All.sublist(All.length - 400) : All;
+          Lines.add('行数：${All.length}${All.length > Kept.length ? '（仅保留最后 ${Kept.length} 行）' : ''}');
+          Lines.add('大小：${LogFile.lengthSync()} 字节');
+          Lines.add('修改时间：${LogFile.lastModifiedSync().toIso8601String()}');
+          Lines.addAll(Kept);
         } else {
-          Lines.add('未找到日志文件');
+          Lines.add('（无日志文件）');
         }
       }
       await File(Path).writeAsString(Redact(Lines.join('\n')));

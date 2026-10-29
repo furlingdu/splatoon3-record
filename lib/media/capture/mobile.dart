@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:mobile_capture/mobileCapture.dart';
 
 import '../../config/system.dart';
 import '../../domain/models.dart';
@@ -18,11 +19,27 @@ export 'mobile/mobileMedia.dart';
 
 class MobileCaptureService implements CapturePlatform {
   MobileCaptureService(this.Directories, this.FFmpeg)
-      : Sources = PlatformInfo.IOS ? <MobileCaptureSource>[IosCaptureSource()] : <MobileCaptureSource>[AndroidUvcSource()];
+      : Sources = PlatformInfo.IOS ? <MobileCaptureSource>[IosCaptureSource()] : <MobileCaptureSource>[AndroidUvcSource()] {
+    Events = MobileCapture.Events.receiveBroadcastStream().listen(HandleEvent);
+  }
 
   final AppDirectories Directories;
   final FFmpegService FFmpeg;
   final List<MobileCaptureSource> Sources;
+  StreamSubscription<dynamic>? Events;
+  void Function(String Message)? OnLog;
+
+  void HandleEvent(dynamic Value) {
+    if (Value is! Map) return;
+    final Type = '${Value['type'] ?? ''}';
+    final Text = '${Value['value'] ?? ''}'.trim();
+    if (Text.isEmpty) return;
+    if (Type == 'state') {
+      OnLog?.call('采集状态：$Text');
+      return;
+    }
+    OnLog?.call(Text);
+  }
 
   final ValueNotifier<String?> _Error = ValueNotifier<String?>(null);
   final ValueNotifier<String> _State = ValueNotifier<String>('idle');
@@ -150,6 +167,7 @@ class MobileCaptureService implements CapturePlatform {
     await Stop(Fast: true);
     _Error.value = null;
     _State.value = 'starting';
+    OnLog?.call('移动端开始采集 source=${Value.MobileSource} device=${Value.MobileDevice} audio=${Value.MobileAudio} audioDevice=${Value.MobileAudioDevice} monitor=${Value.MonitorAudio} ${Value.Width}x${Value.Height}@${Value.Fps}');
     final Source = SourceFor(Value);
     if (Source == null) {
       _State.value = 'error';
@@ -167,6 +185,7 @@ class MobileCaptureService implements CapturePlatform {
       if (Picked == null) throw StateError('采集卡没有可用档位');
       final Ready = await Source.Prepare(Device, Picked, Value);
       Mode = Ready;
+      OnLog?.call('移动端采集就绪 device=${Device.Id} ${Ready.Width}x${Ready.Height}@${Ready.MaxFps} audio=${Value.MobileAudio}');
       final Engine = MobileRecorder(Source, Directories, Value.MobileAudio);
       Recorder = Engine;
       Engine.Error.addListener(RecorderChanged);
@@ -184,6 +203,7 @@ class MobileCaptureService implements CapturePlatform {
       StatsClock = Timer.periodic(const Duration(seconds: 2), (_) => PushStats());
       PushStats();
     } catch (Cause) {
+      OnLog?.call('移动端采集失败：$Cause');
       await Stop(Fast: true);
       _State.value = 'error';
       _Error.value = '$Cause';
@@ -213,6 +233,7 @@ class MobileCaptureService implements CapturePlatform {
       }
       DeviceMisses++;
       if (DeviceMisses < 2) return;
+      OnLog?.call('采集设备断开：$Id');
       _Error.value = '采集设备已断开，录制已停止';
       _State.value = 'error';
     } catch (_) {}
@@ -241,6 +262,7 @@ class MobileCaptureService implements CapturePlatform {
 
   @override
   Future<void> Stop({bool Fast = false}) async {
+    OnLog?.call('移动端停止采集 state=${_State.value}');
     DeviceClock?.cancel();
     DeviceClock = null;
     ActiveDeviceId = null;
@@ -346,6 +368,7 @@ class MobileCaptureService implements CapturePlatform {
   @override
   Future<void> Dispose() async {
     await Stop(Fast: true);
+    await Events?.cancel();
     _Error.dispose();
     _State.dispose();
     _LatestRecord.dispose();
