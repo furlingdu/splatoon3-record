@@ -40,30 +40,67 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
     return nil
   }
 
-  private var AudioTypes: [AVCaptureDevice.DeviceType] {
-    if #available(iOS 17.0, *) {
-      return [.external]
+  private var AudioSession: AVAudioSession {
+    return AVAudioSession.sharedInstance()
+  }
+
+  private func OpenAudio() {
+    try? AudioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+    try? AudioSession.setActive(true)
+  }
+
+  private func InputPorts() -> [AVAudioSessionPortDescription] {
+    OpenAudio()
+    return AudioSession.availableInputs ?? []
+  }
+
+  private func InputPort(_ DeviceId: String) -> AVAudioSessionPortDescription? {
+    let Ports = InputPorts()
+    if !DeviceId.isEmpty, let Exact = Ports.first(where: { $0.uid == DeviceId || $0.portName == DeviceId }) {
+      return Exact
     }
-    return []
+    return Ports.first(where: { $0.portType == .usbAudio }) ?? Ports.first(where: { IsExternal($0) })
   }
 
-  private func ListAudio() -> [AVCaptureDevice] {
-    guard #available(iOS 17.0, *) else { return [] }
-    return AVCaptureDevice.DiscoverySession(deviceTypes: AudioTypes, mediaType: .audio, position: .unspecified).devices
+  private func Microphone() -> AVCaptureDevice? {
+    return AVCaptureDevice.default(for: .audio)
   }
 
-  private func AudioDevice(_ DeviceId: String) -> AVCaptureDevice? {
-    let Devices = ListAudio()
-    if DeviceId.isEmpty { return Devices.first }
-    return Devices.first(where: { $0.uniqueID == DeviceId })
+  private func IsExternal(_ Port: AVAudioSessionPortDescription) -> Bool {
+    return Port.portType != .builtInMic
   }
 
-  func AudioDevices() -> [[String: Any]] {
-    return ListAudio().map { Device in
+  func AudioDevices(_ Completion: @escaping ([[String: Any]]) -> Void) {
+    guard AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined else {
+      Completion(InputAudioDevices())
+      return
+    }
+    var Finished = false
+    let Lock = NSLock()
+    let Finish: ([[String: Any]]) -> Void = { Items in
+      Lock.lock()
+      if Finished {
+        Lock.unlock()
+        return
+      }
+      Finished = true
+      Lock.unlock()
+      DispatchQueue.main.async { Completion(Items) }
+    }
+    AVCaptureDevice.requestAccess(for: .audio) { _ in
+      Finish(self.InputAudioDevices())
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+      Finish(self.InputAudioDevices())
+    }
+  }
+
+  private func InputAudioDevices() -> [[String: Any]] {
+    return InputPorts().map { Port in
       [
-        "id": Device.uniqueID,
-        "name": Device.localizedName,
-        "external": IsExternal(Device),
+        "id": Port.uid,
+        "name": Port.portName,
+        "external": IsExternal(Port),
       ]
     }
   }
@@ -115,12 +152,12 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
         Completion(nil, "相机权限被拒绝")
         return
       }
-      if Audio, self.AudioDevice(AudioDeviceId) != nil {
-        AVCaptureDevice.requestAccess(for: .audio) { Granted in
-          self.Apply(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: Granted, AudioDeviceId: AudioDeviceId, Orientation: Orientation, Completion: Completion)
-        }
-      } else {
+      guard Audio else {
         self.Apply(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: false, AudioDeviceId: "", Orientation: Orientation, Completion: Completion)
+        return
+      }
+      AVCaptureDevice.requestAccess(for: .audio) { Granted in
+        self.Apply(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: Granted, AudioDeviceId: AudioDeviceId, Orientation: Orientation, Completion: Completion)
       }
     }
   }
@@ -177,13 +214,15 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
         Device.unlockForConfiguration()
       } catch {
       }
-      if Audio {
-        if let AudioDevice = self.AudioDevice(AudioDeviceId) {
-          if let Old = self.AudioInput { self.Session.removeInput(Old) }
-          if let Input = try? AVCaptureDeviceInput(device: AudioDevice), self.Session.canAddInput(Input) {
-            self.Session.addInput(Input)
-            self.AudioInput = Input
-          }
+      if Audio, let Port = self.InputPort(AudioDeviceId) {
+        try? self.AudioSession.setPreferredInput(Port)
+        if let Old = self.AudioInput {
+          self.Session.removeInput(Old)
+          self.AudioInput = nil
+        }
+        if let Mic = self.Microphone(), let Input = try? AVCaptureDeviceInput(device: Mic), self.Session.canAddInput(Input) {
+          self.Session.addInput(Input)
+          self.AudioInput = Input
         }
         if self.AudioInput != nil { self.AttachAudio() }
       } else {
@@ -263,6 +302,15 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
   private func AttachAudio() {
     if AudioOutput != nil { return }
     let Data = AVCaptureAudioDataOutput()
+    Data.audioSettings = [
+      AVFormatIDKey: kAudioFormatLinearPCM,
+      AVSampleRateKey: 48000.0,
+      AVNumberOfChannelsKey: 2,
+      AVLinearPCMBitDepthKey: 16,
+      AVLinearPCMIsFloatKey: false,
+      AVLinearPCMIsBigEndianKey: false,
+      AVLinearPCMIsNonInterleaved: false,
+    ]
     Data.setSampleBufferDelegate(self, queue: MonitorQueue)
     if Session.canAddOutput(Data) {
       Session.addOutput(Data)
@@ -292,10 +340,8 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       MonitorPlayer?.play()
       return
     }
-    let AudioSession = AVAudioSession.sharedInstance()
-    try? AudioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetooth])
-    try? AudioSession.setActive(true)
-    guard let Format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 48000, channels: 2, interleaved: true) else { return }
+    OpenAudio()
+    guard let Format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 2, interleaved: false) else { return }
     let Engine = AVAudioEngine()
     let Player = AVAudioPlayerNode()
     Engine.attach(Player)

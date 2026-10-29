@@ -74,6 +74,7 @@ class AppController extends ChangeNotifier {
   QQBind? QQBindRef;
   QQBot? QQBotRef;
   String QQState = 'unbound';
+  bool QQBusy = false;
   String? QrCode;
   String? QQError;
   String? QQAppId;

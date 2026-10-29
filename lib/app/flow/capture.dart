@@ -26,29 +26,32 @@ extension AppCaptureFlow on AppController {
       Next = Next.Copy(<String, dynamic>{'mobileDevice': ''});
       Changed = true;
     }
-    final Audio = Devices.where((Item) => Item.Kind == 'audio').toList();
-    if (Next.MobileAudioDevice.isNotEmpty && !Audio.any((Item) => Item.Id == Next.MobileAudioDevice)) {
-      Next = Next.Copy(<String, dynamic>{'mobileAudioDevice': ''});
-      Changed = true;
-    }
     if (!Next.MobileAudio) {
       Next = Next.Copy(<String, dynamic>{'mobileAudio': true});
-      Changed = true;
-    }
-    if (Next.MobileAudio && Next.MobileAudioDevice.isEmpty && Audio.isNotEmpty) {
-      Next = Next.Copy(<String, dynamic>{'mobileAudioDevice': Audio.first.Id});
       Changed = true;
     }
     if (Changed) await Configs.SaveSettings(Next);
   }
 
+  CaptureDevice PreferredAudio(List<CaptureDevice> Items) {
+    return Items.firstWhere(
+      (Item) => RegExp('hdmi|line|capture|game|usb|uvc|采集|线路|audio', caseSensitive: false).hasMatch(Item.Name),
+      orElse: () => Items.first,
+    );
+  }
+
   Future<void> EnsureMobileDevice() async {
     final Videos = Devices.where((Item) => Item.Kind == 'video').toList();
+    final Audios = Devices.where((Item) => Item.Kind == 'audio').toList();
     var Next = SettingsValue;
     var Changed = false;
     final CurrentMissing = Next.MobileDevice.isNotEmpty && Videos.isNotEmpty && !Videos.any((Item) => Item.Id == Next.MobileDevice);
     if ((Next.MobileDevice.isEmpty || CurrentMissing) && Videos.isNotEmpty) {
       Next = Next.Copy(<String, dynamic>{'mobileDevice': Videos.first.Id});
+      Changed = true;
+    }
+    if (Audios.isNotEmpty && !Audios.any((Item) => Item.Id == Next.MobileAudioDevice)) {
+      Next = Next.Copy(<String, dynamic>{'mobileAudioDevice': PreferredAudio(Audios).Id});
       Changed = true;
     }
     if (Changed) await Configs.SaveSettings(Next);
@@ -92,11 +95,7 @@ extension AppCaptureFlow on AppController {
       Changed = true;
     }
     if (Next.AudioDevice.isEmpty && AudioDevices.isNotEmpty) {
-      final Preferred = AudioDevices.firstWhere(
-        (Item) => RegExp('hdmi|line|capture|game|usb|uvc|采集|线路', caseSensitive: false).hasMatch(Item.Name),
-        orElse: () => AudioDevices.first,
-      );
-      Next = Next.Copy(<String, dynamic>{'audioDevice': Preferred.Id});
+      Next = Next.Copy(<String, dynamic>{'audioDevice': PreferredAudio(AudioDevices).Id});
       Changed = true;
     }
     if (Changed) await Configs.SaveSettings(Next);

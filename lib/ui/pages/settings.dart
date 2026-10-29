@@ -236,7 +236,9 @@ class SettingsPageState extends State<SettingsPage> {
             Items: <String>['', ...MobileAudio.map((Item) => Item.Id)],
             Display: (Value) => Value.isEmpty ? '默认音频输入' : MobileAudio.firstWhere((Item) => Item.Id == Value, orElse: () => CaptureDevice(Id: Value, Name: Value, Kind: 'audio')).Name,
             OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'mobileAudioDevice': Value})),
-          ),
+          )
+        else
+          const AppHint('未检测到音频输入，请连接采集卡音频并允许麦克风权限后点击刷新。', Error: true),
         AppSelect<int>(
           Label: '录制质量',
           Value: Draft.Quality,

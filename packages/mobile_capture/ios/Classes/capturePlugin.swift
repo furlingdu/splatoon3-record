@@ -5,9 +5,11 @@ import Flutter
   private let Capture = CaptureSession()
   private let Picker = MobilePicker()
   private var Sink: FlutterEventSink?
+  fileprivate var Drop: TextDrop?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let Instance = MobileCapturePlugin()
+    Instance.Drop = TextDrop(Messenger: registrar.messenger())
     let Channel = FlutterMethodChannel(name: "splatoon3record/mobile_capture", binaryMessenger: registrar.messenger())
     registrar.addMethodCallDelegate(Instance, channel: Channel)
     let Events = FlutterEventChannel(name: "splatoon3record/mobile_capture/events", binaryMessenger: registrar.messenger())
@@ -25,7 +27,9 @@ import Flutter
     case "Modes":
       result(Capture.Modes(Arguments["device"] as? String ?? ""))
     case "EnumerateAudio":
-      result(Capture.AudioDevices())
+      Capture.AudioDevices { Items in
+        result(Items)
+      }
     case "Prepare":
       Capture.Prepare(
         DeviceId: Arguments["device"] as? String ?? "",

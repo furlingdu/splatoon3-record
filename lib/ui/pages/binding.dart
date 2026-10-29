@@ -39,7 +39,7 @@ class BindingPage extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
             children: <Widget>[
-              AppButton(Label: '添加 Nintendo 账号', Enabled: Accounts.length < 5, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : Controller.StartNSOLogin()),
+              AppButton(Label: '添加 Nintendo 账号', Enabled: Accounts.length < 5 && !Controller.AuthBusy, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : Controller.StartNSOLogin()),
             ],
           ),
         ),
@@ -73,7 +73,7 @@ class BindingPage extends StatelessWidget {
                   ]);
                   final Actions = Wrap(spacing: 2, children: <Widget>[
                     AppButton(Label: '设为当前', Kind: AppButtonKind.Text, Enabled: Account.Id != Status?.NSOCurrentId, OnPressed: () => Controller.SelectNSOAccount(Account.Id)),
-                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : Controller.StartNSOLogin(Account.Id)),
+                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, Enabled: Account.State != 'connecting', OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : Controller.StartNSOLogin(Account.Id)),
                     AppButton(Label: '删除', Kind: AppButtonKind.Text, Enabled: Accounts.length > 1, OnPressed: () => RemoveAccount(context, Account.Id)),
                   ]);
                   if (Constraints.maxWidth < 560) {
@@ -95,8 +95,8 @@ class BindingPage extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Wrap(spacing: 12, runSpacing: 8, children: <Widget>[
-            AppButton(Label: '获取绑定机器人二维码', Enabled: Status?.QQState != 'connecting' && Status?.QQState != 'connected', OnPressed: () => Controller.StartQQLogin()),
-            AppButton(Label: '解除 QQBot 绑定', Kind: AppButtonKind.Outlined, Enabled: Status?.QQState != 'unbound', OnPressed: () => Controller.UnbindQQ()),
+            AppButton(Label: '获取绑定机器人二维码', Enabled: !Controller.QQBusy && Status?.QQState != 'connecting' && Status?.QQState != 'connected', OnPressed: () => Controller.StartQQLogin()),
+            AppButton(Label: '解除 QQBot 绑定', Kind: AppButtonKind.Outlined, Enabled: Status?.QQState != 'unbound' && !Controller.QQBusy, OnPressed: () => Controller.UnbindQQ()),
           ]),
         ),
         StatusGrid(

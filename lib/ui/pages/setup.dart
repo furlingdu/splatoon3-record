@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/controller.dart';
@@ -7,7 +9,6 @@ import '../../config/system.dart';
 import '../../domain/models.dart';
 import '../../format/formats.dart';
 import '../../media/capture/mobile/modes.dart';
-import '../layout.dart';
 import '../theme.dart';
 import '../controls.dart';
 import '../nsoLogin.dart';
@@ -22,6 +23,7 @@ class SetupPage extends StatefulWidget {
 }
 
 class SetupPageState extends State<SetupPage> {
+  static const List<String> Steps = <String>['选择采集设备', '绑定 Nintendo 账号', '绑定 QQBot'];
   int Step = 0;
   late String VideoDevice;
   late String AudioDevice;
@@ -34,6 +36,8 @@ class SetupPageState extends State<SetupPage> {
   bool ModesLoading = false;
   bool DevicesLoading = false;
   String? ModesError;
+  bool LastNSO = false;
+  bool LastQQ = false;
 
   @override
   void initState() {
@@ -46,9 +50,33 @@ class SetupPageState extends State<SetupPage> {
     Fps = Settings.Fps;
     MobileDevice = Settings.MobileDevice;
     MobileOrientation = Settings.MobileOrientation;
+    LastNSO = widget.Controller.NSOReady;
+    LastQQ = widget.Controller.QQReady;
+    widget.Controller.addListener(FollowLogin);
     if (PlatformInfo.Mobile && MobileDevice.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => LoadMobileModes());
     }
+  }
+
+  @override
+  void dispose() {
+    widget.Controller.removeListener(FollowLogin);
+    super.dispose();
+  }
+
+  void FollowLogin() {
+    if (!mounted) return;
+    final NSO = widget.Controller.NSOReady;
+    final QQ = widget.Controller.QQReady;
+    final NSOChanged = NSO && !LastNSO;
+    final QQChanged = QQ && !LastQQ;
+    LastNSO = NSO;
+    LastQQ = QQ;
+    if (NSOChanged && Step == 1) {
+      setState(() => Step = 2);
+      return;
+    }
+    if (QQChanged && Step == Steps.length - 1) unawaited(widget.Controller.FinishSetup());
   }
 
   Future<void> LoadMobileModes() async {
@@ -140,7 +168,6 @@ class SetupPageState extends State<SetupPage> {
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
     final Mobile = PlatformInfo.Mobile;
-    final Steps = const <String>['选择采集设备', '绑定 Nintendo 账号', '绑定 QQBot'];
     final Total = Steps.length;
     final Video = widget.Controller.Devices.where((Item) => Item.Kind == 'video').toList();
     final Audio = widget.Controller.Devices.where((Item) => Item.Kind == 'audio').toList();
@@ -284,7 +311,8 @@ class SetupPageState extends State<SetupPage> {
                   const AppSectionTitle('绑定 QQBot'),
                   Text('绑定后可将对局录像推送到你的 QQ。点击按钮获取二维码，使用创建机器人的 QQ 扫码授权，并在机器人私聊窗口发送 /bind 完成绑定。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.6)),
                   const SizedBox(height: 16),
-                  AppButton(Label: '获取绑定机器人二维码', OnPressed: () => widget.Controller.StartQQLogin()),
+                  AppButton(Label: '获取绑定机器人二维码', Enabled: !widget.Controller.QQBusy && widget.Controller.QQState != 'connecting' && widget.Controller.QQState != 'connected', OnPressed: () => widget.Controller.StartQQLogin()),
+                  if (widget.Controller.QQBusy) const Padding(padding: EdgeInsets.only(top: 8), child: AppLinearProgress(Indeterminate: true)),
                   if (widget.Controller.Status?.QrCode != null) ...<Widget>[
                     const SizedBox(height: 16),
                     Center(child: QrView(Data: widget.Controller.Status!.QrCode!)),
@@ -300,7 +328,7 @@ class SetupPageState extends State<SetupPage> {
                   ]),
                 ],
                 const SizedBox(height: 24),
-                if (!Mobile || AppLayout.Tablet(context))
+                if (!Mobile)
                   Align(
                     alignment: Alignment.bottomRight,
                     child: Opacity(

@@ -29,6 +29,9 @@ extension AppNSOFlow on AppController {
   }
 
   Future<void> BeginNSOAuth() async {
+    if (AuthBusy) return;
+    AuthBusy = true;
+    Notify();
     try {
       LastAuthState = null;
       PendingAuth = NSO.BeginAuth();
@@ -37,15 +40,16 @@ extension AppNSOFlow on AppController {
       await Vault.Save(Data);
       if (PlatformInfo.Mobile) {
         Notice = '登录链接已生成，请在浏览器中完成 Nintendo 登录';
-        Notify();
         return;
       }
       final Ok = await launchUrl(Uri.parse(PendingAuth!.Url), mode: LaunchMode.externalApplication);
       Notice = Ok ? '请在浏览器中完成 Nintendo 登录' : '无法打开 Nintendo 登录页面';
     } catch (Cause) {
       Notice = '$Cause';
+    } finally {
+      AuthBusy = false;
+      Notify();
     }
-    Notify();
   }
 
   Future<void> OpenAuth() async {
@@ -219,6 +223,7 @@ extension AppNSOFlow on AppController {
   }
 
   Future<void> NSORefresh(NSOAccount Account) async {
+    if (Account.State == 'connecting') return;
     Account.State = 'connecting';
     NSOErrorText = null;
     Notify();

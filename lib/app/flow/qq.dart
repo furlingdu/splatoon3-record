@@ -19,44 +19,49 @@ extension AppQQFlow on AppController {
   }
 
   Future<void> StartQQLogin() async {
+    if (QQBusy) return;
     if (QQState == 'connected') {
       Notice = QQReady ? 'QQBot 已绑定' : '请在机器人私聊窗口发送 /bind 完成绑定';
       Notify();
       return;
     }
-    await QQBindRef?.Stop();
-    final Bind = QQBind(
-      OnQr: (Url) {
-        QrCode = Url.isEmpty ? null : Url;
-        PushStatus();
-      },
-      OnState: (Value) {
-        QQState = Value;
-        PushStatus();
-      },
-      OnSuccess: (AppId, Secret) async {
-        QQAppId = AppId;
-        QQSecret = Secret;
-        QrCode = null;
-        final Current = Configs.Current;
-        if (Current.QQOwner != null) {
-          await Configs.Save(AppConfig(Settings: Current.Settings, PushEnabled: Current.PushEnabled, SetupDone: Current.SetupDone, QQOwner: null, HandledIds: Current.HandledIds, Raw: Current.Raw));
-        }
-        final Data = Map<String, dynamic>.from(Vault.Data);
-        Data['qqAppId'] = AppId;
-        Data['qqSecret'] = Secret;
-        await Vault.Save(Data);
-        await StartQQBot(AppId, Secret);
-      },
-    );
-    QQBindRef = Bind;
+    QQBusy = true;
+    Notify();
     try {
+      await QQBindRef?.Stop();
+      final Bind = QQBind(
+        OnQr: (Url) {
+          QrCode = Url.isEmpty ? null : Url;
+          PushStatus();
+        },
+        OnState: (Value) {
+          QQState = Value;
+          PushStatus();
+        },
+        OnSuccess: (AppId, Secret) async {
+          QQAppId = AppId;
+          QQSecret = Secret;
+          QrCode = null;
+          final Current = Configs.Current;
+          if (Current.QQOwner != null) {
+            await Configs.Save(AppConfig(Settings: Current.Settings, PushEnabled: Current.PushEnabled, SetupDone: Current.SetupDone, QQOwner: null, HandledIds: Current.HandledIds, Raw: Current.Raw));
+          }
+          final Data = Map<String, dynamic>.from(Vault.Data);
+          Data['qqAppId'] = AppId;
+          Data['qqSecret'] = Secret;
+          await Vault.Save(Data);
+          await StartQQBot(AppId, Secret);
+        },
+      );
+      QQBindRef = Bind;
       await Bind.Start();
     } catch (Cause) {
       QQState = 'error';
       QQError = '$Cause';
       Notice = QQError;
-      Notify();
+    } finally {
+      QQBusy = false;
+      PushStatus();
     }
   }
 

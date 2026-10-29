@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app/controller.dart';
 import '../config/system.dart';
+import '../nso/callback.dart';
+import 'drop.dart';
 import 'theme.dart';
 import 'controls.dart';
 
@@ -17,11 +21,41 @@ class NSOLoginPanel extends StatefulWidget {
 
 class NSOLoginPanelState extends State<NSOLoginPanel> {
   final TextEditingController Callback = TextEditingController();
+  TextDrop? Drop;
+  bool DropActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!PlatformInfo.IOS) return;
+    Drop = TextDrop(OnDrop: Accept, OnActive: Highlight);
+    unawaited(Drop!.Start());
+  }
 
   @override
   void dispose() {
+    unawaited(Drop?.Stop());
     Callback.dispose();
     super.dispose();
+  }
+
+  void Highlight(bool Value) {
+    if (!mounted || DropActive == Value) return;
+    setState(() => DropActive = Value);
+  }
+
+  void Accept(String Value) {
+    if (!mounted) return;
+    if (widget.Controller.PendingAuth == null || widget.Controller.AuthBusy) {
+      AppSnack.Show(context, '请先获取登录链接');
+      return;
+    }
+    if (NSOAuthCallback.ParseInput(Value) == null) {
+      AppSnack.Show(context, '未识别 Nintendo 登录回调链接');
+      return;
+    }
+    Callback.text = Value;
+    AppSnack.Show(context, '已填入回调链接');
   }
 
   Future<void> CopyLink() async {
@@ -71,7 +105,7 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
     }
     final Pending = widget.Controller.PendingAuth;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
-      Text('1. 点击“获取登录链接”。\n2. 复制链接并在浏览器中打开，完成 Nintendo 登录。\n3. 登录后长按“选择此人”按钮，复制回调 URL。\n4. 将回调 URL 粘贴到下方输入框并点击登录。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.7)),
+      Text('1. 点击“获取登录链接”。\n2. 复制链接并在浏览器中打开，完成 Nintendo 登录。\n3. 登录后长按“选择此人”按钮，复制回调 URL。\n4. 将回调 URL 粘贴${PlatformInfo.IOS ? '或拖入' : '到'}下方输入框并点击登录。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.7)),
       const SizedBox(height: 12),
       if (Pending == null)
         AppButton(Label: '获取登录链接', Enabled: !Busy, OnPressed: () => widget.Controller.StartNSOLogin())
@@ -85,16 +119,26 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
         AppButton(Label: '重新获取登录链接', Kind: AppButtonKind.Text, Enabled: !Busy, OnPressed: () => widget.Controller.StartNSOLogin()),
       ],
       if (Busy) const Padding(padding: EdgeInsets.only(top: 8), child: AppLinearProgress(Indeterminate: true)),
-      AppTextField(
-        Label: '回调 URL',
-        Controller: Callback,
-        Placeholder: '长按“选择此人”复制链接后粘贴到这里',
-        Enabled: Pending != null && !Busy,
-        OnIcon: Icons.content_paste,
-        OnIconTap: PasteLink,
-        OnSubmitted: (_) => Submit(),
+      AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: DropActive ? Scheme.primary.withValues(alpha: 0.06) : Colors.transparent,
+          border: Border.all(color: DropActive ? Scheme.primary : Colors.transparent, width: 1.5),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: AppTextField(
+          Label: '回调 URL',
+          Controller: Callback,
+          Placeholder: PlatformInfo.IOS
+              ? (DropActive ? '松开即可填入回调链接' : '长按“选择此人”复制链接后粘贴或拖入这里')
+              : '长按“选择此人”复制链接后粘贴到这里',
+          Enabled: Pending != null && !Busy,
+          OnIcon: Icons.content_paste,
+          OnIconTap: PasteLink,
+          OnSubmitted: (_) => Submit(),
+        ),
       ),
-      AppButton(Label: Busy ? '正在登录…' : '使用回调链接登录', Enabled: Pending != null && !Busy, OnPressed: Submit),
+      AppButton(Label: Busy ? '正在登录…' : '登录', Enabled: Pending != null && !Busy, OnPressed: Submit),
       if (Pending == null) const AppHint('当前没有待完成的登录，请先获取登录链接。'),
     ]);
   }
