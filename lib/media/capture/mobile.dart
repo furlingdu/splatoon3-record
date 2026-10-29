@@ -20,7 +20,9 @@ export 'mobile/mobileMedia.dart';
 class MobileCaptureService implements CapturePlatform {
   MobileCaptureService(this.Directories, this.FFmpeg)
       : Sources = PlatformInfo.IOS ? <MobileCaptureSource>[IosCaptureSource()] : <MobileCaptureSource>[AndroidUvcSource()] {
-    Events = MobileCapture.Events.receiveBroadcastStream().listen(HandleEvent);
+    if (PlatformInfo.IOS) {
+      Events = MobileCapture.Events.receiveBroadcastStream().listen(HandleEvent, onError: (Object Error) => OnLog?.call('采集事件监听失败：$Error'));
+    }
   }
 
   final AppDirectories Directories;
