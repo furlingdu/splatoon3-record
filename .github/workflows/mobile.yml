@@ -46,7 +46,7 @@ jobs:
         with:
           flutter-version: 3.47.8
           channel: stable
-          cache: true
+          cache: false
       - name: Resolve dependencies
         run: flutter pub get
       - name: Build runner app
@@ -88,7 +88,7 @@ jobs:
         with:
           flutter-version: 3.47.8
           channel: stable
-          cache: true
+          cache: false
       - name: Resolve dependencies
         run: flutter pub get
       - name: Build apk
@@ -115,7 +115,7 @@ jobs:
         with:
           flutter-version: 3.47.8
           channel: stable
-          cache: true
+          cache: false
       - name: Fetch FFmpeg
         run: bash tool/fetchFFmpeg.sh macos-arm64
       - name: Resolve dependencies
@@ -146,7 +146,7 @@ jobs:
         with:
           flutter-version: 3.47.8
           channel: stable
-          cache: true
+          cache: false
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -185,7 +185,7 @@ jobs:
         with:
           flutter-version: 3.47.8
           channel: stable
-          cache: true
+          cache: false
       - name: Fetch FFmpeg
         shell: pwsh
         run: ./tool/fetchFFmpeg.ps1 -Target windows-x64
