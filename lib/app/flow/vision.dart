@@ -181,8 +181,9 @@ extension AppVisionFlow on AppController {
     }
     final Start = Match.StartAt;
     final End = Match.EndAt;
-    final Index = Cache.indexWhere((Item) => Item.StartAt <= Start && Item.EndAt >= End);
-    if (Index < 0) {
+    final FirstIndex = Cache.indexWhere((Item) => Item.EndAt > Start);
+    final LastIndex = Cache.lastIndexWhere((Item) => Item.StartAt < End);
+    if (FirstIndex < 0 || LastIndex < FirstIndex || Start < Cache.first.StartAt || End > Cache.last.EndAt) {
       if (Start < Cache.first.StartAt) {
         await FailHighlight(Match, '高亮画面已过期');
       } else {
@@ -190,7 +191,7 @@ extension AppVisionFlow on AppController {
       }
       return;
     }
-    final Finalized = Index < Cache.length - 1 || !Capture.Running;
+    final Finalized = LastIndex < Cache.length - 1 || !Capture.Running;
     if (!Finalized && !PlatformInfo.Windows && !PlatformInfo.Linux) {
       RetryHighlight(Match);
       return;
