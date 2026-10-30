@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreGraphics
 import CoreImage
 import CoreVideo
 import Flutter
@@ -572,7 +573,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
     let TargetHeight = max(1, Height)
     let Task = DispatchWorkItem { [weak self] in
       guard let self = self else {
-        Completion(nil)
+        DispatchQueue.main.async { Completion(nil) }
         return
       }
       var Destination: CVPixelBuffer?
@@ -583,7 +584,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       ]
       guard CVPixelBufferCreate(nil, TargetWidth, TargetHeight, kCVPixelFormatType_32BGRA, Attributes as CFDictionary, &Destination) == kCVReturnSuccess,
             let Destination = Destination else {
-        Completion(nil)
+        DispatchQueue.main.async { Completion(nil) }
         return
       }
       let Image = CIImage(cvPixelBuffer: Pixel)
@@ -591,7 +592,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       CVPixelBufferLockBaseAddress(Destination, .readOnly)
       defer { CVPixelBufferUnlockBaseAddress(Destination, .readOnly) }
       guard let Base = CVPixelBufferGetBaseAddress(Destination) else {
-        Completion(nil)
+        DispatchQueue.main.async { Completion(nil) }
         return
       }
       let Stride = CVPixelBufferGetBytesPerRow(Destination)

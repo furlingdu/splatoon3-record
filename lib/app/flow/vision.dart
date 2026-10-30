@@ -92,6 +92,8 @@ extension AppVisionFlow on AppController {
     }
     final Labels = <int>[Config.WipeoutLabel, Config.HighlightLabel, Config.WorkStartLabel, Config.WorkResultLabel, Config.WorkEndLabel];
     for (final Label in Labels) {
+      if (Label == Config.HighlightLabel && !SettingsValue.RecordHighlight) continue;
+      if ((Label == Config.WorkStartLabel || Label == Config.WorkResultLabel || Label == Config.WorkEndLabel) && !SettingsValue.RecordWork) continue;
       final Seen = (Best[Label] ?? 0) >= Config.EventConfidence;
       final TriggerAt = GateFor(Label).Update(At, Seen, Config.DetectIntervalMs);
       if (TriggerAt == null) continue;

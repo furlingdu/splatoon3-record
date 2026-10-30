@@ -68,6 +68,13 @@ List<List<dynamic>> DetectionRows(dynamic Output) {
       return Output.whereType<List>().toList();
     }
   }
+  if (First is num && Output.length % 6 == 0) {
+    final Rows = <List<dynamic>>[];
+    for (var Index = 0; Index < Output.length; Index += 6) {
+      Rows.add(Output.sublist(Index, Index + 6));
+    }
+    return Rows;
+  }
   return <List<dynamic>>[];
 }
 

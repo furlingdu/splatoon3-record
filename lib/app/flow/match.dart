@@ -68,7 +68,7 @@ extension AppMatchFlow on AppController {
   }
 
   void ScheduleArchive(BattleMatch Match) {
-    if (Match.HasVideo || Match.SkipReason != null) return;
+    if (Match.HasVideo || Match.SkipReason != null || Match.Duration <= 0) return;
     if (!Archiving.add(Match.Key)) return;
     PushStatus();
     ArchiveTask = ArchiveTask.then((_) async {
@@ -107,7 +107,7 @@ extension AppMatchFlow on AppController {
     if (Records.isEmpty) return;
     final Start = Records.first.StartAt;
     final End = Records.last.EndAt;
-    final Pending = Archive.Matches.where((Match) => !Match.HasVideo && Match.SkipReason == null && Match.Kind != 'highlight' && MatchFilter.ShouldRecord(Match, SettingsValue) && Match.EndAt >= Start && Match.EndAt <= End).toList()
+    final Pending = Archive.Matches.where((Match) => !Match.HasVideo && Match.SkipReason == null && Match.Kind != 'highlight' && Match.Duration > 0 && MatchFilter.ShouldRecord(Match, SettingsValue) && Match.EndAt >= Start && Match.EndAt <= End).toList()
       ..sort((Left, Right) => Left.EndAt.compareTo(Right.EndAt));
     for (final Match in Pending) {
       ScheduleArchive(Match);

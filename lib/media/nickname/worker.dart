@@ -49,9 +49,11 @@ void VisionWorker(List<Object> Args) {
       final Confidence = (Message[4] as num).toDouble();
       final Shot = BuildLetterbox(Frame, Width, Height, Config.DetectInputSize);
       final Input = OrtValueTensor.createTensorWithDataList(Shot.Blob, <int>[1, 3, Config.DetectInputSize, Config.DetectInputSize]);
-      final Outputs = Session!.run(RunOptions!, <String, OrtValue>{Session.inputNames.first: Input});
+      List<OrtValue?>? Outputs;
       try {
-        final Value = Outputs.first?.value;
+        final Results = Session!.run(RunOptions!, <String, OrtValue>{Session.inputNames.first: Input});
+        Outputs = Results;
+        final Value = Results.first?.value;
         final Boxes = DecodeDetections(Value, Width: Width, Height: Height, InputSize: Config.DetectInputSize, Confidence: Confidence);
         final Encoded = Float32List(Boxes.length * 6);
         for (var Index = 0; Index < Boxes.length; Index++) {
@@ -66,8 +68,10 @@ void VisionWorker(List<Object> Args) {
         }
         Main.send(<Object>[Id, TransferableTypedData.fromList(<TypedData>[Encoded])]);
       } finally {
-        for (final Item in Outputs) {
-          Item?.release();
+        if (Outputs != null) {
+          for (final Item in Outputs) {
+            Item?.release();
+          }
         }
         Input.release();
       }
