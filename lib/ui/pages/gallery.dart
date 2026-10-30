@@ -28,9 +28,11 @@ class GalleryPageState extends State<GalleryPage> {
   @override
   Widget build(BuildContext context) {
     final All = widget.Controller.Matches.toList();
-    final Kinds = <String>{'all', ...All.map((Item) => Item.Kind)}.toList();
-    final Visible = All.where((Item) => (Kind == 'all' || Item.Kind == Kind) && (!HideUnrecorded || Item.HasVideo)).toList();
-    final PickedList = Visible.where((Item) => Picked.contains(Item.Key) && Item.HasVideo).toList();
+    final Normal = All.where((Item) => Item.Kind != 'highlight').toList();
+    final Highlights = All.where((Item) => Item.Kind == 'highlight' && (!HideUnrecorded || Item.HasVideo)).toList();
+    final Kinds = <String>{'all', ...Normal.map((Item) => Item.Kind)}.toList();
+    final Visible = Normal.where((Item) => (Kind == 'all' || Item.Kind == Kind) && (!HideUnrecorded || Item.HasVideo)).toList();
+    final PickedList = <BattleMatch>[...Visible, ...Highlights].where((Item) => Picked.contains(Item.Key) && Item.HasVideo).toList();
     return PageBody(
       Children: <Widget>[
         const AppPageTitle('相册'),
@@ -76,31 +78,45 @@ class GalleryPageState extends State<GalleryPage> {
           ],
         ),
         const SizedBox(height: 16),
-        if (Visible.isEmpty)
+        if (Visible.isEmpty && Highlights.isEmpty)
           const AppEmpty('暂无对局录像')
-        else
-          LayoutBuilder(builder: (Context, Constraints) {
-            final Count = (Constraints.maxWidth / 245).floor().clamp(1, 6);
-            return Column(
-              children: <Widget>[
-                for (var Index = 0; Index < Visible.length; Index += Count)
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      for (var Slot = 0; Slot < Count; Slot++)
-                        Expanded(
-                          child: Padding(
-                            padding: EdgeInsets.only(right: Slot == Count - 1 ? 0 : 16, bottom: 16),
-                            child: Index + Slot < Visible.length ? CardView(Visible[Index + Slot]) : const SizedBox.shrink(),
-                          ),
-                        ),
-                    ],
-                  ),
-              ],
-            );
-          }),
+        else ...<Widget>[
+          if (Visible.isEmpty)
+            AppEmpty(Highlights.isEmpty ? '暂无对局录像' : '暂无普通对局录像')
+          else
+            BuildGrid(Visible),
+          if (Highlights.isNotEmpty) ...<Widget>[
+            const AppSectionTitle('高亮操作'),
+            const AppHint('高亮操作录像单独列出，点击视频框后手动播放，不会自动播放。'),
+            const SizedBox(height: 8),
+            BuildGrid(Highlights),
+          ],
+        ],
       ],
     );
+  }
+
+  Widget BuildGrid(List<BattleMatch> Items) {
+    return LayoutBuilder(builder: (Context, Constraints) {
+      final Count = (Constraints.maxWidth / 245).floor().clamp(1, 6);
+      return Column(
+        children: <Widget>[
+          for (var Index = 0; Index < Items.length; Index += Count)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                for (var Slot = 0; Slot < Count; Slot++)
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(right: Slot == Count - 1 ? 0 : 16, bottom: 16),
+                      child: Index + Slot < Items.length ? CardView(Items[Index + Slot]) : const SizedBox.shrink(),
+                    ),
+                  ),
+              ],
+            ),
+        ],
+      );
+    });
   }
 
   Widget CardView(BattleMatch Match) {
