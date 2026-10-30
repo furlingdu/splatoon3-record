@@ -265,6 +265,8 @@ class CaptureService {
     PreviewActive.value = Texture >= 0;
     State.value = 'recording';
     LatestRecord.value = null;
+    _Sweep?.cancel();
+    _Sweep = Timer.periodic(const Duration(seconds: 60), (_) => Sweep());
     if (Blur) StartNativeMask();
     if (Use.MonitorAudio) await StartMonitor(Use);
   }

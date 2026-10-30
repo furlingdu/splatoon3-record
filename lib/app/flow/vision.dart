@@ -163,7 +163,10 @@ extension AppVisionFlow on AppController {
     PendingHighlights.add(Match.Key);
     HighlightDeadlines[Match.Key] = DateTime.now().millisecondsSinceEpoch + Config.HighlightWaitMs;
     PushStatus();
-    unawaited(TryHighlight(Match));
+    unawaited(TryHighlight(Match).catchError((Object Cause) async {
+      await Logs.App('highlight scan failed ${Match.Key} $Cause');
+      RetryHighlight(Match);
+    }));
   }
 
   Future<void> TryHighlight(BattleMatch Match) async {
