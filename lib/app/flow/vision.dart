@@ -79,7 +79,9 @@ extension AppVisionFlow on AppController {
       VisionBusy = false;
       if (VisionRunning) {
         VisionClock?.cancel();
-        VisionClock = Timer(const Duration(milliseconds: Config.DetectIntervalMs), () => unawaited(VisionTick()));
+        final Elapsed = DateTime.now().millisecondsSinceEpoch - RequestedAt;
+        final Delay = Config.DetectIntervalMs - Elapsed;
+        VisionClock = Timer(Duration(milliseconds: Delay > 0 ? Delay : 0), () => unawaited(VisionTick()));
       }
     }
   }
