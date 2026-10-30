@@ -25,6 +25,9 @@ import '../media/capture/mobile.dart';
 import '../media/capture/desktop.dart';
 import '../media/ffmpeg/ffmpegService.dart';
 import '../media/nickname/blur.dart';
+import '../media/nickname/detector.dart';
+import '../media/nickname/events.dart';
+import '../match/filter.dart';
 import '../nso/battle.dart';
 import '../nso/callback.dart';
 import '../nso/nsoService.dart';
@@ -38,6 +41,7 @@ part 'flow/nso.dart';
 part 'flow/qq.dart';
 part 'flow/match.dart';
 part 'flow/capture.dart';
+part 'flow/vision.dart';
 part 'flow/appUpdate.dart';
 part 'flow/platform.dart';
 
@@ -50,6 +54,7 @@ class AppController extends ChangeNotifier {
   late FFmpegService FFmpeg;
   late CapturePlatform Capture;
   late NicknameBlur Blur;
+  late SplatoonVision Vision;
   late SecretStore Vault;
   AppStatus? Status;
   List<CaptureDevice> Devices = <CaptureDevice>[];
@@ -65,6 +70,18 @@ class AppController extends ChangeNotifier {
   int LastHeight = 0;
   (int, int?, int?)? _CacheRange;
   int _CacheRangeTick = 0;
+  final Set<String> Archiving = <String>{};
+  Future<void> ArchiveTask = Future<void>.value();
+  final WorkTimeline Timeline = WorkTimeline();
+  final Map<int, DetectionGate> Gates = <int, DetectionGate>{};
+  final Set<String> PendingHighlights = <String>{};
+  final Map<String, int> HighlightDeadlines = <String, int>{};
+  final Map<String, Timer> HighlightTimers = <String, Timer>{};
+  Timer? VisionClock;
+  bool VisionRunning = false;
+  bool VisionStarting = false;
+  bool VisionBusy = false;
+  bool VisionUnavailable = false;
   Map<String, dynamic>? Legacy;
   List<NSOAccount> Accounts = <NSOAccount>[];
   String? CurrentNSOId;
@@ -110,7 +127,11 @@ class AppController extends ChangeNotifier {
     if (Capture is MobileCaptureService) {
       (Capture as MobileCaptureService).OnLog = (Message) => unawaited(Logs.Capture(Message));
     }
-    Blur = NicknameBlur(FFmpeg, Directories);
+    Vision = SplatoonVision();
+    if (Capture is DesktopCaptureAdapter) {
+      (Capture as DesktopCaptureAdapter).Inner.OnMaskFrame = MaskFromFrame;
+    }
+    Blur = NicknameBlur(FFmpeg, Directories, Vision);
     Vault = SecretStore(Directories);
     await Vault.Load();
     final Package = await PackageInfo.fromPlatform();
@@ -185,6 +206,7 @@ class AppController extends ChangeNotifier {
       Notice = ErrorText;
       if (Capture.Running || Capture.Starting) unawaited(Abort(ErrorText));
     }
+    if (Capture.State.value != 'recording' && VisionRunning) unawaited(StopVision());
     unawaited(Logs.App('capture state=${Capture.State.value} error=${ErrorText ?? '无'}'));
     PushStatus();
   }
@@ -195,9 +217,9 @@ class AppController extends ChangeNotifier {
     try {
       await Capture.Stop(Fast: true);
       await Capture.Records();
-      Notice = '采集设备已断开，录制已停止：$Text';
+      Notice = '录制已停止：$Text';
     } catch (_) {
-      Notice = '采集设备已断开，录制已停止';
+      Notice = '录制已停止';
     } finally {
       CaptureAborting = false;
       PushStatus();
@@ -253,7 +275,7 @@ class AppController extends ChangeNotifier {
       RtmpServerUrl: Settings.CaptureMode == 'rtmp' ? 'rtmp://127.0.0.1:${Settings.RtmpPort}/live' : null,
       PushState: 'idle',
       PushError: null,
-      Processing: <String>{},
+      Processing: Set<String>.of(Archiving),
       Devices: Devices,
       Country: 'CN',
       PlatformName: Platform.operatingSystem,
@@ -264,9 +286,9 @@ class AppController extends ChangeNotifier {
 
 
 
-  (int, int?, int?) CacheRange() {
+  (int, int?, int?) CacheRange({bool Refresh = false}) {
     final Now = DateTime.now().millisecondsSinceEpoch;
-    if (_CacheRange != null && Now - _CacheRangeTick < 5000) return _CacheRange!;
+    if (!Refresh && _CacheRange != null && Now - _CacheRangeTick < 5000) return _CacheRange!;
     final Folder = Directory(Directories.Cache);
     if (!Folder.existsSync()) {
       _CacheRange = (0, null, null);
@@ -376,6 +398,12 @@ class AppController extends ChangeNotifier {
     Clock?.cancel();
     NSOClock?.cancel();
     LinkSub?.cancel();
+    for (final Item in HighlightTimers.values) {
+      Item.cancel();
+    }
+    HighlightTimers.clear();
+    unawaited(StopVision());
+    unawaited(Vision.Stop());
     unawaited(Capture.Dispose());
     if (Ready) {
       Capture.State.removeListener(CaptureChanged);

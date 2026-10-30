@@ -11,11 +11,13 @@ add_executable(${BINARY_NAME} WIN32
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
+  "capture/audio.cpp"
   "capture/devices.cpp"
   "capture/engine.cpp"
   "capture/host.cpp"
   "capture/mask.cpp"
   "capture/preview.cpp"
+  "capture/recorder.cpp"
   "capture/shared.cpp"
   "capture/texture.cpp"
   "capture/types.cpp"
@@ -43,7 +45,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
-target_link_libraries(${BINARY_NAME} PRIVATE "mfplat.lib" "mfreadwrite.lib" "mfuuid.lib" "mf.lib" "ole32.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "mfplat.lib" "mfreadwrite.lib" "mfuuid.lib" "mf.lib" "ole32.lib" "propsys.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 target_include_directories(${BINARY_NAME} PRIVATE "${FLUTTER_MANAGED_DIR}/ephemeral/cpp_client_wrapper")
 target_compile_options(${BINARY_NAME} PRIVATE "/utf-8")

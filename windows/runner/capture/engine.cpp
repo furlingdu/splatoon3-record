@@ -11,8 +11,13 @@
 
 namespace Capture {
 
-CaptureEngine::CaptureEngine(std::shared_ptr<Shared> SharedValue, StateCallback OnState, ErrorCallback OnError, LogCallback OnLog, StatsCallback OnStats)
-    : SharedRef(std::move(SharedValue)), State(std::move(OnState)), Error(std::move(OnError)), Log(std::move(OnLog)), Stats(std::move(OnStats)) {}
+CaptureEngine::CaptureEngine(std::shared_ptr<Shared> SharedValue, StateCallback OnState, ErrorCallback OnError, LogCallback OnLog, PreviewCallback OnPreviewValue, StatsCallback OnStats)
+    : SharedRef(std::move(SharedValue)),
+      State(std::move(OnState)),
+      Error(std::move(OnError)),
+      Log(std::move(OnLog)),
+      OnPreview(std::move(OnPreviewValue)),
+      Stats(std::move(OnStats)) {}
 
 CaptureEngine::~CaptureEngine() {
   Stop(true);
@@ -32,6 +37,7 @@ bool CaptureEngine::Prepare(const Config& Value) {
   }
   PreparedConfig = Value;
   PreparedMode = Selected;
+  PreparedMode.Format = "nv12";
   ErrorText.clear();
   return true;
 }
@@ -47,11 +53,12 @@ bool CaptureEngine::Start(const std::wstring& Exe, const std::vector<std::string
   FirstWrite = false;
   RecordingSent = false;
   WriterEnabled = UseWriter;
+  NativeEnabled = false;
   LastStatsTick = static_cast<LONGLONG>(GetTickCount64());
   CapturedFrames = 0;
   if (State) State("starting");
   SharedRef->SetActive(true);
-  Preview = std::make_unique<CapturePreview>(SharedRef);
+  Preview = std::make_unique<CapturePreview>(SharedRef, OnPreview);
   Preview->Start();
   if (WriterEnabled) {
     Writer = std::make_unique<CaptureWriter>(
@@ -83,6 +90,95 @@ bool CaptureEngine::Start(const std::wstring& Exe, const std::vector<std::string
   return true;
 }
 
+bool CaptureEngine::StartNative(const NativeConfig& Value) {
+  if (Running) return false;
+  if (PreparedMode.Width <= 0 || PreparedMode.Height <= 0) {
+    if (!Prepare(PreparedConfig)) return false;
+  }
+  if (Value.Directory.empty()) {
+    ReportError("录制目录无效");
+    return false;
+  }
+  NativeOptions = Value;
+  Stopping = false;
+  Running = true;
+  FirstFrame = false;
+  FirstWrite = false;
+  RecordingSent = false;
+  WriterEnabled = true;
+  NativeEnabled = true;
+  LastStatsTick = static_cast<LONGLONG>(GetTickCount64());
+  CapturedFrames = 0;
+  if (State) State("starting");
+  SharedRef->SetActive(true);
+  Preview = std::make_unique<CapturePreview>(SharedRef, OnPreview);
+  Preview->Start();
+  Recorder = std::make_unique<CaptureRecorder>(
+      [this](const std::string& Text) {
+        if (Log) Log(Text);
+      },
+      [this](const std::string& Text) {
+        if (!Stopping) ReportError(Text);
+      },
+      [this]() {
+        FirstWrite = true;
+        EvaluateState();
+      });
+  CaptureRecorder::Options Options;
+  Options.Directory = Value.Directory;
+  Options.Width = PreparedMode.Width;
+  Options.Height = PreparedMode.Height;
+  Options.Fps = PreparedMode.Fps > 0 ? PreparedMode.Fps : 60;
+  Options.FpsNumerator = PreparedMode.FpsNumerator > 0 ? PreparedMode.FpsNumerator : Options.Fps;
+  Options.FpsDenominator = PreparedMode.FpsDenominator > 0 ? PreparedMode.FpsDenominator : 1;
+  Options.Quality = Value.Quality;
+  Options.SegmentSeconds = Value.SegmentSeconds;
+  Options.Audio = Value.Audio && !Value.AudioDevice.empty();
+  std::string Failure;
+  if (!Recorder->Start(Options, &Failure)) {
+    ReportError(Failure.empty() ? "无法启动录制编码" : Failure);
+    Stop(true);
+    return false;
+  }
+  if (Options.Audio) {
+    Audio = std::make_unique<AudioCapture>();
+    if (!Audio->Start(Value.AudioDevice, [this](const uint8_t* Data, size_t Size, LONGLONG Qpc) {
+          if (Recorder) Recorder->PushAudio(Data, Size, Qpc);
+          std::shared_ptr<AudioMonitor> Current;
+          {
+            std::lock_guard<std::mutex> Lock(MonitorMutex);
+            Current = Monitor;
+          }
+          if (Current) Current->Push(Data, Size);
+        }, &Failure)) {
+      ReportError(Failure.empty() ? "无法启动音频采集" : Failure);
+      Stop(true);
+      return false;
+    }
+  }
+  if (Value.Monitor) SetMonitor(true);
+  ReaderThread = std::thread(&CaptureEngine::ReaderLoop, this);
+  return true;
+}
+
+void CaptureEngine::SetMonitor(bool Value) {
+  std::lock_guard<std::mutex> Lock(MonitorMutex);
+  if (Value && Audio && Audio->Running()) {
+    if (!Monitor) {
+      auto Created = std::make_shared<AudioMonitor>();
+      Created->SetDelayMs(NativeOptions.MonitorDelayMs);
+      std::string Failure;
+      if (Created->Start(&Failure)) {
+        Monitor = Created;
+      } else if (Log) {
+        Log("monitor unavailable " + Failure);
+      }
+    }
+    return;
+  }
+  Monitor.reset();
+}
+
 void CaptureEngine::Stop(bool Fast) {
   Running = false;
   Stopping = true;
@@ -91,10 +187,23 @@ void CaptureEngine::Stop(bool Fast) {
     Preview->Stop();
     Preview.reset();
   }
+  if (Audio) {
+    Audio->Stop();
+    Audio.reset();
+  }
+  {
+    std::lock_guard<std::mutex> Lock(MonitorMutex);
+    Monitor.reset();
+  }
+  if (Recorder) {
+    Recorder->Stop(Fast);
+    Recorder.reset();
+  }
   if (Writer) {
     Writer->Stop(Fast);
     Writer.reset();
   }
+  NativeEnabled = false;
   SharedRef->SetActive(false);
 }
 
@@ -111,6 +220,15 @@ void CaptureEngine::PushMask(const uint8_t* Data, size_t Size) {
 bool CaptureEngine::Snapshot(std::vector<uint8_t>& Out, uint32_t& Sequence) {
   if (!Preview) return false;
   return Preview->Snapshot(Out, Sequence);
+}
+
+void CaptureEngine::SetVision(bool Enabled) {
+  if (Preview) Preview->SetVision(Enabled);
+}
+
+bool CaptureEngine::VisionSnapshot(std::vector<uint8_t>& Out, int& Width, int& Height, uint32_t& Sequence) {
+  if (!Preview) return false;
+  return Preview->VisionSnapshot(Out, Width, Height, Sequence);
 }
 
 bool CaptureEngine::IsRunning() const {
@@ -155,12 +273,19 @@ void CaptureEngine::ReaderLoop() {
       break;
     }
     if (Sample != nullptr) {
+      const LONGLONG FrameQpc = QpcNow();
+      const LONGLONG ArrivalTick = static_cast<LONGLONG>(GetTickCount64());
       std::shared_ptr<Frame> Value;
       if (CopySample(Sample, Value) && Value) {
         Value->Timestamp = Timestamp;
-        Value->ArrivalTick = static_cast<LONGLONG>(GetTickCount64());
+        Value->ArrivalTick = ArrivalTick;
+        Value->Qpc = FrameQpc;
         Preview->Submit(Value);
-        if (WriterEnabled && Writer) Writer->Push(Value);
+        if (NativeEnabled && Recorder) {
+          Recorder->PushVideo(Value);
+        } else if (WriterEnabled && Writer) {
+          Writer->Push(Value);
+        }
         CapturedFrames++;
         if (!FirstFrame.exchange(true)) EvaluateState();
       }
@@ -308,12 +433,25 @@ void CaptureEngine::ReportStats() {
   CapturedFrames = 0;
   LastStatsTick = Now;
   if (Preview && Stats) {
-    const long long Dropped = Writer ? Writer->Dropped() : 0;
-    const long long Written = Writer ? Writer->Written() : 0;
-    const long long Duplicated = Writer ? Writer->Duplicated() : 0;
-    const int WriteMs = Writer ? Writer->LastWriteMs() : 0;
-    const int Queue = Writer ? Writer->QueueSize() : 0;
-    Stats(CaptureRate, Preview->FrameRate(), Preview->Latency(), Preview->ConvertMs(), Dropped, Written, Duplicated, WriteMs, Queue);
+    long long Dropped = 0;
+    long long Written = 0;
+    long long Duplicated = 0;
+    int WriteMs = 0;
+    int Queue = 0;
+    if (NativeEnabled && Recorder) {
+      Dropped = Recorder->Dropped();
+      Written = Recorder->Written();
+      Duplicated = Recorder->Duplicated();
+      WriteMs = Recorder->LastWriteMs();
+      Queue = Recorder->QueueSize();
+    } else if (Writer) {
+      Dropped = Writer->Dropped();
+      Written = Writer->Written();
+      Duplicated = Writer->Duplicated();
+      WriteMs = Writer->LastWriteMs();
+      Queue = Writer->QueueSize();
+    }
+    Stats(CaptureRate, Preview->FrameRate(), Preview->Latency(), Preview->ConvertMs(), Preview->Width(), Preview->Height(), Dropped, Written, Duplicated, WriteMs, Queue);
   }
 }
 

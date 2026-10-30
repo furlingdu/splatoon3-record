@@ -1,8 +1,17 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 
 import '../../../domain/models.dart';
+
+class MobileSnapshot {
+  const MobileSnapshot({required this.Width, required this.Height, required this.Rgba});
+
+  final int Width;
+  final int Height;
+  final Uint8List Rgba;
+}
 
 class MobileAudioClip {
   const MobileAudioClip({required this.Path, required this.StartNs});
@@ -56,6 +65,10 @@ abstract class MobileCaptureSource {
   Future<String> StartRecording(String Path);
 
   Future<String?> StopRecording();
+
+  Future<MobileSnapshot?> Snapshot() async {
+    return null;
+  }
 
   Future<void> Release();
 

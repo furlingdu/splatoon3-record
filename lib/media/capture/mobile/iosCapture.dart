@@ -113,6 +113,18 @@ class IosCaptureSource implements MobileCaptureSource {
   }
 
   @override
+  Future<MobileSnapshot?> Snapshot() async {
+    if (!Ready) return null;
+    try {
+      final Frame = await MobileCapture.Snapshot(Width: 1280, Height: 720);
+      if (Frame == null || Frame.Rgba.isEmpty) return null;
+      return MobileSnapshot(Width: Frame.Width, Height: Frame.Height, Rgba: Frame.Rgba);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<void> Release() async {
     Ready = false;
     Target = null;

@@ -3,8 +3,15 @@ import 'package:flutter/material.dart';
 class AppTheme {
   static const Color Seed = Color(0xff4285f4);
   static const Color Ink = Color(0xff141218);
-  static const Color Chrome = Color(0x9917161d);
-  static const Color ChromeSoft = Color(0x8017161d);
+  static Color ChromeColor(BuildContext Context, {bool Soft = false}) {
+    return ChromeFor(Theme.of(Context).colorScheme, Soft: Soft);
+  }
+
+  static Color ChromeFor(ColorScheme Scheme, {bool Soft = false}) {
+    final Tint = Scheme.primary.withValues(alpha: Soft ? 0.28 : 0.36);
+    final Base = Color.alphaBlend(Tint, const Color(0xff17161d));
+    return Base.withValues(alpha: Soft ? 0.64 : 0.80);
+  }
   static const List<String> FontFallback = <String>[
     'SplatoonZhL1',
     'SplatoonZhL2',

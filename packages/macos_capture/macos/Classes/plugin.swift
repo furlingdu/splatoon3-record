@@ -38,6 +38,23 @@ public final class MacCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHandl
           }
         }
       }
+    case "StartNative":
+      let Directory = Arguments["directory"] as? String ?? ""
+      let Quality = Arguments["quality"] as? Int ?? 28
+      let SegmentSeconds = Arguments["segmentSeconds"] as? Int ?? 600
+      let Audio = Arguments["audio"] as? Bool ?? false
+      let Monitor = Arguments["monitor"] as? Bool ?? false
+      DispatchQueue.global(qos: .userInitiated).async {
+        self.Host.StartNative(Directory: Directory, Quality: Quality, SegmentSeconds: SegmentSeconds, Audio: Audio, Monitor: Monitor) { Error in
+          DispatchQueue.main.async {
+            if let Error = Error {
+              result(FlutterError(code: "capture", message: Error, details: nil))
+              return
+            }
+            result(nil)
+          }
+        }
+      }
     case "Start":
       let Exe = Arguments["exe"] as? String ?? ""
       let Args = Arguments["args"] as? [String] ?? []
@@ -52,6 +69,10 @@ public final class MacCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHandl
           }
         }
       }
+    case "Monitor":
+      let Enabled = Arguments["enabled"] as? Bool ?? false
+      Host.Monitor(Enabled)
+      result(nil)
     case "Stop":
       let Fast = Arguments["fast"] as? Bool ?? false
       DispatchQueue.global(qos: .userInitiated).async {
@@ -62,9 +83,14 @@ public final class MacCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     case "PreviewTexture":
       result(Int(Host.PulseTexture()))
     case "PreviewState":
-      result([String: Any]())
+      result(Host.PreviewState())
     case "Snapshot":
       result(nil)
+    case "Vision":
+      Host.SetVision(Arguments["enabled"] as? Bool ?? false)
+      result(nil)
+    case "VisionSnapshot":
+      result(Host.VisionSnapshot())
     case "Mask":
       result(nil)
     case "OpenMaskPipe":
@@ -94,6 +120,11 @@ public final class MacCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHandl
         events(["type": "error", "text": Text])
       }
     }
+    Host.OnLog = { Text in
+      DispatchQueue.main.async {
+        events(["type": "log", "text": Text])
+      }
+    }
     return nil
   }
 
@@ -101,6 +132,7 @@ public final class MacCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     Host.OnState = nil
     Host.OnStats = nil
     Host.OnError = nil
+    Host.OnLog = nil
     return nil
   }
 }

@@ -85,10 +85,20 @@ class StatusPage extends StatelessWidget {
               AppStatusItem(Label: '采集方式', Value: Text(Status.Settings.CaptureMode == 'rtmp' ? 'RTMP' : (Mobile ? 'USB 采集卡' : '软件内捕获'))),
               AppStatusItem(Label: '分辨率', Value: AppStatusText(Status.Width > 0 ? Formats.Resolution(Status.Width, Status.Height) : '未收到画面')),
               AppStatusItem(Label: '帧率', Value: AppStatusText(Status.Fps > 0 ? Formats.Fps(Status.Fps) : '未收到画面')),
+              if (!Mobile)
+                ValueListenableBuilder<Map<String, dynamic>?>(
+                  valueListenable: Controller.Capture.Stats,
+                  builder: (Context, Stats, _) {
+                    final Width = (Stats?['previewWidth'] as num?)?.toInt() ?? 0;
+                    final Height = (Stats?['previewHeight'] as num?)?.toInt() ?? 0;
+                    final Fps = (Stats?['previewFps'] as num?)?.toInt() ?? 0;
+                    return AppStatusItem(Label: '预览', Value: AppStatusText(Width > 0 ? '${Formats.Resolution(Width, Height)} @ ${Fps}fps' : '未就绪'));
+                  },
+                ),
               AppStatusItem(Label: '采集画面格式', Value: AppStatusText(Status.Settings.CaptureMode == 'rtmp' ? 'RTMP / MP4' : Status.PixelFormat)),
               AppStatusItem(Label: '录制格式', Value: AppStatusText(Status.Settings.CaptureMode == 'rtmp' ? 'video/mp4' : Formats.FileFormat(Status.StreamFormat ?? ''))),
-              AppStatusItem(Label: '录制编码', Value: AppStatusText(Status.Encoder.isEmpty ? '-' : Status.Encoder)),
-              if (!Mobile) AppStatusItem(Label: '硬件加速', Value: AppStatusText(Status.HwAccel == null ? '未启用' : '${Status.HwAccel} 硬件解码')),
+              AppStatusItem(Label: '录制编码', Value: AppStatusText(Formats.EncoderLabel(Status.Encoder))),
+              if (!Mobile) AppStatusItem(Label: '编码方式', Value: AppStatusText(Formats.EncoderKind(Status.Encoder))),
               AppStatusItem(Label: '编码器', Value: AppStatusText(Status.StreamEncoder ?? '-')),
               if (Mobile)
                 ValueListenableBuilder<Map<String, dynamic>?>(
@@ -143,12 +153,12 @@ class StatusPage extends StatelessWidget {
             child: Column(
               children: Recent.map((Match) {
                 final State = Controller.Status?.Processing.contains(Match.Key) == true
-                    ? '正在保存'
+                    ? '保存中'
                     : Match.HasVideo
                         ? '已归档'
                         : Match.SkipReason != null
-                            ? '账户冲突'
-                            : '未录制';
+                        ? Match.SkipReason!
+                        : '未录制';
                 return AppStatusItem(
                   Label: '${Match.AccountNickname == null ? '' : '${Match.AccountNickname} · '}${Formats.Kind(Match.Kind)}',
                   Value: AppStatusText('${Formats.Rule(Match.Rule)} · ${Formats.DateTimeText(Match.EndAt)} · ${Formats.Duration(Match.Duration)} · ${Match.IsDisconnected ? '掉线' : Formats.Result(Match.Result)} · $State'),

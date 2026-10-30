@@ -38,6 +38,7 @@ class MatchesPageState extends State<MatchesPage> {
         else
           ...Matches.map((Match) => MatchRow(
                 Match: Match,
+                Processing: widget.Controller.Status?.Processing.contains(Match.Key) == true,
                 OnPlay: () => Play(Match),
                 OnOpen: Match.HasVideo ? () => widget.Controller.OpenPath(Match.VideoPath!) : null,
                 OnSave: Match.HasVideo ? () => widget.Controller.SaveMatchVideo(Match) : null,
@@ -71,6 +72,7 @@ class StatGrid extends StatelessWidget {
       <String>['私人比赛', 'private', 'private'],
       <String>['活动比赛', 'event', 'event'],
       <String>['X比赛', 'x', 'xBattle'],
+      <String>['打工', 'salmon', 'salmon'],
     ];
     return LayoutBuilder(builder: (Context, Constraints) {
       final Count = (Constraints.maxWidth / 200).floor().clamp(1, 5);
@@ -169,7 +171,7 @@ class MatchRowWidget extends StatelessWidget {
   final AppController Controller;
 
   @override
-  Widget build(BuildContext context) => MatchRow(Match: Match, OnPlay: OnPlay);
+  Widget build(BuildContext context) => MatchRow(Match: Match, Processing: Controller.Status?.Processing.contains(Match.Key) == true, OnPlay: OnPlay);
 
   String Title(BattleMatch Item) {
     final Kind = Formats.Kind(Item.Kind);

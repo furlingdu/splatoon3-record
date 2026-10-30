@@ -1,11 +1,33 @@
 abstract final class Config {
-  static const String ModelPath = 'assets/models/splatoonNickname.onnx';
+  static const String ModelPath = 'assets/models/splatoonRecord.onnx';
+  static const int DetectInputSize = 1280;
+  static const int DetectSnapshotWidth = 1280;
+  static const int DetectSnapshotHeight = 720;
+  static const int DetectIntervalMs = 500;
+  static const double DetectConfidence = 0.25;
+  static const double EventConfidence = 0.8;
+  static const double NicknameConfidence = 0.5;
+  static const int HighlightLeadMs = 15000;
+  static const int HighlightCooldownMs = 10000;
+  static const int WorkPairWindowMs = 120000;
+  static const int WorkFallbackMs = 600000;
+  static const int CacheKeepMs = 13 * 60 * 1000;
+  static const int HighlightWaitMs = 12 * 60 * 1000;
+  static const int HighlightRetryMs = 30000;
+  static const int WorkStartLabel = 4;
+  static const int WorkResultLabel = 5;
+  static const int WorkEndLabel = 6;
+  static const int PlayerNicknameLabel = 0;
+  static const int KillPlayerNicknameLabel = 1;
+  static const int WipeoutLabel = 2;
+  static const int HighlightLabel = 3;
   static const String FFmpegAsset = 'assets/tools/ffmpeg.exe';
   static const String FFmpegAssetUnix = 'assets/tools/ffmpeg';
   static const String FFplayAsset = 'assets/tools/ffplay.exe';
   static const String VideoToolbox = 'h264_videotoolbox';
   static const String MediaCodec = 'h264_mediacodec';
   static const int SegmentSeconds = 600;
+  static const int MonitorDelayMs = 30;
   static const String BackgroundPath = 'assets/backgrounds/informationBg.jpg';
   static const String AppIconPath = 'assets/images/appIcon.png';
   static const String CharacterPath = 'assets/images/character.png';
@@ -48,6 +70,8 @@ abstract final class Config {
   static const int NSOWebServiceId = 4834290508791808;
   static const String NSOLatestQuery = 'b24d22fd6cb251c515c2b90044039698aa27bc1fab15801d83014d919cd45780';
   static const String NSODetailQuery = '94faa2ff992222d11ced55e0f349920a82ac50f414ae33c83d1d1c9d8161c5dd';
+  static const String NSOCoopQuery = 'e11a8cf2c3de7348495dea5cdcaa25e0c153541c4ed63f044b6c174bc5b703df';
+  static const String NSOCoopDetailQuery = 'f2d55873a9281213ae27edc171e2b19131b3021a2ae263757543cdd3bf015cc8';
   static const List<String> ThemeColors = <String>['#4285f4', '#3f51b5', '#9c27b0', '#e91e63', '#f44336', '#ff9800', '#4caf50', '#009688', '#00bcd4', '#607d8b'];
 }
 

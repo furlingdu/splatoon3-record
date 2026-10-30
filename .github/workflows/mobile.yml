@@ -25,7 +25,7 @@ permissions:
 jobs:
   prepare:
     name: Prepare release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && vars.RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Create or reuse release
@@ -58,16 +58,14 @@ jobs:
           cp -R build/ios/iphoneos/Runner.app Payload/
           zip -qry Splatoon3Record-3.0.0-unsigned.ipa Payload
           ls -lh *.ipa
-      - name: Publish unsigned ipa
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          Tag="ios-${GITHUB_RUN_ID}"
-          gh release view "$Tag" --repo "${{ github.repository }}" >/dev/null 2>&1 || gh release create "$Tag" --repo "${{ github.repository }}" --title "Splatoon3 Record ${Tag}" --notes "Unsigned iOS IPA" --latest=false
-          gh release upload "$Tag" *.ipa --clobber
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Splatoon3Record-ios-unsigned
+          path: Splatoon3Record-3.0.0-unsigned.ipa
+          if-no-files-found: error
       - name: Upload release asset
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && vars.RELEASE_ENABLED == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.ref_name }}" *.ipa --clobber
@@ -97,8 +95,14 @@ jobs:
         run: |
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk Splatoon3Record-3.0.0-android-arm64-v8a.apk
           cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk Splatoon3Record-3.0.0-android-armeabi-v7a.apk
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Splatoon3Record-android
+          path: Splatoon3Record-3.0.0-android-*.apk
+          if-no-files-found: error
       - name: Upload release assets
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && vars.RELEASE_ENABLED == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.ref_name }}" Splatoon3Record-3.0.0-android-*.apk --clobber
@@ -128,8 +132,14 @@ jobs:
           find "$App" -name '._*' -delete
           codesign --force --deep -s - "$App"
           ditto -c -k --sequesterRsrc --keepParent "$App" Splatoon3Record-3.0.0-macos-arm64.zip
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Splatoon3Record-macos-arm64
+          path: Splatoon3Record-3.0.0-macos-arm64.zip
+          if-no-files-found: error
       - name: Upload release asset
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && vars.RELEASE_ENABLED == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.ref_name }}" *.zip --clobber
@@ -167,8 +177,14 @@ jobs:
           exit $Code
       - name: Package
         run: tar -czf Splatoon3Record-3.0.0-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Splatoon3Record-linux-x64
+          path: Splatoon3Record-3.0.0-linux-x64.tar.gz
+          if-no-files-found: error
       - name: Upload release asset
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && vars.RELEASE_ENABLED == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.ref_name }}" *.tar.gz --clobber
@@ -201,8 +217,14 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup\setup.iss
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Splatoon3Record-windows-x64
+          path: dist/*.exe
+          if-no-files-found: error
       - name: Upload release asset
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && vars.RELEASE_ENABLED == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

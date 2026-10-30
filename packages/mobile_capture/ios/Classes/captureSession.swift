@@ -1,4 +1,6 @@
 import AVFoundation
+import CoreImage
+import CoreVideo
 import Flutter
 
 struct CaptureModeInfo {
@@ -7,12 +9,17 @@ struct CaptureModeInfo {
   let Fps: Int
 }
 
-final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
+final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
   let Session = AVCaptureSession()
 
   private let Output = AVCaptureMovieFileOutput()
+  private let SnapshotOutput = AVCaptureVideoDataOutput()
   private let CaptureQueue = DispatchQueue(label: "splatoon3record.mobile_capture")
+  private let SnapshotQueue = DispatchQueue(label: "splatoon3record.mobile_snapshot")
   private let MonitorQueue = DispatchQueue(label: "splatoon3record.audio_monitor")
+  private let SnapshotLock = NSLock()
+  private let SnapshotContext = CIContext(options: nil)
+  private var SnapshotPixel: CVPixelBuffer?
   private var VideoInput: AVCaptureDeviceInput?
   private var AudioInput: AVCaptureDeviceInput?
   private var Pending: ((String?) -> Void)?
@@ -313,10 +320,25 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       if !self.Session.outputs.contains(self.Output) {
         if self.Session.canAddOutput(self.Output) { self.Session.addOutput(self.Output) }
       }
+      if !self.Session.outputs.contains(self.SnapshotOutput) {
+        self.SnapshotOutput.videoSettings = [
+          kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+        ]
+        self.SnapshotOutput.alwaysDiscardsLateVideoFrames = true
+        self.SnapshotOutput.setSampleBufferDelegate(self, queue: self.SnapshotQueue)
+        if self.Session.canAddOutput(self.SnapshotOutput) { self.Session.addOutput(self.SnapshotOutput) }
+      }
       let Size = CMVideoFormatDescriptionGetDimensions(Device.activeFormat.formatDescription)
       self.VideoAngle = Self.Angle(Orientation, Width: Int(Size.width), Height: Int(Size.height))
       self.Session.commitConfiguration()
       if let Connection = self.Output.connection(with: .video) {
+        self.Rotate(Connection, Angle: self.VideoAngle)
+        Connection.automaticallyAdjustsVideoMirroring = false
+        if Connection.isVideoMirroringSupported {
+          Connection.isVideoMirrored = false
+        }
+      }
+      if let Connection = self.SnapshotOutput.connection(with: .video) {
         self.Rotate(Connection, Angle: self.VideoAngle)
         Connection.automaticallyAdjustsVideoMirroring = false
         if Connection.isVideoMirroringSupported {
@@ -439,6 +461,13 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
   }
 
   func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+    if output === SnapshotOutput {
+      guard let Pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+      SnapshotLock.lock()
+      SnapshotPixel = Pixel
+      SnapshotLock.unlock()
+      return
+    }
     guard MonitorEnabled, let Player = MonitorPlayer, let Format = MonitorFormat else { return }
     let Frames = CMSampleBufferGetNumSamples(sampleBuffer)
     if Frames <= 0 { return }
@@ -512,6 +541,14 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
         self.Session.commitConfiguration()
         self.AudioOutput = nil
       }
+      if self.Session.outputs.contains(self.SnapshotOutput) {
+        self.Session.beginConfiguration()
+        self.Session.removeOutput(self.SnapshotOutput)
+        self.Session.commitConfiguration()
+      }
+      self.SnapshotLock.lock()
+      self.SnapshotPixel = nil
+      self.SnapshotLock.unlock()
       if self.Session.isRunning { self.Session.stopRunning() }
       self.Session.beginConfiguration()
       for Input in self.Session.inputs { self.Session.removeInput(Input) }
@@ -521,6 +558,53 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       self.Prepared = false
       self.OnState?("idle")
     }
+  }
+
+  func Snapshot(Width: Int, Height: Int, Completion: @escaping (Data?) -> Void) {
+    SnapshotLock.lock()
+    let Pixel = SnapshotPixel
+    SnapshotLock.unlock()
+    guard let Pixel = Pixel else {
+      Completion(nil)
+      return
+    }
+    let TargetWidth = max(1, Width)
+    let TargetHeight = max(1, Height)
+    let Task = DispatchWorkItem { [weak self] in
+      guard let self = self else {
+        Completion(nil)
+        return
+      }
+      var Destination: CVPixelBuffer?
+      let Attributes: [String: Any] = [
+        kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
+        kCVPixelBufferWidthKey as String: TargetWidth,
+        kCVPixelBufferHeightKey as String: TargetHeight,
+      ]
+      guard CVPixelBufferCreate(nil, TargetWidth, TargetHeight, kCVPixelFormatType_32BGRA, Attributes as CFDictionary, &Destination) == kCVReturnSuccess,
+            let Destination = Destination else {
+        Completion(nil)
+        return
+      }
+      let Image = CIImage(cvPixelBuffer: Pixel)
+      self.SnapshotContext.render(Image, to: Destination, bounds: CGRect(x: 0, y: 0, width: TargetWidth, height: TargetHeight), colorSpace: CGColorSpaceCreateDeviceRGB())
+      CVPixelBufferLockBaseAddress(Destination, .readOnly)
+      defer { CVPixelBufferUnlockBaseAddress(Destination, .readOnly) }
+      guard let Base = CVPixelBufferGetBaseAddress(Destination) else {
+        Completion(nil)
+        return
+      }
+      let Stride = CVPixelBufferGetBytesPerRow(Destination)
+      var DataValue = Data(count: TargetWidth * TargetHeight * 4)
+      DataValue.withUnsafeMutableBytes { Target in
+        guard let TargetBase = Target.baseAddress else { return }
+        for Row in 0..<TargetHeight {
+          memcpy(TargetBase.advanced(by: Row * TargetWidth * 4), Base.advanced(by: Row * Stride), TargetWidth * 4)
+        }
+      }
+      DispatchQueue.main.async { Completion(DataValue) }
+    }
+    SnapshotQueue.async(execute: Task)
   }
 
   func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {

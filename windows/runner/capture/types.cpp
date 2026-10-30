@@ -25,3 +25,15 @@ std::string Capture::FormatError(HRESULT Result) {
   sprintf_s(Buffer, "0x%08X", static_cast<unsigned int>(Result));
   return Buffer;
 }
+
+LONGLONG Capture::QpcNow() {
+  static LONGLONG Frequency = 0;
+  if (Frequency == 0) {
+    LARGE_INTEGER Value{};
+    QueryPerformanceFrequency(&Value);
+    Frequency = Value.QuadPart > 0 ? Value.QuadPart : 1;
+  }
+  LARGE_INTEGER Counter{};
+  QueryPerformanceCounter(&Counter);
+  return Counter.QuadPart * 10000000LL / Frequency;
+}

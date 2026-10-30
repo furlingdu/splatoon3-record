@@ -32,7 +32,7 @@ namespace Capture {
 
 class CaptureHost {
  public:
-  explicit CaptureHost(FlutterDesktopPluginRegistrarRef Registrar);
+  CaptureHost(FlutterDesktopPluginRegistrarRef Registrar, HWND Window);
   ~CaptureHost();
 
   CaptureHost(const CaptureHost&) = delete;
@@ -50,8 +50,10 @@ class CaptureHost {
   void SendLog(const std::string& Text);
   void PostTask(std::function<void()> Task);
   void LifecycleLoop();
+  void ApplyTheme(int Color);
 
   FlutterDesktopPluginRegistrarRef RegistrarRef = nullptr;
+  HWND WindowRef = nullptr;
   FlutterDesktopTextureRegistrarRef TextureRegistrarRef = nullptr;
   std::unique_ptr<flutter::BinaryMessengerImpl> Messenger;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> Channel;

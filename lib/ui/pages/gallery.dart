@@ -27,7 +27,7 @@ class GalleryPageState extends State<GalleryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final All = widget.Controller.Matches.where((Item) => !Item.IsSalmon && Item.Kind != 'salmon').toList();
+    final All = widget.Controller.Matches.toList();
     final Kinds = <String>{'all', ...All.map((Item) => Item.Kind)}.toList();
     final Visible = All.where((Item) => (Kind == 'all' || Item.Kind == Kind) && (!HideUnrecorded || Item.HasVideo)).toList();
     final PickedList = Visible.where((Item) => Picked.contains(Item.Key) && Item.HasVideo).toList();
@@ -107,6 +107,9 @@ class GalleryPageState extends State<GalleryPage> {
     final Scheme = Theme.of(context).colorScheme;
     final Thumb = '${widget.Controller.Directories.Thumbs}${Platform.pathSeparator}${widget.Controller.Archive.SafeName(Match.Key)}.jpg';
     final Win = RegExp('WIN', caseSensitive: false).hasMatch(Match.Result);
+    final Highlight = Match.Kind == 'highlight';
+    final Badge = Highlight ? '高亮' : Match.IsDisconnected ? '掉线' : Formats.Result(Match.Result);
+    final BadgeColor = Highlight ? const Color(0xd94285f4) : Match.IsDisconnected || !Win ? const Color(0xd9c84a4a) : const Color(0xd930a557);
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: () => Open(Match),
@@ -140,8 +143,8 @@ class GalleryPageState extends State<GalleryPage> {
                     top: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1),
-                      decoration: BoxDecoration(color: Match.IsDisconnected || !Win ? const Color(0xd9c84a4a) : const Color(0xd930a557), borderRadius: BorderRadius.circular(1000)),
-                      child: Text(Match.IsDisconnected ? '掉线' : Formats.Result(Match.Result), style: AppTheme.Style(Size: 12, ColorValue: Colors.white)),
+                      decoration: BoxDecoration(color: BadgeColor, borderRadius: BorderRadius.circular(1000)),
+                      child: Text(Badge, style: AppTheme.Style(Size: 12, ColorValue: Colors.white)),
                     ),
                   ),
                   if (Match.Duration > 0)

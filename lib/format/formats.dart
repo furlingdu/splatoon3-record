@@ -10,6 +10,7 @@ class Formats {
     'splatfest': '蛮颓祭',
     'private': '私房对战',
     'salmon': '鲑鱼跑',
+    'highlight': '高亮操作',
     'unknown': '未知类型',
   };
 
@@ -24,6 +25,7 @@ class Formats {
     'BIG_RUN': '大量发生',
     'TEAM_CONTEST': '团队竞赛',
     'COOP_NORMAL': '平时打工',
+    'HIGHLIGHT': '高亮操作',
   };
 
   static String Kind(String Value) => KindNames[Value] ?? KindNames['unknown']!;
@@ -34,6 +36,7 @@ class Formats {
   }
 
   static String Result(String Value) {
+    if (Value == 'HIGHLIGHT') return '高亮';
     if (RegExp('WIN', caseSensitive: false).hasMatch(Value)) return '胜利';
     if (RegExp('LOSE', caseSensitive: false).hasMatch(Value)) return '失败';
     if (RegExp('DRAW', caseSensitive: false).hasMatch(Value)) return '平局';
@@ -68,6 +71,37 @@ class Formats {
   static String Fps(num Value) {
     final Rounded = double.parse(Value.toDouble().toStringAsFixed(2));
     return '${Rounded == Rounded.roundToDouble() ? Rounded.toInt() : Rounded} fps';
+  }
+
+  static String EncoderLabel(String Value) {
+    if (Value.isEmpty) return '-';
+    if (Value == 'h264_mf') return 'H.264（Media Foundation）';
+    if (Value == 'hevc_mf') return 'H.265（Media Foundation）';
+    if (Value == 'h264_nvenc') return 'H.264（NVIDIA NVENC）';
+    if (Value == 'hevc_nvenc') return 'H.265（NVIDIA NVENC）';
+    if (Value == 'h264_qsv') return 'H.264（Intel QSV）';
+    if (Value == 'hevc_qsv') return 'H.265（Intel QSV）';
+    if (Value == 'h264_amf') return 'H.264（AMD AMF）';
+    if (Value == 'hevc_amf') return 'H.265（AMD AMF）';
+    if (Value == 'h264_videotoolbox') return 'H.264（VideoToolbox）';
+    if (Value == 'hevc_videotoolbox') return 'H.265（VideoToolbox）';
+    if (Value == 'h264_mediacodec') return 'H.264（MediaCodec）';
+    if (Value == 'hevc_mediacodec') return 'H.265（MediaCodec）';
+    if (Value == 'libx264') return 'H.264（CPU）';
+    if (Value == 'libx265') return 'H.265（CPU）';
+    return Value;
+  }
+
+  static String EncoderKind(String Value) {
+    if (Value.isEmpty) return '未启动';
+    if (Value.endsWith('_nvenc')) return 'NVIDIA 硬件编码';
+    if (Value.endsWith('_qsv')) return 'Intel 硬件编码';
+    if (Value.endsWith('_amf')) return 'AMD 硬件编码';
+    if (Value.endsWith('_videotoolbox')) return 'Apple VideoToolbox';
+    if (Value.endsWith('_mediacodec')) return 'Android MediaCodec';
+    if (Value.endsWith('_mf')) return '系统原生编码（硬件优先）';
+    if (Value == 'libx264' || Value == 'libx265') return 'CPU 软件编码';
+    return '系统编码';
   }
 
   static String Resolution(int Width, int Height) => '$Width x $Height';

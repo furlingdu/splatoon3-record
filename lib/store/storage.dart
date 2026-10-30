@@ -92,6 +92,7 @@ class ConfigStore {
   final AppDirectories Directories;
   final EnvStore Env;
   AppConfig Current = AppConfig.Defaults();
+  Future<void> _Saving = Future<void>.value();
 
   Future<AppConfig> Load() async {
     await Directories.Create();
@@ -161,9 +162,17 @@ class ConfigStore {
     return Result.length > 200 ? Result.sublist(Result.length - 200) : Result;
   }
 
-  Future<void> Save(AppConfig Value) async {
+  Future<void> Save(AppConfig Value) {
     Current = Value;
-    await File(Directories.ConfigFile).writeAsString(const JsonEncoder.withIndent('  ').convert(Value.ToMap()));
+    final Text = const JsonEncoder.withIndent('  ').convert(Value.ToMap());
+    final Task = _Saving.then((_) async {
+      final Target = File(Directories.ConfigFile);
+      final Temp = File('${Target.path}.tmp');
+      await Temp.writeAsString(Text, flush: true);
+      await Temp.rename(Target.path);
+    });
+    _Saving = Task.catchError((_) {});
+    return Task;
   }
 
   Future<AppConfig> SaveSettings(RecordSettings Value) async {
@@ -251,6 +260,7 @@ class ArchiveStore {
 
   final AppDirectories Directories;
   List<BattleMatch> Matches = <BattleMatch>[];
+  Future<void> _Saving = Future<void>.value();
 
   Future<List<BattleMatch>> Load() async {
     await Directory(Directories.Matches).create(recursive: true);
@@ -275,25 +285,33 @@ class ArchiveStore {
         }
       } catch (_) {}
     }
-    Matches = Result.values.where((Item) => !Item.IsSalmon && Item.Kind != 'salmon').toList()
+    Matches = Result.values.toList()
       ..sort((Left, Right) => Right.EndAt.compareTo(Left.EndAt));
     return Matches;
   }
 
-  Future<void> Save(BattleMatch Match) async {
-    await Directory(Directories.Matches).create(recursive: true);
+  Future<void> Save(BattleMatch Match) {
     final Data = Map<String, dynamic>.from(Match.ToMap());
     Data.remove('blurCopy');
     Data.remove('key');
-    await File('${Directories.Matches}${Platform.pathSeparator}${SafeName('${Match.MatchId}-${Match.AccountId ?? ''}')}.json')
-        .writeAsString(const JsonEncoder.withIndent('  ').convert(Data));
-    final Index = Matches.indexWhere((Item) => Item.Key == Match.Key);
-    if (Index >= 0) {
-      Matches[Index] = Match;
-    } else {
-      Matches.insert(0, Match);
-    }
-    Matches.sort((Left, Right) => Right.EndAt.compareTo(Left.EndAt));
+    final Text = const JsonEncoder.withIndent('  ').convert(Data);
+    final Target = File('${Directories.Matches}${Platform.pathSeparator}${SafeName('${Match.MatchId}-${Match.AccountId ?? ''}')}.json');
+    final Task = _Saving.then((_) async {
+      await Directory(Directories.Matches).create(recursive: true);
+      final Temp = File('${Target.path}.tmp');
+      await Temp.writeAsString(Text, flush: true);
+      await Temp.rename(Target.path);
+    });
+    _Saving = Task.catchError((_) {});
+    return Task.then((_) {
+      final Index = Matches.indexWhere((Item) => Item.Key == Match.Key);
+      if (Index >= 0) {
+        Matches[Index] = Match;
+      } else {
+        Matches.insert(0, Match);
+      }
+      Matches.sort((Left, Right) => Right.EndAt.compareTo(Left.EndAt));
+    });
   }
 
   Future<void> Delete(BattleMatch Match, bool WithBlur) async {

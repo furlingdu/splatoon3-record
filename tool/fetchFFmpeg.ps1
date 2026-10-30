@@ -11,9 +11,9 @@ if ($Target -ne 'windows-x64') {
   exit 1
 }
 
-$Url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
-$Zip = Join-Path $env:TEMP 'ffmpeg-win64.zip'
-$Dir = Join-Path $env:TEMP 'ffmpeg-win64'
+$Url = 'https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-full_build.zip'
+$Zip = Join-Path $env:TEMP 'ffmpeg-7.1-full_build.zip'
+$Dir = Join-Path $env:TEMP 'ffmpeg-7.1-full_build'
 if (Test-Path $Dir) { Remove-Item $Dir -Recurse -Force }
 Invoke-WebRequest -Uri $Url -OutFile $Zip -UseBasicParsing
 Expand-Archive -Path $Zip -DestinationPath $Dir -Force

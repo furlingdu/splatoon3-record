@@ -185,6 +185,13 @@ class SettingsPageState extends State<SettingsPage> {
     }.toList();
     return PageBody(Children: <Widget>[
       const AppPageTitle('设置'),
+      AppFormSwitch(Label: '打工模式录制', Value: Draft.RecordWork, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'recordWork': Value}))),
+      AppFormSwitch(Label: '真格模式录制', Value: Draft.RecordRanked, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'recordRanked': Value}))),
+      AppFormSwitch(Label: '涂地模式录制', Value: Draft.RecordTurf, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'recordTurf': Value}))),
+      AppFormSwitch(Label: '高亮操作录制', Value: Draft.RecordHighlight, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'recordHighlight': Value}))),
+      AppHint('开启后，将录制不同模式的画面。'),
+      AppHint('打工模式包含全部打工规则；真格模式包含私人对战、活动比赛和真格区域、塔楼、鱼虎、蛤蜊；涂地模式对应占地对战；高亮操作会保存判定前 15 秒的画面。'),
+      if (Draft.CaptureMode == 'rtmp') AppHint('RTMP 采集模式无法读取本地画面，画面识别不可用。'),
       if (PlatformInfo.Mobile) ...<Widget>[
         const AppSectionTitle('采集设备'),
         Row(children: <Widget>[
@@ -272,7 +279,7 @@ class SettingsPageState extends State<SettingsPage> {
           AppStatusItem(Label: '输入画面', Value: AppStatusText(widget.Controller.Status?.RtmpWidth == 0 ? '等待推流' : '${widget.Controller.Status?.RtmpWidth}x${widget.Controller.Status?.RtmpHeight} @ ${widget.Controller.Status?.RtmpFps} fps')),
           AppStatusItem(Label: '音频', Value: AppStatusText(widget.Controller.Status?.HasAudio == true ? '跟随 RTMP 输入' : '无音频')),
           AppStatusItem(Label: '硬件解码', Value: AppStatusText(widget.Controller.Status?.HwAccel ?? '未启动')),
-          AppStatusItem(Label: '录制编码', Value: AppStatusText(widget.Controller.Status?.Encoder ?? '未启动')),
+          AppStatusItem(Label: '录制编码', Value: AppStatusText(Formats.EncoderLabel(widget.Controller.Status?.Encoder ?? ''))),
           if (widget.Controller.Status?.RtmpError != null) AppStatusItem(Label: '错误信息', Value: AppStatusText(widget.Controller.Status!.RtmpError!)),
         ]),
       ] else if (!PlatformInfo.Mobile) ...<Widget>[
@@ -359,20 +366,26 @@ class SettingsPageState extends State<SettingsPage> {
           AppHint('采集卡未接受设置页的帧率，当前输出 ${Formats.Fps(widget.Controller.Status!.Fps)}'),
         AppHint('${Draft.Width}x${Draft.Height} @ ${Draft.Fps}fps：${Draft.Width * Draft.Height * Draft.Fps >= 3840 * 2160 * 30 ? '建议开启硬件编码，软件编码可能掉帧。' : '当前档位可正常录制。'}'),
         AppFormSwitch(Label: '垂直翻转画面', Note: '画面上下颠倒时开启', Value: Draft.FlipVertical, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'flipVertical': Value}))),
-        AppSelect<String>(
-          Label: '编码器',
-          Value: Draft.Encoder,
-          Items: const <String>['auto', 'nvidia', 'amd', 'intel', 'software'],
-          Display: (Value) => const <String, String>{'auto': '自动选择', 'nvidia': 'NVIDIA NVENC', 'amd': 'AMD AMF', 'intel': 'Intel QSV', 'software': '软件编码'}[Value] ?? Value,
-          OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'encoder': Value})),
-        ),
-        AppHint(const <String, String>{
-          'auto': '',
-          'nvidia': '使用 NVIDIA 显卡的 NVENC 硬件编码。',
-          'amd': '使用 AMD 显卡的 AMF 硬件编码。',
-          'intel': '使用 Intel 核显的 QSV 硬件编码。',
-          'software': '使用 CPU 软件编码，画质上限最高但 CPU 占用大。',
-        }[Draft.Encoder] ?? ''),
+        if ((PlatformInfo.Windows || PlatformInfo.MacOS) && Draft.CaptureMode == 'internal')
+          AppHint('本机录制使用系统原生编码器实时写入 H.264 缓存，归档时自动转为 H.265；硬件编码不可用时由系统回退。')
+        else ...<Widget>[
+          AppSelect<String>(
+            Label: '编码器',
+            Value: Draft.Encoder,
+            Items: const <String>['auto', 'nvidia', 'amd', 'intel', 'software'],
+            Display: (Value) => const <String, String>{'auto': '自动选择', 'nvidia': 'NVIDIA NVENC', 'amd': 'AMD AMF', 'intel': 'Intel QSV', 'software': '软件编码'}[Value] ?? Value,
+            OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'encoder': Value})),
+          ),
+          AppHint(const <String, String>{
+            'auto': '',
+            'nvidia': '使用 NVIDIA 显卡的 NVENC 硬件编码。',
+            'amd': '使用 AMD 显卡的 AMF 硬件编码。',
+            'intel': '使用 Intel 核显的 QSV 硬件编码。',
+            'software': '使用 CPU 软件编码，画质上限最高但 CPU 占用大。',
+          }[Draft.Encoder] ?? ''),
+          if ((widget.Controller.FFmpeg.EncoderNote ?? '').isNotEmpty)
+            AppHint('编码器检测：${widget.Controller.FFmpeg.EncoderNote}'),
+        ],
         AppSelect<int>(
           Label: '录制质量',
           Value: Draft.Quality,
@@ -380,7 +393,7 @@ class SettingsPageState extends State<SettingsPage> {
           Display: (Value) => const <int, String>{18: '高质量、存储占用大', 22: '普通质量、存储占用适中', 28: '低质量、存储占用小'}[Value] ?? '$Value',
           OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'quality': Value})),
         ),
-        AppHint('CQP 数值越低画质越高，录制文件体积随画面复杂度变化。'),
+        AppHint('数值越低画质越高，录制文件体积随画面复杂度变化。录制缓存使用 H.264 保证实时稳定，归档视频统一转为 H.265 以节省空间。'),
       ],
       const AppSectionTitle('存储与运行'),
       if (!PlatformInfo.Mobile) ...<Widget>[

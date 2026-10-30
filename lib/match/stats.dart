@@ -28,6 +28,7 @@ class MatchStats {
   }
 
   static String Text(BattleMatch Match) {
+    if (Match.Kind == 'highlight') return '高亮操作 · 前 15 秒';
     final Value = Personal(Match);
     final Kd = Value.$2 == 0 ? '-' : (Value.$1 / Value.$2).toStringAsFixed(2);
     return '个人 K/D $Kd · 击杀 ${Value.$1} · 死亡 ${Value.$2} · 大招 ${Value.$3} · 涂地 ${Value.$4}p';

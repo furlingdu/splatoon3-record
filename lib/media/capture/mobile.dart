@@ -389,9 +389,9 @@ class MobileCaptureService implements CapturePlatform {
   }
 
   @override
-  Future<String?> Crop(BattleMatch Match, String Output, RecordSettings Value) async {
+  Future<String?> Crop(BattleMatch Match, String Output, RecordSettings Value, {int LeadMs = 15000, int TailMs = 30000}) async {
     final Cache = await Records();
-    return ClipBuilder.Build(Match, Cache, Output, Value, FFmpeg, Directories);
+    return ClipBuilder.Build(Match, Cache, Output, Value, FFmpeg, Directories, LeadMs: LeadMs, TailMs: TailMs);
   }
 
   @override
@@ -415,6 +415,18 @@ class MobileCaptureService implements CapturePlatform {
     final Engine = MobileRecorder(Sources.first, Directories, false);
     await Engine.Recover();
     Engine.Error.dispose();
+  }
+
+  @override
+  Future<void> SetVision(bool Enabled) async {}
+
+  @override
+  Future<CaptureFrame?> VisionSnapshot() async {
+    final Source = Active;
+    if (Source == null || !Source.Prepared) return null;
+    final Frame = await Source.Snapshot();
+    if (Frame == null || Frame.Width <= 0 || Frame.Height <= 0 || Frame.Rgba.isEmpty) return null;
+    return CaptureFrame(Width: Frame.Width, Height: Frame.Height, Rgba: Frame.Rgba);
   }
 
   @override

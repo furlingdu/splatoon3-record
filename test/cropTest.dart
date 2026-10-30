@@ -34,6 +34,22 @@ void main() {
     expect(Path, Output);
     expect(File(Output).existsSync(), true);
     expect(File(Output).lengthSync(), greaterThan(1000));
+    final Probe = await FFmpeg.Run(<String>['-hide_banner', '-i', Output], Timeout: const Duration(seconds: 30));
+    expect('${Probe.stderr}${Probe.stdout}', contains('Video: hevc'));
+    expect('${Probe.stderr}${Probe.stdout}', contains('hvc1'));
+    final Dump = await FFmpeg.Run(<String>['-hide_banner', '-loglevel', 'error', '-i', Output, '-map', '0:v:0', '-c', 'copy', '-f', 'framecrc', '-'], Timeout: const Duration(seconds: 30));
+    final Timestamps = <int>[];
+    for (final Line in '${Dump.stdout}'.split(RegExp(r'\r?\n'))) {
+      if (Line.isEmpty || Line.startsWith('#')) continue;
+      final Parts = Line.split(',');
+      if (Parts.length < 3) continue;
+      final Pts = int.tryParse(Parts[1].trim());
+      if (Pts != null) Timestamps.add(Pts);
+    }
+    expect(Timestamps.length, greaterThan(1));
+    final Deltas = <int>{for (var Index = 1; Index < Timestamps.length; Index++) Timestamps[Index] - Timestamps[Index - 1]};
+    expect(Deltas.length, 1);
+    expect(Deltas.first, greaterThan(0));
     await Temp.delete(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));
 }

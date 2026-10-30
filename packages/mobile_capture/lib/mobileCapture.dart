@@ -33,6 +33,23 @@ class MobileCaptureMode {
   }
 }
 
+class MobileCaptureFrame {
+  const MobileCaptureFrame({required this.Width, required this.Height, required this.Rgba});
+
+  final int Width;
+  final int Height;
+  final Uint8List Rgba;
+
+  static MobileCaptureFrame? FromMap(Map<dynamic, dynamic>? Data) {
+    if (Data == null) return null;
+    final Width = (Data['width'] as num?)?.toInt() ?? 0;
+    final Height = (Data['height'] as num?)?.toInt() ?? 0;
+    final Bytes = Data['bytes'];
+    if (Width <= 0 || Height <= 0 || Bytes is! Uint8List || Bytes.isEmpty) return null;
+    return MobileCaptureFrame(Width: Width, Height: Height, Rgba: Bytes);
+  }
+}
+
 class MobileCaptureException implements Exception {
   const MobileCaptureException(this.Message);
 
@@ -101,6 +118,11 @@ abstract final class MobileCapture {
 
   static Future<bool> Export(String Input, String Output) async {
     return await Channel.invokeMethod<bool>('Export', <String, dynamic>{'input': Input, 'output': Output}) ?? false;
+  }
+
+  static Future<MobileCaptureFrame?> Snapshot({int Width = 1280, int Height = 720}) async {
+    final Raw = await Channel.invokeMethod<Map<dynamic, dynamic>>('Snapshot', <String, dynamic>{'width': Width, 'height': Height});
+    return MobileCaptureFrame.FromMap(Raw);
   }
 
   static Widget Preview({Key? Key}) {

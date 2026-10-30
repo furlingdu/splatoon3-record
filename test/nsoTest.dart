@@ -92,6 +92,32 @@ void main() {
     expect(Match.TimeExact, true);
     expect(Match.Key, 'account-1:detail-1');
   });
+
+  test('Normalize coop detail', () {
+    final Match = NSOBattle.FromCoopDetail(<String, dynamic>{
+      'data': <String, dynamic>{
+        'coopHistoryDetail': <String, dynamic>{
+          'id': 'coop-1',
+          'playedTime': '2026-10-24T14:08:07Z',
+          'rule': 'BIG_RUN',
+          'resultWave': 2,
+          'myResult': <String, dynamic>{
+            'defeatEnemyCount': 9,
+            'player': <String, dynamic>{'paint': 120},
+          },
+        },
+      },
+    }, 'account-1', 'Tester');
+    expect(Match, isNotNull);
+    expect(Match!.Kind, 'salmon');
+    expect(Match.IsSalmon, true);
+    expect(Match.Rule, 'BIG_RUN');
+    expect(Match.Result, 'LOSE');
+    expect(Match.IsDisconnected, false);
+    expect(Match.Duration, 0);
+    expect(Match.TimeExact, false);
+    expect(Match.Key, 'account-1:coop-1');
+  });
 }
 
 

@@ -10,6 +10,7 @@ class SecretStore {
 
   final AppDirectories Directories;
   Map<String, dynamic> Data = <String, dynamic>{};
+  Future<void> _Saving = Future<void>.value();
 
   String get FilePath => '${Directories.Root}${Platform.pathSeparator}secrets.v2.json';
 
@@ -38,13 +39,20 @@ class SecretStore {
     return Data;
   }
 
-  Future<void> Save(Map<String, dynamic> Value) async {
+  Future<void> Save(Map<String, dynamic> Value) {
     Data = Value;
     final Clear = utf8.encode(jsonEncode(Value));
     final Protected = Platform.isWindows ? LegacySecret.Protect(Uint8List.fromList(Clear)) : null;
     final Bytes = Protected ?? Uint8List.fromList(Clear);
-    final Outer = <String, dynamic>{'encrypted': Protected != null, 'value': base64Encode(Bytes)};
-    await File(FilePath).writeAsString(jsonEncode(Outer), flush: true);
+    final Text = jsonEncode(<String, dynamic>{'encrypted': Protected != null, 'value': base64Encode(Bytes)});
+    final Task = _Saving.then((_) async {
+      final Target = File(FilePath);
+      final Temp = File('${Target.path}.tmp');
+      await Temp.writeAsString(Text, flush: true);
+      await Temp.rename(Target.path);
+    });
+    _Saving = Task.catchError((_) {});
+    return Task;
   }
 
   String? Text(String Key) => Data[Key] is String ? Data[Key] as String : null;

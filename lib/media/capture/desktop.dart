@@ -8,9 +8,9 @@ import '../../config/constants.dart';
 import '../../config/system.dart';
 import '../../domain/models.dart';
 import '../ffmpeg/ffmpegService.dart';
-import '../nickname/detector.dart';
 import 'arguments.dart';
 import 'bridge.dart';
+import 'contract.dart';
 
 class CaptureService {
   CaptureService(this.Directories, this.FFmpeg) {
@@ -37,25 +37,31 @@ class CaptureService {
   String? _Encoder;
   String? _LiveUrl;
   String _StderrTail = '';
+  final List<String> _LogTail = <String>[];
+  String? _EncoderFault;
+  String? _StartError;
+  bool _Starting = false;
   Timer? _Sweep;
   bool _Stopping = false;
   Completer<void>? _Ready;
   Timer? _MaskTimer;
-  NicknameDetector? _Detector;
   final List<int> _RawFrames = <int>[];
   bool _MaskBusy = false;
   Uint8List? _MaskFrame;
+  int _LastMaskFrameAt = 0;
+  bool _VisionEnabled = false;
+  Future<Uint8List?> Function(Uint8List Rgba, int Width, int Height)? OnMaskFrame;
   final StringBuffer _LogBuffer = StringBuffer();
   Timer? _LogTimer;
   bool _LogBusy = false;
   Completer<void>? _RecordWaiter;
   Completer<void>? _IdleWaiter;
   bool _NativeRunning = false;
+  bool _NativeRecorder = false;
   bool _FallbackBlur = false;
   bool _MaskPipeOpen = false;
   CapturePrepared? _Prepared;
   String? _AudioFifo;
-  Timer? _NativeMaskTimer;
   int _LastStatsLog = 0;
 
   bool get Running => State.value == 'recording';
@@ -90,47 +96,124 @@ class CaptureService {
   }
 
   Future<void> Start(RecordSettings Value, {String? LiveUrl, bool Record = true}) async {
-    await Stop();
+    if (Value.CaptureMode == 'rtmp' || !CaptureBridge.Supported) {
+      await Stop();
+      _StartState(Value, LiveUrl);
+      await _StartFallback(Value, LiveUrl: LiveUrl, Record: Record);
+      return;
+    }
+    var Use = Value;
+    _Starting = true;
+    try {
+      for (var Attempt = 0; Attempt < 2; Attempt++) {
+        await Stop();
+        _StartState(Use, LiveUrl);
+        try {
+          await _StartNative(Use, LiveUrl: LiveUrl, Record: Record);
+          return;
+        } catch (Cause) {
+          final Text = _StartError ?? _CauseText(Cause);
+          var Fault = _EncoderFault;
+          if (Fault == null && Attempt == 0 && _RecordWaiter != null && Use.Encoder != 'software') {
+            await Future<void>.delayed(const Duration(milliseconds: 300));
+            final Late = FFmpegService.EncoderHint(_LogTail.join('\n'));
+            if (Late.isNotEmpty) Fault = Late;
+          }
+          if (Attempt == 0 && Fault != null && _RecordWaiter != null && Use.Encoder != 'software') {
+            await Log('capture retry software encoder $Fault');
+            Use = Use.Copy(<String, dynamic>{'encoder': 'software'});
+            continue;
+          }
+          if (Fault != null && _NativeRunning && _Prepared != null) {
+            final Texture = await CaptureBridge.PreviewTexture();
+            PreviewTexture.value = Texture >= 0 ? Texture : null;
+            PreviewActive.value = Texture >= 0;
+            State.value = 'error';
+            Error.value = Text;
+            await Log('capture preview kept $Text');
+            return;
+          }
+          await Stop();
+          State.value = 'error';
+          Error.value = Text;
+          await Log('capture start failed $Text');
+          return;
+        }
+      }
+    } finally {
+      _Starting = false;
+    }
+  }
+
+  void _StartState(RecordSettings Value, String? LiveUrl) {
     _Active = Value;
     _Prepared = null;
     _LiveUrl = LiveUrl;
     _StderrTail = '';
+    _EncoderFault = null;
+    _StartError = null;
+    _LogTail.clear();
     Error.value = null;
     State.value = 'starting';
-    if (Value.CaptureMode == 'rtmp' || !CaptureBridge.Supported) {
-      await _StartFallback(Value, LiveUrl: LiveUrl, Record: Record);
-      return;
+  }
+
+  String _CauseText(Object Cause) {
+    if (Cause is StateError) return Cause.message;
+    if (Cause is TimeoutException) return '采集启动超时，请检查采集卡是否被其他程序占用';
+    if (Cause is PlatformException) return '${Cause.message ?? Cause.code}';
+    return '$Cause';
+  }
+
+  Future<void> _StartNative(RecordSettings Value, {String? LiveUrl, bool Record = true}) async {
+    final Devices = await this.Devices();
+    if (Value.VideoDevice.isEmpty) throw StateError('未选择采集设备');
+    if (!Devices.any((Item) => Item.Kind == 'video' && Item.Id == Value.VideoDevice)) {
+      throw StateError('未找到所选采集设备，请到设置页重新选择');
     }
-    try {
-      final Devices = await this.Devices();
-      if (Value.VideoDevice.isEmpty) throw StateError('未选择采集设备');
-      if (!Devices.any((Item) => Item.Kind == 'video' && Item.Id == Value.VideoDevice)) {
-        throw StateError('未找到所选采集设备，请到设置页重新选择');
-      }
-      var Use = Value;
-      if (Use.AudioDevice.isNotEmpty && !Devices.any((Item) => Item.Kind == 'audio' && Item.Id == Use.AudioDevice)) {
-        Use = Use.Copy(<String, dynamic>{'audioDevice': ''});
-      }
-      _Active = Use;
+    var Use = Value;
+    if (Use.AudioDevice.isNotEmpty && !Devices.any((Item) => Item.Kind == 'audio' && Item.Id == Use.AudioDevice)) {
+      Use = Use.Copy(<String, dynamic>{'audioDevice': ''});
+    }
+    _Active = Use;
+    final Live = LiveUrl != null && LiveUrl.isNotEmpty;
+    final Native = (PlatformInfo.Windows || PlatformInfo.MacOS) && Record && !Live;
+    String? Fifo;
+    if (!Native && !PlatformInfo.Windows && !PlatformInfo.MacOS && Use.AudioDevice.isNotEmpty) {
+      Fifo = '${Directories.Temp}${Platform.pathSeparator}audio-${DateTime.now().microsecondsSinceEpoch}.pcm';
+    }
+    final Prepared = await CaptureBridge.Prepare(Use, AudioFifo: Fifo);
+    _Prepared = Prepared;
+    _AudioFifo = Prepared.AudioFifo;
+    final Writer = Record || Live;
+    final Blur = Live && Use.BlurNickname;
+    String? MaskPipe;
+    if (Blur) {
+      MaskPipe = await CaptureBridge.OpenMaskPipe();
+      if (MaskPipe == null || MaskPipe.isEmpty) throw StateError('无法创建直播打码通道');
+      _MaskPipeOpen = true;
+    }
+    _RecordWaiter = Completer<void>();
+    _NativeRecorder = Native;
+    if (Native) {
+      _Encoder = PlatformInfo.MacOS ? 'h264_videotoolbox' : 'h264_mf';
+      await CaptureBridge.Start(
+        '',
+        const <String>[],
+        Prepared.Rate,
+        true,
+        Native: true,
+        Directory: Directories.Cache,
+        AudioDevice: Use.AudioDevice,
+        Quality: Use.Quality,
+        SegmentSeconds: Config.SegmentSeconds,
+        Audio: Use.AudioDevice.isNotEmpty,
+        Monitor: Use.MonitorAudio,
+        MonitorDelayMs: Config.MonitorDelayMs,
+      );
+    } else {
       final Encoder = await FFmpeg.Encoder(Use);
       _Encoder = Encoder;
       final Exe = await FFmpeg.Ensure();
-      String? Fifo;
-      if (!PlatformInfo.Windows && Use.AudioDevice.isNotEmpty) {
-        Fifo = '${Directories.Temp}${Platform.pathSeparator}audio-${DateTime.now().microsecondsSinceEpoch}.pcm';
-      }
-      final Prepared = await CaptureBridge.Prepare(Use, AudioFifo: Fifo);
-      _Prepared = Prepared;
-      _AudioFifo = Prepared.AudioFifo;
-      final Live = LiveUrl != null && LiveUrl.isNotEmpty;
-      final Writer = Record || Live;
-      final Blur = Live && Use.BlurNickname;
-      String? MaskPipe;
-      if (Blur) {
-        MaskPipe = await CaptureBridge.OpenMaskPipe();
-        if (MaskPipe == null || MaskPipe.isEmpty) throw StateError('无法创建直播打码通道');
-        _MaskPipeOpen = true;
-      }
       final Args = PlatformInfo.Windows
           ? CaptureArguments.Native(
               Value: Use,
@@ -170,33 +253,20 @@ class CaptureService {
                   Record: Record,
                   AudioFifo: Prepared.AudioFifo,
                 );
-      _RecordWaiter = Completer<void>();
       await CaptureBridge.Start(Exe, Args, Prepared.Rate, Writer);
-      _NativeRunning = true;
-      await _RecordWaiter!.future.timeout(const Duration(seconds: 15));
-      PrepareLog();
-      _LogTimer?.cancel();
-      _LogTimer = Timer.periodic(const Duration(seconds: 1), (_) => unawaited(FlushLog()));
-      final Texture = await CaptureBridge.PreviewTexture();
-      PreviewTexture.value = Texture >= 0 ? Texture : null;
-      PreviewActive.value = Texture >= 0;
-      State.value = 'recording';
-      LatestRecord.value = null;
-      if (Blur) StartNativeMask();
-      if (Use.MonitorAudio) await StartMonitor(Use);
-    } catch (Cause) {
-      final Text = Cause is StateError
-          ? Cause.message
-          : Cause is TimeoutException
-              ? '采集启动超时，请检查采集卡是否被其他程序占用'
-              : Cause is PlatformException
-                  ? '${Cause.message ?? Cause.code}'
-                  : '$Cause';
-      await Stop();
-      State.value = 'error';
-      Error.value = Text;
-      await Log('capture start failed $Text');
     }
+    _NativeRunning = true;
+    await _RecordWaiter!.future.timeout(const Duration(seconds: 15));
+    PrepareLog();
+    _LogTimer?.cancel();
+    _LogTimer = Timer.periodic(const Duration(seconds: 1), (_) => unawaited(FlushLog()));
+    final Texture = await CaptureBridge.PreviewTexture();
+    PreviewTexture.value = Texture >= 0 ? Texture : null;
+    PreviewActive.value = Texture >= 0;
+    State.value = 'recording';
+    LatestRecord.value = null;
+    if (Blur) StartNativeMask();
+    if (Use.MonitorAudio) await StartMonitor(Use);
   }
 
   Future<void> Stop({bool Fast = false}) async {
@@ -204,14 +274,20 @@ class CaptureService {
     _AudioFifo = null;
     final FallbackBlur = _FallbackBlur;
     _FallbackBlur = false;
-    _NativeMaskTimer?.cancel();
-    _NativeMaskTimer = null;
+    if (_VisionEnabled) {
+      _VisionEnabled = false;
+      if (CaptureBridge.Supported) {
+        try {
+          await CaptureBridge.Vision(false);
+        } catch (_) {}
+      }
+    }
     _MaskTimer?.cancel();
     _MaskTimer = null;
     _RawFrames.clear();
-    _Detector?.Release();
-    _Detector = null;
     _MaskBusy = false;
+    _MaskFrame = null;
+    _LastMaskFrameAt = 0;
     await StopMonitor();
     _LogTimer?.cancel();
     _LogTimer = null;
@@ -263,6 +339,7 @@ class CaptureService {
     PreviewActive.value = false;
     _LiveUrl = null;
     _Ready = null;
+    _NativeRecorder = false;
   }
 
   Future<void> _StartFallback(RecordSettings Value, {String? LiveUrl, required bool Record}) async {
@@ -308,7 +385,9 @@ class CaptureService {
         _Process = null;
         State.value = 'error';
         final Detail = _StderrTail.trim().split(RegExp(r'\r?\n')).where((Line) => Line.trim().isNotEmpty).toList();
-        Error.value = Detail.isEmpty ? '采集进程退出 $Code' : Detail.last;
+        final Reason = Detail.isEmpty ? '采集进程退出 $Code' : Detail.last;
+        final Hint = FFmpegService.EncoderHint(_StderrTail);
+        Error.value = Hint.isEmpty ? Reason : '$Reason（$Hint）';
         if (_Ready != null && !_Ready!.isCompleted) _Ready!.completeError(StateError(Error.value ?? '采集失败'));
       });
       _Sweep?.cancel();
@@ -335,23 +414,35 @@ class CaptureService {
     if (Type == 'state') {
       final Value = '${Data['value'] ?? ''}';
       if (Value == 'recording') {
-        State.value = 'recording';
         PreviewActive.value = true;
+        if (!_Starting) State.value = 'recording';
         if (_RecordWaiter != null && !_RecordWaiter!.isCompleted) _RecordWaiter!.complete();
       } else if (Value == 'idle') {
-        State.value = 'idle';
-        PreviewActive.value = false;
         if (_IdleWaiter != null && !_IdleWaiter!.isCompleted) _IdleWaiter!.complete();
+        if (!_Starting) {
+          State.value = 'idle';
+          PreviewActive.value = false;
+        }
       } else if (Value == 'starting') {
-        if (State.value != 'error') State.value = 'starting';
+        if (!_Starting && State.value != 'error') State.value = 'starting';
       } else if (Value == 'error') {
-        State.value = 'error';
-        if (_RecordWaiter != null && !_RecordWaiter!.isCompleted) _RecordWaiter!.completeError(StateError(Error.value ?? '采集失败'));
+        if (!_Starting) State.value = 'error';
+        if (_RecordWaiter != null && !_RecordWaiter!.isCompleted) _RecordWaiter!.completeError(StateError(_StartError ?? Error.value ?? '采集失败'));
       }
       return;
     }
     if (Type == 'error') {
-      final Text = '${Data['text'] ?? '采集失败'}';
+      final Raw = '${Data['text'] ?? '采集失败'}';
+      final Hint = FFmpegService.EncoderHint(_LogTail.join('\n'));
+      final Text = Hint.isEmpty ? Raw : '$Raw（$Hint）';
+      if (Hint.isNotEmpty) _EncoderFault = Hint;
+      if (_Starting) {
+        _StartError = Text;
+        if (_RecordWaiter != null && !_RecordWaiter!.isCompleted) _RecordWaiter!.completeError(StateError(Text));
+        if (_IdleWaiter != null && !_IdleWaiter!.isCompleted) _IdleWaiter!.complete();
+        unawaited(Log('capture error $Text'));
+        return;
+      }
       Error.value = Text;
       State.value = 'error';
       if (_RecordWaiter != null && !_RecordWaiter!.isCompleted) _RecordWaiter!.completeError(StateError(Text));
@@ -360,7 +451,9 @@ class CaptureService {
       return;
     }
     if (Type == 'log') {
-      AppendLog('${Data['text'] ?? ''}\n');
+      final Text = '${Data['text'] ?? ''}';
+      AppendLog('$Text\n');
+      _PushTail(Text);
       return;
     }
     if (Type == 'stats') {
@@ -368,51 +461,45 @@ class CaptureService {
       final Now = DateTime.now().millisecondsSinceEpoch;
       if (Now - _LastStatsLog >= 5000) {
         _LastStatsLog = Now;
-        unawaited(Log('capture stats ${Data['captureFps']}fps preview=${Data['previewFps']}fps convert=${Data['convertMs']}ms latency=${Data['latency']}ms dropped=${Data['dropped']} written=${Data['written']} dup=${Data['duplicated']} write=${Data['writeMs']}ms queue=${Data['queue']}'));
+        unawaited(Log('capture stats ${Data['captureFps']}fps preview=${Data['previewFps']}fps ${Data['previewWidth'] ?? 0}x${Data['previewHeight'] ?? 0} convert=${Data['convertMs']}ms latency=${Data['latency']}ms dropped=${Data['dropped']} written=${Data['written']} dup=${Data['duplicated']} write=${Data['writeMs']}ms queue=${Data['queue']}'));
       }
     }
   }
 
   void StartNativeMask() {
-    _Detector = NicknameDetector();
-    _NativeMaskTimer?.cancel();
-    _NativeMaskTimer = Timer.periodic(const Duration(milliseconds: 200), (_) => unawaited(NativeMaskTick()));
+    _MaskFrame = Uint8List(Config.MaskWidth * Config.MaskHeight);
+    StartMaskClock();
   }
 
-  Future<void> NativeMaskTick() async {
-    if (_MaskBusy || _Detector == null) return;
-    _MaskBusy = true;
-    try {
-      final Frame = await CaptureBridge.Snapshot();
-      if (Frame == null || Frame.length < Config.MaskWidth * Config.MaskHeight * 4) return;
-      final Boxes = await _Detector!.Detect(Frame, Config.MaskWidth, Config.MaskHeight);
-      final Mask = Uint8List(Config.MaskWidth * Config.MaskHeight);
-      for (final Box in Boxes) {
-        final Left = (Box.Left - 3).round().clamp(0, Config.MaskWidth - 1).toInt();
-        final Top = (Box.Top - 3).round().clamp(0, Config.MaskHeight - 1).toInt();
-        final Right = (Box.Left + Box.Width + 3).round().clamp(Left + 1, Config.MaskWidth).toInt();
-        final Bottom = (Box.Top + Box.Height + 3).round().clamp(Top + 1, Config.MaskHeight).toInt();
-        for (var Y = Top; Y < Bottom; Y++) {
-          Mask.fillRange(Y * Config.MaskWidth + Left, Y * Config.MaskWidth + Right, 255);
-        }
-      }
-      await CaptureBridge.Mask(Mask);
-    } catch (_) {
-    } finally {
-      _MaskBusy = false;
+  void StartMaskClock() {
+    _MaskTimer?.cancel();
+    _MaskTimer = Timer.periodic(const Duration(milliseconds: 200), (_) => unawaited(SendMask()));
+  }
+
+  Future<void> SendMask() async {
+    final Mask = _MaskFrame;
+    if (Mask == null) return;
+    if (_NativeRecorder && CaptureBridge.Supported) {
+      try {
+        await CaptureBridge.Mask(Mask);
+      } catch (_) {}
+      return;
     }
+    final ProcessRef = _Process;
+    if (ProcessRef == null) return;
+    try {
+      ProcessRef.stdin.add(Mask);
+    } catch (_) {}
+  }
+
+  void UpdateMask(Uint8List Mask) {
+    if (Mask.length != Config.MaskWidth * Config.MaskHeight) return;
+    _MaskFrame = Mask;
   }
 
   void StartMask(Process ProcessRef) {
-    _Detector = NicknameDetector();
     _MaskFrame = Uint8List(Config.MaskWidth * Config.MaskHeight);
-    _MaskTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      final Mask = _MaskFrame;
-      if (Mask == null) return;
-      try {
-        ProcessRef.stdin.add(Mask);
-      } catch (_) {}
-    });
+    StartMaskClock();
     ProcessRef.stdout.listen((Data) {
       _RawFrames.addAll(Data);
       final FrameSize = Config.MaskWidth * Config.MaskHeight * 4;
@@ -421,19 +508,14 @@ class CaptureService {
         final Frame = Uint8List.fromList(_RawFrames.sublist(0, FrameSize));
         _RawFrames.removeRange(0, FrameSize);
         if (_MaskBusy) continue;
+        final Now = DateTime.now().millisecondsSinceEpoch;
+        if (Now - _LastMaskFrameAt < Config.DetectIntervalMs) continue;
+        final Callback = OnMaskFrame;
+        if (Callback == null) continue;
+        _LastMaskFrameAt = Now;
         _MaskBusy = true;
-        _Detector?.Detect(Frame, Config.MaskWidth, Config.MaskHeight).then((Boxes) {
-          final Mask = Uint8List(Config.MaskWidth * Config.MaskHeight);
-          for (final Box in Boxes) {
-            final Left = (Box.Left - 3).round().clamp(0, Config.MaskWidth - 1).toInt();
-            final Top = (Box.Top - 3).round().clamp(0, Config.MaskHeight - 1).toInt();
-            final Right = (Box.Left + Box.Width + 3).round().clamp(Left + 1, Config.MaskWidth).toInt();
-            final Bottom = (Box.Top + Box.Height + 3).round().clamp(Top + 1, Config.MaskHeight).toInt();
-            for (var Y = Top; Y < Bottom; Y++) {
-              Mask.fillRange(Y * Config.MaskWidth + Left, Y * Config.MaskWidth + Right, 255);
-            }
-          }
-          _MaskFrame = Mask;
+        Callback(Frame, Config.MaskWidth, Config.MaskHeight).then((Mask) {
+          if (Mask != null && Mask.length == Config.MaskWidth * Config.MaskHeight) _MaskFrame = Mask;
         }).catchError((_) {}).whenComplete(() => _MaskBusy = false);
       }
     });
@@ -452,6 +534,18 @@ class CaptureService {
     _LogBuffer.write(Text);
   }
 
+  void _PushTail(String Text) {
+    for (final Line in Text.split(RegExp(r'\r?\n'))) {
+      final Trimmed = Line.trim();
+      if (Trimmed.isEmpty) continue;
+      if (RegExp(r'^[a-z_0-9]+=').hasMatch(Trimmed)) continue;
+      _LogTail.add(Trimmed);
+    }
+    while (_LogTail.length > 30) {
+      _LogTail.removeAt(0);
+    }
+  }
+
   Future<void> FlushLog() async {
     if (_LogBusy || _LogBuffer.isEmpty) return;
     _LogBusy = true;
@@ -468,14 +562,31 @@ class CaptureService {
     await FlushLog();
   }
 
-  Future<String?> Crop(BattleMatch Match, String Output, RecordSettings Value) async {
-    final Cache = await Records();
-    return CropRecords(Match, Cache, Output, Value);
+  Future<void> SetVision(bool Enabled) async {
+    _VisionEnabled = Enabled;
+    if (!CaptureBridge.Supported) return;
+    try {
+      await CaptureBridge.Vision(Enabled);
+    } catch (_) {}
   }
 
-  Future<String?> CropRecords(BattleMatch Match, List<VideoRecord> Cache, String Output, RecordSettings Value) async {
-    final Start = Match.StartAt - Config.ClipLeadMs;
-    final End = Match.EndAt + Config.ClipTailMs;
+  Future<CaptureFrame?> VisionSnapshot() async {
+    if (!_VisionEnabled || !CaptureBridge.Supported) return null;
+    try {
+      return await CaptureBridge.VisionSnapshot();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> Crop(BattleMatch Match, String Output, RecordSettings Value, {int LeadMs = Config.ClipLeadMs, int TailMs = Config.ClipTailMs}) async {
+    final Cache = await Records();
+    return CropRecords(Match, Cache, Output, Value, LeadMs: LeadMs, TailMs: TailMs);
+  }
+
+  Future<String?> CropRecords(BattleMatch Match, List<VideoRecord> Cache, String Output, RecordSettings Value, {int LeadMs = Config.ClipLeadMs, int TailMs = Config.ClipTailMs}) async {
+    final Start = Match.StartAt - LeadMs;
+    final End = Match.EndAt + TailMs;
     final Selected = Cache.where((Item) => Item.EndAt > Start && Item.StartAt < End).toList()..sort((Left, Right) => Left.StartAt.compareTo(Right.StartAt));
     if (Selected.isEmpty) return null;
     final First = Selected.first;
@@ -486,22 +597,36 @@ class CaptureService {
     final Lines = Selected.map((Item) => "file '${Item.FilePath.replaceAll('\\', '/').replaceAll("'", "'\\''")}'").join('\n');
     await File(Temp).writeAsString('$Lines\n');
     try {
-      final Encoder = await FFmpeg.Encoder(Value);
-      final Args = <String>[
-        '-hide_banner', '-loglevel', 'error', '-y',
-        '-f', 'concat', '-safe', '0', '-i', Temp,
-        '-ss', Offset.toStringAsFixed(3),
-        '-t', Span.toStringAsFixed(3),
-        '-map', '0:v:0?',
-        ...(Selected.any((Item) => Item.HasAudio) ? <String>['-map', '0:a:0?', '-c:a', 'aac', '-b:a', '${Config.AudioBitrate}'] : <String>['-an']),
-        '-c:v', Encoder,
-        ...FFmpeg.QualityArgs(Encoder, Value.Quality),
-        '-movflags', '+faststart',
-        Output,
-      ];
+      final Primary = await FFmpeg.ArchiveEncoder(Value);
+      final Note = FFmpeg.ArchiveNote;
+      final Fps = Selected.first.Fps > 0 ? Selected.first.Fps : Value.Fps;
+      await Log('archive encoder=$Primary${Note == null ? '' : ' $Note'} fps=$Fps');
       await Directory(File(Output).parent.path).create(recursive: true);
-      final Result = await FFmpeg.Run(Args, Timeout: const Duration(minutes: 10));
-      return Result.exitCode == 0 && File(Output).existsSync() ? Output : null;
+      for (var Attempt = 0; Attempt < 2; Attempt++) {
+        final Encoder = Attempt == 0 ? Primary : 'libx265';
+        final Args = <String>[
+          '-hide_banner', '-loglevel', 'error', '-y',
+          '-f', 'concat', '-safe', '0', '-i', Temp,
+          '-ss', Offset.toStringAsFixed(3),
+          '-t', Span.toStringAsFixed(3),
+          '-map', '0:v:0?',
+          ...(Selected.any((Item) => Item.HasAudio) ? <String>['-map', '0:a:0?', '-c:a', 'aac', '-b:a', '${Config.AudioBitrate}'] : <String>['-an']),
+          ...FFmpeg.ArchiveVideoArgs(Encoder, Value.Quality),
+          '-r', '$Fps',
+          '-fps_mode', 'cfr',
+          '-movflags', '+faststart',
+          Output,
+        ];
+        final Result = await FFmpeg.Run(Args, Timeout: const Duration(minutes: 10));
+        if (Result.exitCode == 0 && File(Output).existsSync()) return Output;
+        try {
+          await File(Output).delete();
+        } catch (_) {}
+        final Detail = '${Result.stderr}${Result.stdout}'.trim();
+        await Log('archive failed encoder=$Encoder ${Detail.length > 500 ? Detail.substring(Detail.length - 500) : Detail}');
+        if (Encoder == 'libx265') break;
+      }
+      return null;
     } finally {
       try {
         await File(Temp).delete();
@@ -511,7 +636,20 @@ class CaptureService {
 
   Future<void> StartMonitor(RecordSettings Value) async {
     await StopMonitor();
-    if (!Platform.isWindows || Value.AudioDevice.isEmpty) return;
+    if (Value.AudioDevice.isEmpty) return;
+    if (!Platform.isWindows && !Platform.isMacOS) return;
+    if (_NativeRecorder && CaptureBridge.Supported) {
+      try {
+        await CaptureBridge.Monitor(Enabled: true);
+        MonitorActive.value = true;
+        MonitorError.value = null;
+      } catch (Cause) {
+        MonitorActive.value = false;
+        MonitorError.value = '$Cause';
+      }
+      return;
+    }
+    if (!Platform.isWindows) return;
     try {
       final Exe = await FFmpeg.EnsureFFplay();
       final Args = <String>['-nodisp', '-autoexit', '-loglevel', 'error', '-fflags', 'nobuffer'];
@@ -544,6 +682,11 @@ class CaptureService {
     final Monitor = _MonitorProcess;
     _MonitorProcess = null;
     MonitorActive.value = false;
+    if (_NativeRecorder && CaptureBridge.Supported) {
+      try {
+        await CaptureBridge.Monitor(Enabled: false);
+      } catch (_) {}
+    }
     if (Monitor == null) return;
     try {
       Monitor.kill();
@@ -600,7 +743,7 @@ class CaptureService {
 
   Future<void> Sweep() async {
     final Cache = await Records();
-    final Cutoff = DateTime.now().millisecondsSinceEpoch - 10 * 60 * 1000;
+    final Cutoff = DateTime.now().millisecondsSinceEpoch - Config.CacheKeepMs;
     for (final Record in Cache) {
       if (Record.EndAt < Cutoff) {
         try {

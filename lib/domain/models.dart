@@ -25,6 +25,10 @@ class RecordSettings {
     this.AutoPush = true,
     this.AutoRecord = true,
     this.AutoLaunch = false,
+    this.RecordWork = true,
+    this.RecordRanked = true,
+    this.RecordTurf = true,
+    this.RecordHighlight = true,
     this.BlurNickname = false,
     this.MonitorAudio = false,
     this.PollSeconds = 10,
@@ -61,6 +65,10 @@ class RecordSettings {
   bool AutoPush;
   bool AutoRecord;
   bool AutoLaunch;
+  bool RecordWork;
+  bool RecordRanked;
+  bool RecordTurf;
+  bool RecordHighlight;
   bool BlurNickname;
   bool MonitorAudio;
   int PollSeconds;
@@ -130,6 +138,10 @@ class RecordSettings {
       AutoPush: Flag(Data['autoPush'], Fallback.AutoPush),
       AutoRecord: Flag(Data['autoRecord'], Fallback.AutoRecord),
       AutoLaunch: Flag(Data['autoLaunch'], Fallback.AutoLaunch),
+      RecordWork: Flag(Data['recordWork'], Fallback.RecordWork),
+      RecordRanked: Flag(Data['recordRanked'], Fallback.RecordRanked),
+      RecordTurf: Flag(Data['recordTurf'], Fallback.RecordTurf),
+      RecordHighlight: Flag(Data['recordHighlight'], Fallback.RecordHighlight),
       BlurNickname: Flag(Data['blurNickname'], Fallback.BlurNickname),
       MonitorAudio: Flag(Data['monitorAudio'], Fallback.MonitorAudio),
       PollSeconds: Number(Data['pollSeconds'], 10, 600, Fallback.PollSeconds),
@@ -174,6 +186,10 @@ class RecordSettings {
         'autoPush': AutoPush,
         'autoRecord': AutoRecord,
         'autoLaunch': AutoLaunch,
+        'recordWork': RecordWork,
+        'recordRanked': RecordRanked,
+        'recordTurf': RecordTurf,
+        'recordHighlight': RecordHighlight,
         'blurNickname': BlurNickname,
         'monitorAudio': MonitorAudio,
         'pollSeconds': PollSeconds,

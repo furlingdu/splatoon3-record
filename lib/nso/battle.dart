@@ -41,6 +41,39 @@ class NSOBattle {
     );
   }
 
+  static BattleMatch? FromCoopDetail(Map<String, dynamic> Raw, String AccountId, String Nickname) {
+    final Data = Raw['data'] is Map ? Raw['data'] as Map : Raw;
+    final Detail = Data['coopHistoryDetail'] is Map ? Data['coopHistoryDetail'] as Map : Data;
+    final Id = '${Detail['id'] ?? ''}';
+    if (Id.isEmpty) return null;
+    final Played = DateTime.tryParse('${Detail['playedTime'] ?? ''}')?.millisecondsSinceEpoch ?? 0;
+    if (Played <= 0) return null;
+    final RawRule = Detail['rule'];
+    final Rule = RawRule is String && RawRule.isNotEmpty ? RawRule : 'REGULAR';
+    final Wave = (Detail['resultWave'] as num?)?.toInt() ?? 0;
+    final Result = Wave == 0 ? 'WIN' : Wave == -1 ? 'DEEMED_LOSE' : 'LOSE';
+    return BattleMatch(
+      Raw: Raw,
+      MatchId: Id,
+      Kind: 'salmon',
+      Mode: 'COOP',
+      Rule: Rule,
+      StartAt: Played,
+      EndAt: Played,
+      Duration: 0,
+      Result: Result,
+      IsDisconnected: Wave == -1,
+      IsSalmon: true,
+      VideoPath: null,
+      AccountId: AccountId,
+      AccountNickname: Nickname,
+      SkipReason: null,
+      BlurCopy: false,
+      TimeExact: false,
+      Key: '$AccountId:$Id',
+    );
+  }
+
   static String MapKind(String Mode, String Bankara) {
     final Text = Mode.toUpperCase();
     if (Text.contains('PRIVATE')) return 'private';

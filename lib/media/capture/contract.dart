@@ -1,7 +1,17 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../domain/models.dart';
 import 'desktop.dart';
+
+class CaptureFrame {
+  const CaptureFrame({required this.Width, required this.Height, required this.Rgba});
+
+  final int Width;
+  final int Height;
+  final Uint8List Rgba;
+}
 
 abstract interface class CapturePlatform {
   ValueNotifier<String?> get Error;
@@ -27,11 +37,13 @@ abstract interface class CapturePlatform {
   Future<void> Start(RecordSettings Value, {String? LiveUrl, bool Record = true});
   Future<void> Stop({bool Fast = false});
   Future<List<VideoRecord>> Records();
-  Future<String?> Crop(BattleMatch Match, String Output, RecordSettings Value);
+  Future<String?> Crop(BattleMatch Match, String Output, RecordSettings Value, {int LeadMs = 15000, int TailMs = 30000});
   Widget? BuildPreview(BuildContext Context);
   Future<void> StartMonitor(RecordSettings Value);
   Future<void> StopMonitor();
   Future<void> Dispose();
+  Future<void> SetVision(bool Enabled);
+  Future<CaptureFrame?> VisionSnapshot();
 }
 
 class DesktopCaptureAdapter implements CapturePlatform {
@@ -103,7 +115,7 @@ class DesktopCaptureAdapter implements CapturePlatform {
   Future<List<VideoRecord>> Records() => Inner.Records();
 
   @override
-  Future<String?> Crop(BattleMatch Match, String Output, RecordSettings Value) => Inner.Crop(Match, Output, Value);
+  Future<String?> Crop(BattleMatch Match, String Output, RecordSettings Value, {int LeadMs = 15000, int TailMs = 30000}) => Inner.Crop(Match, Output, Value, LeadMs: LeadMs, TailMs: TailMs);
 
   @override
   Widget? BuildPreview(BuildContext Context) {
@@ -120,4 +132,10 @@ class DesktopCaptureAdapter implements CapturePlatform {
 
   @override
   Future<void> Dispose() => Inner.Dispose();
+
+  @override
+  Future<void> SetVision(bool Enabled) => Inner.SetVision(Enabled);
+
+  @override
+  Future<CaptureFrame?> VisionSnapshot() => Inner.VisionSnapshot();
 }

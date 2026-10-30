@@ -116,7 +116,7 @@ extension AppQQFlow on AppController {
     }
     if (Command == 'status') {
       final Minutes = Status?.CacheStart == null ? 0 : ((Status?.CacheEnd ?? DateTime.now().millisecondsSinceEpoch) - Status!.CacheStart!) ~/ 60000;
-      final Latest = Archive.Matches.isEmpty ? null : Archive.Matches.first;
+      final Latest = LatestRecordMatch();
       await Bot.SendText(OpenId, <String>[
         '录制：${Status?.RecordState ?? 'idle'}',
         'NSO：${Status?.NSOState ?? 'unbound'}',
@@ -127,12 +127,13 @@ extension AppQQFlow on AppController {
       return;
     }
     if (Command == 'last' || Command == 'record') {
-      if (Archive.Matches.isEmpty || !Archive.Matches.first.HasVideo) {
+      final Latest = LatestRecordMatch();
+      if (Latest == null || !Latest.HasVideo) {
         await Bot.SendText(OpenId, '尚无可发送的录像');
         return;
       }
       if (Command == 'record') {
-        final Video = Archive.Matches.first;
+        final Video = Latest;
         final Blurred = Video.BlurCopy ? Archive.BlurFile(Video.VideoPath) : null;
         final Path = Blurred != null && File(Blurred).existsSync() ? Blurred : Video.VideoPath!;
         try {
@@ -143,10 +144,18 @@ extension AppQQFlow on AppController {
         }
         return;
       }
-      await Bot.SendMarkdown(OpenId, QQMatchText(Archive.Matches.first));
+      await Bot.SendMarkdown(OpenId, QQMatchText(Latest));
       return;
     }
     await Bot.SendText(OpenId, '可用命令：/bind /record /last /push /status');
+  }
+
+  BattleMatch? LatestRecordMatch() {
+    for (final Match in Archive.Matches) {
+      if (Match.Kind == 'highlight') continue;
+      return Match;
+    }
+    return null;
   }
 
   String QQMatchText(BattleMatch Match) {

@@ -11,6 +11,7 @@ import '../config/system.dart';
 import '../domain/models.dart';
 import '../format/formats.dart';
 import '../match/stats.dart';
+import '../media/capture/bridge.dart';
 import '../media/capture/mobile/mobileMedia.dart';
 import 'layout.dart';
 import 'motion.dart';
@@ -54,6 +55,7 @@ class AppRootState extends State<AppRoot> with WidgetsBindingObserver {
   }
 
   String? _LastNotice;
+  String? _SentTheme;
 
   void OnChanged() {
     if (!mounted) return;
@@ -81,11 +83,19 @@ class AppRootState extends State<AppRoot> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final Controller = widget.Controller;
     final ThemeColor = Controller.Ready ? Controller.SettingsValue.ThemeColor : '#4285f4';
+    final AppThemeData = AppTheme.Build(ThemeColor);
+    if (PlatformInfo.Windows && Controller.Ready && _SentTheme != ThemeColor) {
+      _SentTheme = ThemeColor;
+      final Chrome = AppTheme.ChromeFor(AppThemeData.colorScheme);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(CaptureBridge.Theme(Chrome.toARGB32()).catchError((_) {}));
+      });
+    }
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Splatoon3 Record',
       scaffoldMessengerKey: MessengerKey,
-      theme: AppTheme.Build(ThemeColor),
+      theme: AppThemeData,
       locale: const Locale('zh', 'CN'),
       supportedLocales: const <Locale>[Locale('zh', 'CN'), Locale('en', 'US')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
@@ -368,7 +378,7 @@ class TopBar extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
-          color: AppTheme.Chrome,
+          color: AppTheme.ChromeColor(context),
           alignment: Alignment.center,
           padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top, left: 8, right: 8),
           child: Row(
@@ -423,7 +433,7 @@ class DrawerPanel extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
-          color: PlatformInfo.Mobile ? AppTheme.Chrome : AppTheme.ChromeSoft,
+          color: AppTheme.ChromeColor(context, Soft: !PlatformInfo.Mobile),
           padding: const EdgeInsets.only(top: 8),
           child: ListView.builder(
         itemCount: VisibleItems.length,
@@ -514,9 +524,10 @@ class PageBody extends StatelessWidget {
 }
 
 class MatchRow extends StatelessWidget {
-  const MatchRow({super.key, required this.Match, this.OnPlay, this.OnOpen, this.OnSave, this.OnSaveToGallery, this.OnShare});
+  const MatchRow({super.key, required this.Match, this.Processing = false, this.OnPlay, this.OnOpen, this.OnSave, this.OnSaveToGallery, this.OnShare});
 
   final BattleMatch Match;
+  final bool Processing;
   final VoidCallback? OnPlay;
   final VoidCallback? OnOpen;
   final VoidCallback? OnSave;
@@ -530,8 +541,8 @@ class MatchRow extends StatelessWidget {
     final String Rule = Formats.Rule(Match.Rule);
     final String Title = Kind == Rule ? Kind : '$Kind · $Rule';
     final String Account = Match.AccountNickname == null ? '' : '${Match.AccountNickname} · ';
-    final String State = Match.IsDisconnected ? '掉线' : Formats.Result(Match.Result);
-    final String RecordState = Match.HasVideo ? '已录制' : Match.SkipReason != null ? '账户冲突，未自动裁剪' : '未录制';
+    final String State = Match.Kind == 'highlight' ? '高亮' : Match.IsDisconnected ? '掉线' : Formats.Result(Match.Result);
+    final String RecordState = Processing ? '保存中' : Match.HasVideo ? '已录制' : Match.SkipReason != null ? Match.SkipReason! : '未录制';
     final Info = Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
       Text(Title, style: AppTheme.Style(Size: 15, Weight: FontWeight.w600)),
       const SizedBox(height: 4),

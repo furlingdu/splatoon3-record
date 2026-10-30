@@ -110,9 +110,9 @@ class LivePageState extends State<LivePage> {
           AppStatusItem(Label: '编码器', Value: AppStatusText(Live ? (CopyMode ? '未转码（直接转发）' : Status?.StreamEncoder ?? '等待编码') : '未直播')),
           AppStatusItem(Label: '直播码率', Value: AppStatusText(Live ? (CopyMode ? '跟随输入' : '等待连接') : '未直播')),
           AppStatusItem(Label: '推理设备', Value: AppStatusText(Blur ? 'ONNX Runtime' : '未开启打码')),
-          AppStatusItem(Label: '打码目标', Value: AppStatusText(Blur ? '实时检测' : '未开启')),
+          AppStatusItem(Label: '打码目标', Value: AppStatusText(Blur ? '玩家昵称 / 击杀玩家昵称' : '未开启')),
           AppStatusItem(Label: '画面帧率', Value: AppStatusText(Status != null && Status.Fps > 0 ? Formats.Fps(Status.Fps) : '未运行')),
-          AppStatusItem(Label: '推理帧率', Value: AppStatusText(Blur ? '实时' : '未开启')),
+          AppStatusItem(Label: '推理帧率', Value: AppStatusText(Blur ? '每 0.5 秒' : '未开启')),
           if ((Status?.RtmpPushError ?? '').isNotEmpty) AppStatusItem(Label: '直播错误', Value: AppStatusText(Status!.RtmpPushError!)),
         ]),
         if (Status?.RtmpPushState == 'error')

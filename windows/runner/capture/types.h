@@ -10,9 +10,8 @@
 
 namespace Capture {
 
-constexpr int PreviewWidth = 960;
-constexpr int PreviewHeight = 540;
-constexpr int PreviewFps = 30;
+constexpr int MaxPreviewWidth = 4096;
+constexpr int MaxPreviewHeight = 2160;
 constexpr int PreviewSlotCount = 3;
 constexpr int MaskWidth = 480;
 constexpr int MaskHeight = 270;
@@ -49,11 +48,13 @@ struct Frame {
   int Height = 0;
   LONGLONG Timestamp = 0;
   LONGLONG ArrivalTick = 0;
+  LONGLONG Qpc = 0;
 };
 
 std::string ToUtf8(const std::wstring& Text);
 std::wstring FromUtf8(const std::string& Text);
 std::string FormatError(HRESULT Result);
+LONGLONG QpcNow();
 
 }
 

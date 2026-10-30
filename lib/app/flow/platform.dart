@@ -164,6 +164,12 @@ extension AppPlatformFlow on AppController {
   Future<void> Shutdown() async {
     await ClosePreviewWindow();
     await StopPreview();
+    await StopVision();
+    await Vision.Stop();
+    for (final Item in HighlightTimers.values) {
+      Item.cancel();
+    }
+    HighlightTimers.clear();
     await Capture.Stop(Fast: true);
     await QQBindRef?.Stop();
     await QQBotRef?.Stop();

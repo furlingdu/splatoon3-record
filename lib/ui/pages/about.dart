@@ -90,6 +90,7 @@ class AboutPage extends StatelessWidget {
     final Stats = Controller.Capture.Stats.value ?? const <String, dynamic>{};
     final Accounts = Controller.Accounts;
     final Records = Controller.Archive.Matches;
+    final FFmpegVersion = await Controller.FFmpeg.Version();
     final Size = MediaQuery.sizeOf(Context);
     final Ratio = MediaQuery.devicePixelRatioOf(Context);
     final Insets = MediaQuery.paddingOf(Context);
@@ -137,6 +138,8 @@ class AboutPage extends StatelessWidget {
       '录制编码：${Status?.Encoder ?? '未知'}',
       '编码器：${Status?.StreamEncoder ?? '未知'}',
       '硬件加速：${Status?.HwAccel ?? '未启用'}',
+      if (!PlatformInfo.Mobile) '内置 FFmpeg：${FFmpegVersion.isEmpty ? '未知' : FFmpegVersion}',
+      if (!PlatformInfo.Mobile) '编码器检测：${Controller.FFmpeg.EncoderNote ?? '正常'}',
       '录制质量：${Settings.Quality}',
       '画面方向：${Settings.MobileOrientation}',
       '垂直翻转：${Settings.FlipVertical ? '开' : '关'}',

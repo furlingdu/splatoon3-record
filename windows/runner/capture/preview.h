@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -17,7 +18,9 @@ namespace Capture {
 
 class CapturePreview {
  public:
-  explicit CapturePreview(std::shared_ptr<Shared> SharedRef);
+  using PublishCallback = std::function<void()>;
+
+  CapturePreview(std::shared_ptr<Shared> SharedRef, PublishCallback OnPublish);
   ~CapturePreview();
 
   CapturePreview(const CapturePreview&) = delete;
@@ -27,19 +30,23 @@ class CapturePreview {
   void Stop();
   void Submit(std::shared_ptr<Frame> FrameValue);
   bool Snapshot(std::vector<uint8_t>& Out, uint32_t& Sequence);
+  void SetVision(bool Value);
+  bool VisionSnapshot(std::vector<uint8_t>& Out, int& OutWidth, int& OutHeight, uint32_t& Sequence);
 
   int FrameRate() const;
   int Latency() const;
   int ConvertMs() const;
+  int Width() const;
+  int Height() const;
 
  private:
   void Run();
   void Convert(const Frame& Value);
   void ConvertMask(const Frame& Value);
-  void BuildRgbaTable(int SourceWidth, int SourceHeight, int DestWidth, int DestHeight);
-  void BuildMaskTable(int SourceWidth, int SourceHeight);
+  void ConvertVision(const Frame& Value);
 
   std::shared_ptr<Shared> SharedRef;
+  PublishCallback OnPublish;
   std::atomic<bool> Stopping{false};
   std::thread Worker;
   std::mutex InputMutex;
@@ -49,34 +56,23 @@ class CapturePreview {
   std::vector<uint8_t> MaskBuffer;
   uint32_t MaskSequence = 0;
   uint32_t MaskServed = 0;
-  std::vector<uint8_t> RgbaBuffer;
-  std::vector<int> RgbaX0;
-  std::vector<int> RgbaX1;
-  std::vector<uint8_t> RgbaXF;
-  std::vector<int> RgbaY0;
-  std::vector<int> RgbaY1;
-  std::vector<uint8_t> RgbaYF;
-  int LastSourceWidth = 0;
-  int LastSourceHeight = 0;
-  int LastDestWidth = 0;
-  int LastDestHeight = 0;
-  int LastOffsetX = 0;
-  int LastOffsetY = 0;
-  std::vector<int> MaskX0;
-  std::vector<int> MaskX1;
-  std::vector<uint8_t> MaskXF;
-  std::vector<int> MaskY0;
-  std::vector<int> MaskY1;
-  std::vector<uint8_t> MaskYF;
-  int LastMaskSourceWidth = 0;
-  int LastMaskSourceHeight = 0;
   LONGLONG LastMaskTick = 0;
+  std::atomic<bool> VisionEnabled{false};
+  std::mutex VisionMutex;
+  std::vector<uint8_t> VisionBuffer;
+  uint32_t VisionSequence = 0;
+  uint32_t VisionServed = 0;
+  LONGLONG LastVisionTick = 0;
+  int VisionWidth = 0;
+  int VisionHeight = 0;
   LONGLONG LastRateTick = 0;
-  std::chrono::steady_clock::time_point NextPreviewAt;
   int RateFrames = 0;
   std::atomic<int> FrameRateValue{0};
   std::atomic<int> LatencyValue{0};
   std::atomic<int> LastConvertMs{0};
+  std::atomic<int> FrameWidth{0};
+  std::atomic<int> FrameHeight{0};
+  std::atomic<long long> DroppedFrames{0};
 };
 
 }

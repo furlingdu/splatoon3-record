@@ -57,6 +57,8 @@ class NSOService {
   static const int WebServiceId = Config.NSOWebServiceId;
   static const String LatestQuery = Config.NSOLatestQuery;
   static const String DetailQuery = Config.NSODetailQuery;
+  static const String CoopQuery = Config.NSOCoopQuery;
+  static const String CoopDetailQuery = Config.NSOCoopDetailQuery;
 
   String? _AccessToken;
   int _AccessExpires = 0;
@@ -179,6 +181,8 @@ class NSOService {
 
   Future<Map<String, dynamic>> Latest(NSOSession Session) => _Query(Session, LatestQuery, <String, dynamic>{});
   Future<Map<String, dynamic>> Detail(NSOSession Session, String Id) => _Query(Session, DetailQuery, <String, dynamic>{'vsResultId': Id});
+  Future<Map<String, dynamic>> CoopLatest(NSOSession Session) => _Query(Session, CoopQuery, <String, dynamic>{});
+  Future<Map<String, dynamic>> CoopDetail(NSOSession Session, String Id) => _Query(Session, CoopDetailQuery, <String, dynamic>{'coopHistoryDetailId': Id});
 
   Future<Map<String, dynamic>> _Query(NSOSession Session, String Hash, Map<String, dynamic> Variables) async {
     final Response = await http.post(

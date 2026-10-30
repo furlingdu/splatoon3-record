@@ -302,14 +302,20 @@ extension AppNSOFlow on AppController {
               final Detail = await NSO.Detail(Session, Id);
               final Match = NSOBattle.FromDetail(Detail, Account.Id, Account.Nickname);
               if (Match == null || !Match.TimeExact || Match.Duration <= 0) continue;
+              if (!MatchFilter.ShouldRecord(Match, SettingsValue)) Match.SkipReason = MatchFilter.SkipReason(Match);
               Archive.Matches.insert(0, Match);
               await Archive.Save(Match);
               Account.LastMatchAt = Match.EndAt;
               Added++;
-              if (CanCrop(Match)) await ArchiveMatch(Match);
+              if (Match.SkipReason == null) ScheduleArchive(Match);
             }
           }
           if (Added > 0) PushStatus();
+          try {
+            await PollCoop(Account, Session);
+          } catch (Cause) {
+            await Logs.App('coop poll failed ${Account.Id} $Cause');
+          }
         } catch (Cause) {
           if ('$Cause'.contains('9403') || '$Cause'.contains('9404') || '$Cause'.contains('登录已过期') || '$Cause'.contains('HTTP 401')) {
             await NSORefresh(Account);
@@ -319,6 +325,45 @@ extension AppNSOFlow on AppController {
     } finally {
       NSOBusy = false;
     }
+  }
+
+  Future<void> PollCoop(NSOAccount Account, NSOSession Session) async {
+    final Latest = await NSO.CoopLatest(Session);
+    final Data = Latest['data'] is Map ? Latest['data'] as Map : const <String, dynamic>{};
+    final Coop = Data['coopResult'] is Map ? Data['coopResult'] as Map : const <String, dynamic>{};
+    final Groups = Coop['historyGroups'] is Map ? Coop['historyGroups'] as Map : const <String, dynamic>{};
+    final Nodes = Groups['nodes'] is List ? Groups['nodes'] as List : const <dynamic>[];
+    var Added = 0;
+    for (final Group in Nodes) {
+      if (Group is! Map) continue;
+      final Details = Group['historyDetails'] is Map ? Group['historyDetails'] as Map : const <String, dynamic>{};
+      final Items = Details['nodes'] is List ? Details['nodes'] as List : const <dynamic>[];
+      for (final Item in Items) {
+        if (Item is! Map || Added >= 8) continue;
+        final Id = '${Item['id'] ?? ''}';
+        if (Id.isEmpty || Archive.Matches.any((Match) => Match.MatchId == Id)) continue;
+        final Detail = await NSO.CoopDetail(Session, Id);
+        final Match = NSOBattle.FromCoopDetail(Detail, Account.Id, Account.Nickname);
+        if (Match == null) continue;
+        if (SettingsValue.RecordWork) {
+          final Resolution = ResolveWork(Match.EndAt);
+          Match.StartAt = Resolution.StartAt;
+          Match.EndAt = Resolution.EndAt;
+          Match.Duration = Resolution.Duration;
+          Match.TimeExact = Resolution.Exact;
+          Match.SkipReason = Match.Duration > 0 ? null : '未识别到打工开始画面';
+          await Logs.App('coop match ${Match.MatchId} start=${Resolution.StartAt} end=${Resolution.EndAt} exact=${Resolution.Exact} source=${Resolution.Source}');
+        } else {
+          Match.SkipReason = '未开启打工模式录制';
+        }
+        Archive.Matches.insert(0, Match);
+        await Archive.Save(Match);
+        Account.LastMatchAt = Match.EndAt;
+        Added++;
+        if (Match.SkipReason == null) ScheduleArchive(Match);
+      }
+    }
+    if (Added > 0) PushStatus();
   }
 
   Future<void> SelectNSOAccount(String Id) async {

@@ -8,9 +8,6 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
-#include <mutex>
-#include <thread>
-#include <vector>
 
 namespace Capture {
 
@@ -24,24 +21,20 @@ class PreviewTexture {
 
   bool Start();
   void Stop();
+  void Notify();
   int64_t Id() const;
 
  private:
   static const FlutterDesktopPixelBuffer* CopyPixel(size_t Width, size_t Height, void* Context);
+  static void ReleasePixel(void* Context);
   static void Unregistered(void* Context);
-  void Pump();
 
   FlutterDesktopTextureRegistrarRef RegistrarRef = nullptr;
   std::shared_ptr<Shared> SharedRef;
-  std::atomic<bool> Stopping{false};
-  std::thread PumpThread;
-  std::mutex BufferMutex;
-  std::vector<uint8_t> Buffer;
-  std::vector<uint8_t> Incoming;
   FlutterDesktopPixelBuffer PixelBuffer{};
   FlutterDesktopTextureInfo TextureInfo{};
   int64_t TextureId = -1;
-  LONG MarkedPublish = 0;
+  std::atomic<LONG> MarkedPublish{0};
 };
 
 }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -65,6 +66,58 @@ void main() {
     final Loaded = await SecretStore(Directories).Load();
     expect(Loaded['qqAppId'], '123');
     expect(Loaded['qqSecret'], 'secret');
+  });
+
+  test('Concurrent config saves keep the last value', () async {
+    final Store = ConfigStore(Directories, Env);
+    await Store.Load();
+    final Tasks = <Future<void>>[];
+    for (var Index = 0; Index < 12; Index++) {
+      Tasks.add(Store.Save(AppConfig.Defaults(RecordSettings(SaveDir: Directories.Videos, Width: 640 + Index * 2, Fps: 30))));
+    }
+    await Future.wait(Tasks);
+    final Text = await File(Directories.ConfigFile).readAsString();
+    final Data = jsonDecode(Text) as Map<String, dynamic>;
+    final Settings = Map<String, dynamic>.from(Data['settings'] as Map);
+    expect(Settings['width'], 640 + 11 * 2);
+  });
+
+  test('Concurrent secret saves keep the last value', () async {
+    final Store = SecretStore(Directories);
+    final Tasks = <Future<void>>[];
+    for (var Index = 0; Index < 12; Index++) {
+      Tasks.add(Store.Save(<String, dynamic>{'qqAppId': '$Index', 'qqSecret': 'secret$Index'}));
+    }
+    await Future.wait(Tasks);
+    final Loaded = await SecretStore(Directories).Load();
+    expect(Loaded['qqAppId'], '11');
+    expect(Loaded['qqSecret'], 'secret11');
+  });
+
+  test('Concurrent match saves keep every file valid', () async {
+    final Store = ArchiveStore(Directories);
+    await Store.Load();
+    final Tasks = <Future<void>>[];
+    for (var Index = 0; Index < 8; Index++) {
+      Tasks.add(Store.Save(BattleMatch.FromMap(<String, dynamic>{
+        'matchId': 'm$Index',
+        'accountId': 'acc',
+        'kind': 'regular',
+        'result': 'WIN',
+        'startAt': 1000 + Index,
+        'endAt': 2000 + Index,
+        'duration': 1000,
+      })));
+    }
+    await Future.wait(Tasks);
+    final Entries = Directory(Directories.Matches).listSync();
+    final Files = Entries.whereType<File>().where((Item) => Item.path.endsWith('.json')).toList();
+    expect(Files.length, 8);
+    for (final Item in Files) {
+      expect(jsonDecode(await Item.readAsString()) is Map, true);
+    }
+    expect(Entries.where((Item) => Item.path.endsWith('.tmp')).isEmpty, true);
+    expect((await ArchiveStore(Directories).Load()).length, 8);
   });
 }
 

@@ -66,6 +66,20 @@ import UIKit
     case "Dispose":
       Capture.Dispose()
       result(nil)
+    case "Snapshot":
+      let Width = Arguments["width"] as? Int ?? 1280
+      let Height = Arguments["height"] as? Int ?? 720
+      Capture.Snapshot(Width: Width, Height: Height) { Data in
+        guard let Data = Data else {
+          result(nil)
+          return
+        }
+        result([
+          "width": Width,
+          "height": Height,
+          "bytes": FlutterStandardTypedData(bytes: Data),
+        ])
+      }
     case "Export":
       CaptureExport.Run(
         Input: Arguments["input"] as? String ?? "",

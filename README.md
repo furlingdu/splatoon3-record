@@ -1,84 +1,81 @@
 # Splatoon3 Record
 
-Flutter/Dart 的 Splatoon 3 采集、缓存与归档工具，覆盖桌面与移动端。
+[![CI](https://github.com/furlingdu/splatoon3-record/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/furlingdu/splatoon3-record/actions/workflows/ci.yml)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 
-## 构建
+Splatoon3 Record 是一款面向 Splatoon 3 的本地录制、直播与对局归档工具。程序通过采集卡持续获取画面，依据 Nintendo Switch Online 返回的真实对局结束时间和持续时间裁剪整局录像并归档到本地，和 QQBot 压制后推送。
 
-```powershell
-pwsh tool/fetch.ps1
-pwsh tool/check.ps1
-pwsh tool/test.ps1
-pwsh tool/build.ps1
-pwsh tool/package.ps1
-```
+[介绍视频](https://www.bilibili.com/video/BV1vfar6dEg6/)
 
-产物位于 `dist/Splatoon3Record3.0.0X64Setup.exe`。
+[QQ 交流群](https://qun.qq.com/universal-share/share?ac=1&authKey=wP%2BIo%2Fag%2FtzGZgvS9OA0s1ue0Vba8ViQ%2BxHWB9ZVh8S9Fop%2Foykdj4%2FaZYgQRojO&busi_data=eyJncm91cENvZGUiOiIxMTA5MDk5NzE2IiwidG9rZW4iOiJQd29BYnVXRmF6MkFMNE1SSFNCbGNrY3RBYk1rY2ZsT1M0VTZiS0I3RHdQWk1wVXdYWlh0ckFIby96RGljaXRmIiwidWluIjoiMzY0ODE5MjMxMSJ9&data=CfvQydD4zMNoeY472UFhNDBtWtMRsgkpiv30vsGcO3ph9ICf5Dh0Qk5-gaId-E1wFnEi_Gf_WdZM-tvdzQZPpA&svctype=4&tempid=h5_group_info)
 
-## 数据目录
+## 功能
 
-沿用 `~/.splatoon3record`。首次启动会备份 `config.json`、`secrets.json`、`matches`、`thumbs`、`backgrounds` 到 `Backup/<时间>`。
+- 通过采集卡录制画面与声音，自动捕获Splatoon3画面
+- 按对局自动裁剪录像
+- 提供本机 HTTP 直播页，可直接作为 OBS 浏览器源使用
+- 直播链路支持昵称检测和打码模糊
+- 通过 QQBot 完成绑定、录制控制、状态查询、最近对局和视频推送
 
-旧版 Windows `secrets.json` 使用 Electron safeStorage 加密，可以通过 DPAPI/OSCrypt 导入。旧版视频绝对路径不迁移、不重写。
+## 运行要求
 
-## 目录
+- Node.js 24 或更高版本
+- 可用的采集卡或摄像头，以及音频采集设备
+- Nintendo Switch Online 登录需要访问 Nintendo 服务及项目配置的 NSO 接口
+- QQBot 推送需要在本机完成机器人绑定
 
-- `lib/config`：路径、端口、编码参数、NSO/QQ 地址和版本常量
-- `lib/app`：启动、状态、窗口和按流程拆分的业务编排
-- `lib/media/capture`：采集桥接、FFmpeg 参数和录制/直播编排
-- `lib/media`：FFmpeg 编码服务、昵称检测与打码
-- `windows/runner/capture`：Media Foundation 原生采集、低延迟预览和原始帧投递
-- `lib/nso`：Nintendo 登录、Coral 和 SplatNet
-- `lib/qq`：QQBot 绑定、网关、命令和上传
-- `lib/store`：配置、归档、日志、旧凭证迁移
-- `lib/ui`：Material 3 界面、页面和控件
-- `tool`：验证、测试、构建和打包脚本
+## 采集与编码
 
-## 平台
+Windows 上统一使用 Media Foundation 采集后端，原生支持 NV12 与 YUY2，并在内部统一转换为 I420 后交给录制与直播链路。设置页只列出当前采集卡上报的分辨率与帧率上限，实际档位由采集卡协商决定：当采集卡无法给出所选档位时，程序会接受协商后的真实画幅与帧率，并把实际档位回写到设置，避免静默回退。
 
-五端都用系统原生接口取帧，FFmpeg 只负责编码与后期：
+录制与直播优先使用硬件编码，4K60 档位同样走硬编；探测与编码配置不下发 `framerate` 字段，以免 Chromium 在该字段存在时退回软件编码。
 
-- Windows：Media Foundation 原生采集，预览为 Flutter 外部纹理，包内 `ffmpeg.exe` 编码，`ffplay.exe` 仅用于声音返听。
-- macOS：`packages/macos_capture` 用 AVFoundation 取 NV12 帧写入 ffmpeg stdin，`FlutterTexture` 预览；音频由 `AVCaptureAudioDataOutput` 转 s16le 写入 FIFO，作为 ffmpeg 第二路输入。
-- Linux：`packages/linux_capture` 用 V4L2 mmap 取帧（NV12/YUYV），转 NV12 后写入 ffmpeg stdin；音频由 ALSA 采集后写入 FIFO。
-- Android：`flutter_ffi_uvc` 走 libuvc + MediaCodec 原生采集与硬件编码分段 MP4；音频由 `AudioRecord` 原生录制为 AAC 伴轨，再用 `MediaExtractor + MediaMuxer` 无损合流。不使用系统相机，也不使用 Camera2。
-- iOS/iPadOS：`packages/mobile_capture` 用 AVFoundation 采集 iPadOS 17+ UVC 设备，`AVCaptureMovieFileOutput` 录制同一文件内的音视频，`AVAssetExportSession` 导出 MP4；不枚举内置相机。
+缓存以增量文件方式写入：整场录制只创建一个编码器，不再按时长重建，因此不会周期性掉帧。单个文件写满 10 分钟（或体积达到 3 GB）时，以及每局结束需要归档时，程序会就地封存当前文件并立即接着写下一个文件，缓存只保留最近 10 分钟的画面。
 
-FFmpeg 按构建目标架构下载，不跨架构打包：
+## 更新
+
+「更新」页面会自动检查 GitHub Release 并按当前系统与架构挑选安装包，下载过程中显示进度，下载完成后由用户确认再启动安装程序。页面提供两个开关：「网络加速」开启后通过 `.env` 中 `UPDATE_PROXY_PREFIX` 配置的加速源前缀获取更新包（默认 `https://gh-proxy.com/`），失败时回退直连；「自动检查更新」开启后启动应用时会在后台检查并在发现新版本时提示。
+
+`.env` 按当前工作目录、可执行文件同目录、数据目录的顺序取第一个存在的文件，可参考仓库根目录的 `.env.example`。
+
+## 开发
 
 ```bash
-pwsh tool/fetchFFmpeg.ps1 -Target windows-x64
-bash tool/fetchFFmpeg.sh macos-arm64
-bash tool/fetchFFmpeg.sh linux-x64
+npm install
+npm run typecheck
+npm run lint
+npm run test:unit
+npm run test:integration
+npm run build
 ```
 
-## 移动端
-
-Android、iPhone 与 iPad 共用一套响应式界面：手机窄屏默认收起侧栏菜单，平板与桌面按宽度在抽屉和固定栏之间切换，列表、状态卡片与操作按钮随屏幕宽度调整列数和内边距。
-
-移动端只支持 USB 采集卡（UVC），不提供系统相机，也没有直播功能。移动端具备完整采集录制链路：采集卡实际档位枚举、预览、按屏幕刷新率渲染、分段录制、对局裁剪、缩略图、打码与 QQBot 推送；Android 采集卡音频走原生 AAC 音轨并合流为单个 MP4，iOS 由 AVFoundation 直接写入。初次配置必须完成 NSO 与 QQBot 登录后才能继续。`assets/tools` 只在桌面平台打包。
+### 测试
 
 ```bash
-flutter build apk --release --split-per-abi
-flutter build ios --release --no-codesign
+npm run test:ui
+npm run test:capture
+npm run dist:win
+npm run test:packaged
 ```
 
-iOS 产物为未签名 app，需要自行签名后再安装。`.github/workflows/mobile.yml` 会构建五端工件：Windows 安装包、macOS arm64、Linux x64、Android arm64/armv7 APK 与 iOS 未签名 IPA。
+构建安装包时使用：
 
+```bash
+npm run dist:win
+npm run dist:mac
+npm run dist:linux
+```
 
-## 说明
+## 登录与 znca-api
 
-UI 使用 Material 3 复刻旧版 MDUI 的深色桌面布局，复用了旧版位图、图标语义、字体和 ONNX 模型。Windows 采集链路为 Media Foundation 原生取帧、共享内存预览、FFmpeg 原始帧编码；macOS/Linux 为 AVFoundation/V4L2 原生取帧后写入 FFmpeg 编码。
+为获取到您的Nintendo Switch Online数据，程序将要求登录您的Nintendo账户。由于Nintendo限制，在登录过程中会涉及到使用第三方Nintendo Switch Online Api以实现加密包体获取，你的 Nintendo 账号 id_token 将被发送到第三方 API（[nxapi-znca-api](https://github.com/samuelthomas2774/nxapi-znca-api)）用于完成令牌校验。
 
-当前已实现：
+请注意，由于涉及到了第三方Api进行操作，该操作可能存在部分风险或稳定性较差，开发者不对账户安全性进行保证。但请放心，id_token并不会泄露您的账户。您的Nintendo Switch Online账户数据将会被加密保存至本地。
 
-- NSO 浏览器 OAuth、Coral 加密登录、SplatNet GraphQL 对局拉取
-- 缓存分段裁剪、自动归档、缩略图
-- ONNX 昵称检测与归档打码
-- QQBot 扫码绑定、命令、分片上传与自动推送
-- Media Foundation 低延迟预览、独立预览窗口
-- 桌面 RTMP 采集/直播、无损转发；移动端不提供直播
-- GitHub Release 更新下载与安装
-- 旧 Electron 版检测与静默卸载、数据备份与凭证迁移
+本项目的 NSO 登录与 SplatNet 3 数据接入参考了开源项目 [Cypas/splatoon3-nso](https://github.com/Cypas/splatoon3-nso) 的实现，在此致谢。
 
-实时逐帧昵称打码仍待独立的实时媒体处理层实现。
+## 反馈
 
+设备相关的故障请在关于页点击「复制设备信息」，连同问题描述一起提交 issue。
+
+本项目自有代码采用 AGPL-3.0-only；第三方组件、字体、图片、模型和 FFmpeg 仍受各自许可约束。

@@ -1,6 +1,6 @@
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$Flutter = 'D:\Develop\FlutterSdk\flutter\bin\flutter.bat'
-if (!(Test-Path $Flutter)) { $Flutter = 'flutter' }
+$Flutter = $env:FLUTTER_ROOT
+if ($Flutter) { $Flutter = Join-Path $Flutter 'bin\flutter.bat' } else { $Flutter = 'flutter' }
 $Tests = Get-ChildItem -Path (Join-Path $Root 'test') -Filter '*Test.dart' -File | Sort-Object Name
 if ($Tests.Count -eq 0) { Write-Error 'No tests found'; exit 1 }
 Push-Location $Root

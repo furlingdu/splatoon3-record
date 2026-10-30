@@ -22,8 +22,10 @@ class Shared {
   bool Open();
   void Close();
 
-  bool Publish(const uint8_t* Pixels, int Width, int Height, LONGLONG Timestamp);
-  bool CopyLatest(std::vector<uint8_t>& Out, int& Width, int& Height);
+  bool BeginWrite(int& Index, uint8_t** Data);
+  void EndWrite(int Index, int Width, int Height, LONGLONG Timestamp);
+  bool AcquireLatest(const uint8_t** Data, int& Width, int& Height, int& Index);
+  void Release(int Index);
 
   void SetActive(bool Value);
   bool IsActive() const;
@@ -43,7 +45,7 @@ class Shared {
 
   HANDLE Mapping = nullptr;
   void* View = nullptr;
-  mutable LONG LastSequence = 0;
+  LONG NextSlot = 0;
 };
 
 }

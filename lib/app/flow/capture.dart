@@ -115,6 +115,9 @@ extension AppCaptureFlow on AppController {
     if (Encoder.contains('nvenc')) return 'NVIDIA';
     if (Encoder.contains('qsv')) return 'Intel';
     if (Encoder.contains('amf')) return 'AMD';
+    if (Encoder.endsWith('_mf')) return 'Media Foundation';
+    if (Encoder.endsWith('_videotoolbox')) return 'VideoToolbox';
+    if (Encoder.endsWith('_mediacodec')) return 'MediaCodec';
     return '软件';
   }
 
@@ -160,8 +163,11 @@ extension AppCaptureFlow on AppController {
     await Logs.App('record start mode=${SettingsValue.CaptureMode} device=${PlatformInfo.Mobile ? SettingsValue.MobileDevice : SettingsValue.VideoDevice} audio=${SettingsValue.MobileAudio ? 'on' : 'off'} audioDevice=${PlatformInfo.Mobile ? SettingsValue.MobileAudioDevice : SettingsValue.AudioDevice} monitor=${SettingsValue.MonitorAudio} ${SettingsValue.Width}x${SettingsValue.Height}@${SettingsValue.Fps}');
     try {
       await Capture.Start(SettingsValue);
-      Notice = Capture.Error.value ?? '已开始录制';
-      await Logs.App('record start result=${Capture.Error.value ?? 'ok'} actual=${Capture.ActualWidth}x${Capture.ActualHeight}@${Capture.ActualFps}');
+      final EncoderName = Capture.EncoderName;
+      final EncoderNote = EncoderName == 'h264_mf' || EncoderName == 'h264_videotoolbox' ? null : FFmpeg.EncoderNote;
+      Notice = Capture.Error.value ?? EncoderNote ?? '已开始录制';
+      if (EncoderNote != null && SettingsValue.Encoder != 'software') await Logs.App('encoder fallback $EncoderNote');
+      await Logs.App('record start result=${Capture.Error.value ?? 'ok'} encoder=${Capture.EncoderName} actual=${Capture.ActualWidth}x${Capture.ActualHeight}@${Capture.ActualFps}');
       if (Capture.Error.value == null) {
         if (PlatformInfo.Mobile) {
           final Next = SettingsValue.Copy(<String, dynamic>{
@@ -174,7 +180,10 @@ extension AppCaptureFlow on AppController {
           }
         }
         await StartPreview();
+      } else if (Capture.PreviewTexture.value != null) {
+        await StartPreview();
       }
+      await SyncVision();
     } finally {
       Busy = false;
       PushStatus();
@@ -192,6 +201,7 @@ extension AppCaptureFlow on AppController {
       await Capture.Stop();
       await Capture.Records();
       Notice = '已停止录制';
+      await StopVision();
     } finally {
       Busy = false;
       PushStatus();
@@ -220,6 +230,7 @@ extension AppCaptureFlow on AppController {
     await Capture.Start(SettingsValue, LiveUrl: Target);
     Notice = Capture.Error.value ?? '已开始直播';
     if (Capture.Error.value == null) await StartPreview();
+    await SyncVision();
     PushStatus();
   }
 
@@ -231,6 +242,7 @@ extension AppCaptureFlow on AppController {
       if (Capture.Error.value == null) await StartPreview();
     }
     Notice = '已停止直播';
+    await SyncVision();
     PushStatus();
   }
 
@@ -281,6 +293,7 @@ extension AppCaptureFlow on AppController {
     } else if (!Value.AutoRecord && Capture.Running && Live == null) {
       await StopRecord();
     }
+    await SyncVision();
     PushStatus();
   }
 

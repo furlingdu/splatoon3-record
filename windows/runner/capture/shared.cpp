@@ -6,12 +6,12 @@ namespace Capture {
 
 namespace {
 
-constexpr wchar_t SharedName[] = L"Local\\Splatoon3RecordPreviewFramesV1";
-constexpr LONG SharedMagic = 0x53335250;
-constexpr LONG SharedVersion = 1;
-constexpr size_t SharedHeaderSize = 64;
+constexpr wchar_t SharedName[] = L"Local\\Splatoon3RecordPreviewFramesV2";
+constexpr LONG SharedMagic = 0x53335232;
+constexpr LONG SharedVersion = 2;
+constexpr size_t SharedHeaderSize = 128;
 constexpr size_t SharedSlotHeaderSize = 64;
-constexpr size_t SharedSlotDataSize = static_cast<size_t>(PreviewWidth) * static_cast<size_t>(PreviewHeight) * 4;
+constexpr size_t SharedSlotDataSize = static_cast<size_t>(MaxPreviewWidth) * static_cast<size_t>(MaxPreviewHeight) * 4;
 constexpr size_t SharedSlotStride = SharedSlotHeaderSize + SharedSlotDataSize;
 constexpr size_t SharedTotalSize = SharedHeaderSize + SharedSlotStride * PreviewSlotCount;
 
@@ -33,7 +33,7 @@ struct Shared::Header {
 };
 
 struct Shared::SlotHeader {
-  volatile LONG Sequence;
+  volatile LONG Readers;
   volatile LONG Width;
   volatile LONG Height;
   volatile LONG Reserved;
@@ -59,10 +59,10 @@ bool Shared::Open() {
   }
   Header* Value = HeaderRef();
   if (Value->Magic != SharedMagic || Value->Version != SharedVersion) {
-    Value->Magic = 0;
+    InterlockedExchange(&Value->Magic, 0);
     Value->Version = SharedVersion;
-    Value->Width = PreviewWidth;
-    Value->Height = PreviewHeight;
+    Value->Width = 0;
+    Value->Height = 0;
     Value->SlotCount = PreviewSlotCount;
     Value->Active = 0;
     Value->Publish = 0;
@@ -73,7 +73,7 @@ bool Shared::Open() {
     Value->Reserved2 = 0;
     for (int Index = 0; Index < PreviewSlotCount; Index++) {
       SlotHeader* Slot = SlotRef(Index);
-      Slot->Sequence = 0;
+      Slot->Readers = 0;
       Slot->Width = 0;
       Slot->Height = 0;
       Slot->Reserved = 0;
@@ -81,7 +81,7 @@ bool Shared::Open() {
       Slot->Tick = 0;
     }
     MemoryBarrier();
-    Value->Magic = SharedMagic;
+    InterlockedExchange(&Value->Magic, SharedMagic);
   }
   return true;
 }
@@ -97,48 +97,69 @@ void Shared::Close() {
   }
 }
 
-bool Shared::Publish(const uint8_t* Pixels, int Width, int Height, LONGLONG Timestamp) {
-  if (View == nullptr || Pixels == nullptr || Width != PreviewWidth || Height != PreviewHeight) return false;
+bool Shared::BeginWrite(int& Index, uint8_t** Data) {
+  if (View == nullptr || Data == nullptr) return false;
   Header* Value = HeaderRef();
-  LONG Latest = Value->Latest;
-  LONG Index = (Latest + 1) % PreviewSlotCount;
+  for (int Attempt = 0; Attempt < PreviewSlotCount; Attempt++) {
+    const LONG SlotIndex = InterlockedIncrement(&NextSlot) % PreviewSlotCount;
+    if (SlotIndex == Value->Latest) continue;
+    SlotHeader* Slot = SlotRef(static_cast<int>(SlotIndex));
+    if (InterlockedCompareExchange(&Slot->Readers, -1, 0) != 0) continue;
+    Index = static_cast<int>(SlotIndex);
+    *Data = SlotData(Index);
+    return true;
+  }
+  return false;
+}
+
+void Shared::EndWrite(int Index, int Width, int Height, LONGLONG Timestamp) {
+  if (View == nullptr || Index < 0 || Index >= PreviewSlotCount) return;
+  Header* Value = HeaderRef();
   SlotHeader* Slot = SlotRef(Index);
-  InterlockedIncrement(&Slot->Sequence);
   Slot->Width = Width;
   Slot->Height = Height;
   Slot->Timestamp = Timestamp;
   Slot->Tick = static_cast<LONGLONG>(GetTickCount64());
-  std::memcpy(SlotData(Index), Pixels, SharedSlotDataSize);
-  InterlockedIncrement(&Slot->Sequence);
+  MemoryBarrier();
   InterlockedExchange(&Value->Latest, Index);
+  InterlockedExchange(&Value->Width, Width);
+  InterlockedExchange(&Value->Height, Height);
+  InterlockedExchange64(&Value->LastTick, Slot->Tick);
   InterlockedIncrement(&Value->LastSequence);
-  InterlockedExchange(&Value->Active, 1);
   InterlockedIncrement(&Value->Publish);
-  Value->LastTick = static_cast<LONGLONG>(GetTickCount64());
-  return true;
+  InterlockedExchange(&Value->Active, 1);
+  InterlockedExchange(&Slot->Readers, 0);
 }
 
-bool Shared::CopyLatest(std::vector<uint8_t>& Out, int& Width, int& Height) {
-  if (View == nullptr) return false;
+bool Shared::AcquireLatest(const uint8_t** Data, int& Width, int& Height, int& Index) {
+  if (View == nullptr || Data == nullptr) return false;
   Header* Value = HeaderRef();
-  LONG Index = Value->Latest;
-  if (Index < 0 || Index >= PreviewSlotCount) return false;
-  Out.resize(SharedSlotDataSize);
-  for (int Attempt = 0; Attempt < PreviewSlotCount; Attempt++) {
-    SlotHeader* Slot = SlotRef(Index);
-    LONG Before = Slot->Sequence;
-    if ((Before & 1) == 0 && Before != 0) {
-      std::memcpy(Out.data(), SlotData(Index), SharedSlotDataSize);
-      LONG After = Slot->Sequence;
-      if (Before == After) {
-        Width = Slot->Width;
-        Height = Slot->Height;
-        return Width > 0 && Height > 0;
-      }
+  if (Value->Magic != SharedMagic || Value->Publish == 0) return false;
+  for (int Attempt = 0; Attempt < PreviewSlotCount * 2; Attempt++) {
+    const LONG Latest = Value->Latest;
+    if (Latest < 0 || Latest >= PreviewSlotCount) return false;
+    SlotHeader* Slot = SlotRef(static_cast<int>(Latest));
+    const LONG Readers = Slot->Readers;
+    if (Readers < 0) continue;
+    if (InterlockedCompareExchange(&Slot->Readers, Readers + 1, Readers) != Readers) continue;
+    const int FrameWidth = Slot->Width;
+    const int FrameHeight = Slot->Height;
+    if (FrameWidth <= 0 || FrameHeight <= 0 || FrameWidth > MaxPreviewWidth || FrameHeight > MaxPreviewHeight) {
+      InterlockedDecrement(&Slot->Readers);
+      return false;
     }
-    Index = (Index - 1 + PreviewSlotCount) % PreviewSlotCount;
+    Width = FrameWidth;
+    Height = FrameHeight;
+    Index = static_cast<int>(Latest);
+    *Data = SlotData(Index);
+    return true;
   }
   return false;
+}
+
+void Shared::Release(int Index) {
+  if (View == nullptr || Index < 0 || Index >= PreviewSlotCount) return;
+  InterlockedDecrement(&SlotRef(Index)->Readers);
 }
 
 void Shared::SetActive(bool Value) {
@@ -153,7 +174,7 @@ bool Shared::IsActive() const {
 
 bool Shared::IsRecent(int Milliseconds) const {
   if (View == nullptr) return false;
-  LONGLONG Tick = HeaderRef()->LastTick;
+  const LONGLONG Tick = HeaderRef()->LastTick;
   if (Tick <= 0) return false;
   return static_cast<LONGLONG>(GetTickCount64()) - Tick <= Milliseconds;
 }
@@ -169,12 +190,12 @@ int Shared::LatestSequence() const {
 }
 
 int Shared::Width() const {
-  if (View == nullptr) return PreviewWidth;
+  if (View == nullptr) return 0;
   return HeaderRef()->Width;
 }
 
 int Shared::Height() const {
-  if (View == nullptr) return PreviewHeight;
+  if (View == nullptr) return 0;
   return HeaderRef()->Height;
 }
 

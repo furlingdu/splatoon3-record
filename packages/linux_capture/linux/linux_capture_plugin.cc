@@ -1,4 +1,5 @@
 #include "include/linux_capture/linux_capture_plugin.h"
+#include "convert.h"
 
 #include <alsa/asoundlib.h>
 #include <fcntl.h>
@@ -14,15 +15,20 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <algorithm>
 #include <cstring>
+#include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace {
+
+constexpr size_t MaxRecordQueue = 12;
 
 class CaptureHost;
 GType linux_capture_texture_get_type(void);
@@ -39,6 +45,18 @@ struct MapBuffer {
   void* Start = nullptr;
   size_t Length = 0;
 };
+
+void ScaleRgba(const uint8_t* Source, int SourceWidth, int SourceHeight, uint8_t* Target, int TargetWidth, int TargetHeight) {
+  for (int Y = 0; Y < TargetHeight; Y++) {
+    const int SourceY = std::min(SourceHeight - 1, Y * SourceHeight / TargetHeight);
+    const uint8_t* SourceRow = Source + static_cast<size_t>(SourceY) * SourceWidth * 4;
+    uint8_t* TargetRow = Target + static_cast<size_t>(Y) * TargetWidth * 4;
+    for (int X = 0; X < TargetWidth; X++) {
+      const int SourceX = std::min(SourceWidth - 1, X * SourceWidth / TargetWidth);
+      std::memcpy(TargetRow + static_cast<size_t>(X) * 4, SourceRow + static_cast<size_t>(SourceX) * 4, 4);
+    }
+  }
+}
 
 struct EventPayload {
   FlEventChannel* Channel;
@@ -65,6 +83,8 @@ class CaptureHost {
   void CreateTexture();
   int64_t PreviewId() const { return TextureId; }
   bool CopyPreview(const uint8_t** Buffer, uint32_t* WidthValue, uint32_t* HeightValue);
+  void SetVision(bool Value);
+  bool VisionSnapshot(std::vector<uint8_t>& Out);
 
   FlValue* Enumerate();
   FlValue* Modes(const std::string& Path);
@@ -75,9 +95,13 @@ class CaptureHost {
  private:
   void FrameLoop();
   void AudioLoop();
-  void PushPreview(const uint8_t* Source);
-  void Convert(const uint8_t* Source);
-  bool WriteFrame();
+  void WriterLoop();
+  void PreviewLoop();
+  bool Convert(const uint8_t* Source, std::vector<uint8_t>& Target);
+  std::shared_ptr<std::vector<uint8_t>> AcquireFrame();
+  void SubmitRecord(std::shared_ptr<std::vector<uint8_t>> Data);
+  void SubmitPreview(std::shared_ptr<std::vector<uint8_t>> Data);
+  bool WriteFrame(const std::vector<uint8_t>& Data);
   void SendState(const char* Value);
   void SendError(const std::string& Text);
   void SendStats();
@@ -92,7 +116,7 @@ class CaptureHost {
   int Height = 0;
   int Stride = 0;
   std::vector<MapBuffer> Buffers;
-  std::vector<uint8_t> Frame;
+  std::vector<std::shared_ptr<std::vector<uint8_t>>> FramePool;
   std::atomic<bool> Running{false};
   std::thread Worker;
   std::atomic<int> Frames{0};
@@ -100,14 +124,28 @@ class CaptureHost {
   std::string AudioFifo;
   std::atomic<bool> AudioRunning{false};
   std::thread AudioWorker;
-  FlTextureRegistrar* Textures = nullptr;
-  FlTexture* Texture = nullptr;
-  int64_t TextureId = -1;
+  std::mutex RecordLock;
+  std::condition_variable RecordSignal;
+  std::deque<std::shared_ptr<std::vector<uint8_t>>> RecordQueue;
+  std::thread RecordWorker;
+  std::atomic<bool> RecordRunning{false};
+  std::atomic<long long> WrittenFrames{0};
+  std::atomic<long long> DroppedFrames{0};
   std::mutex PreviewLock;
+  std::condition_variable PreviewSignal;
+  std::shared_ptr<std::vector<uint8_t>> PreviewSource;
+  std::thread PreviewWorker;
+  std::atomic<bool> PreviewRunning{false};
   std::vector<uint8_t> PreviewStage;
   std::vector<uint8_t> PreviewFrame;
   std::vector<uint8_t> PreviewOut;
-  std::chrono::steady_clock::time_point LastPreview;
+  std::atomic<bool> VisionEnabled{false};
+  std::mutex VisionLock;
+  std::vector<uint8_t> VisionFrame;
+  std::chrono::steady_clock::time_point LastVisionTick;
+  FlTextureRegistrar* Textures = nullptr;
+  FlTexture* Texture = nullptr;
+  int64_t TextureId = -1;
   std::chrono::steady_clock::time_point LastTick;
 };
 
@@ -158,38 +196,138 @@ bool CaptureHost::CopyPreview(const uint8_t** Buffer, uint32_t* WidthValue, uint
   return true;
 }
 
-void CaptureHost::PushPreview(const uint8_t* Source) {
-  if (Texture == nullptr || Textures == nullptr) return;
-  auto Now = std::chrono::steady_clock::now();
-  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastPreview).count() < 33) return;
-  LastPreview = Now;
-  size_t Size = static_cast<size_t>(Width) * Height * 4;
-  if (Size == 0) return;
-  if (PreviewStage.size() != Size) PreviewStage.resize(Size);
-  const uint8_t* YPlane = Source;
-  const uint8_t* UVPlane = Source + static_cast<size_t>(Width) * Height;
-  for (int Row = 0; Row < Height; Row++) {
-    for (int Column = 0; Column < Width; Column++) {
-      int Y = YPlane[static_cast<size_t>(Row) * Width + Column];
-      int UvIndex = (Row / 2) * Width + (Column / 2) * 2;
-      int U = UVPlane[UvIndex] - 128;
-      int V = UVPlane[UvIndex + 1] - 128;
-      int R = Y + (V * 1436) / 1024;
-      int G = Y - (U * 352) / 1024 - (V * 731) / 1024;
-      int B = Y + (U * 1814) / 1024;
-      uint8_t* Target = PreviewStage.data() + (static_cast<size_t>(Row) * Width + Column) * 4;
-      Target[0] = static_cast<uint8_t>(std::clamp(B, 0, 255));
-      Target[1] = static_cast<uint8_t>(std::clamp(G, 0, 255));
-      Target[2] = static_cast<uint8_t>(std::clamp(R, 0, 255));
-      Target[3] = 255;
-    }
+void CaptureHost::SetVision(bool Value) {
+  VisionEnabled.store(Value);
+  if (!Value) {
+    std::lock_guard<std::mutex> Guard(VisionLock);
+    VisionFrame.clear();
   }
+}
+
+bool CaptureHost::VisionSnapshot(std::vector<uint8_t>& Out) {
+  std::lock_guard<std::mutex> Guard(VisionLock);
+  if (VisionFrame.empty()) return false;
+  Out = VisionFrame;
+  return true;
+}
+
+void CaptureHost::SubmitRecord(std::shared_ptr<std::vector<uint8_t>> Data) {
+  if (!Data || Data->empty() || !RecordRunning) return;
+  std::lock_guard<std::mutex> Guard(RecordLock);
+  if (!RecordRunning) return;
+  if (RecordQueue.size() >= MaxRecordQueue) {
+    RecordQueue.pop_front();
+    DroppedFrames++;
+  }
+  RecordQueue.push_back(std::move(Data));
+  RecordSignal.notify_one();
+}
+
+void CaptureHost::SubmitPreview(std::shared_ptr<std::vector<uint8_t>> Data) {
+  if (!Data || Data->empty() || !PreviewRunning) return;
   {
     std::lock_guard<std::mutex> Guard(PreviewLock);
-    PreviewStage.swap(PreviewFrame);
+    if (!PreviewRunning) return;
+    PreviewSource = std::move(Data);
   }
-  fl_texture_registrar_mark_texture_frame_available(Textures, Texture);
+  PreviewSignal.notify_one();
 }
+
+std::shared_ptr<std::vector<uint8_t>> CaptureHost::AcquireFrame() {
+  const size_t Size = static_cast<size_t>(Width) * Height * 3 / 2;
+  for (const std::shared_ptr<std::vector<uint8_t>>& Item : FramePool) {
+    if (Item.use_count() == 1 && Item->size() == Size) return Item;
+  }
+  auto Value = std::make_shared<std::vector<uint8_t>>(Size);
+  FramePool.push_back(Value);
+  return Value;
+}
+
+void CaptureHost::WriterLoop() {
+  while (true) {
+    std::shared_ptr<std::vector<uint8_t>> Data;
+    {
+      std::unique_lock<std::mutex> Guard(RecordLock);
+      RecordSignal.wait(Guard, [this]() { return !RecordRunning || !RecordQueue.empty(); });
+      if (RecordQueue.empty()) {
+        if (!RecordRunning) break;
+        continue;
+      }
+      Data = std::move(RecordQueue.front());
+      RecordQueue.pop_front();
+    }
+    if (!Data) continue;
+    if (!RecordRunning) break;
+    if (!WriteFrame(*Data)) {
+      if (RecordRunning) SendError("写入编码进程失败");
+      RecordRunning = false;
+      break;
+    }
+    WrittenFrames++;
+  }
+}
+
+void CaptureHost::PreviewLoop() {
+  while (true) {
+    std::shared_ptr<std::vector<uint8_t>> Data;
+    {
+      std::unique_lock<std::mutex> Guard(PreviewLock);
+      PreviewSignal.wait(Guard, [this]() { return !PreviewRunning || PreviewSource != nullptr; });
+      if (PreviewSource == nullptr) {
+        if (!PreviewRunning) break;
+        continue;
+      }
+      Data = std::move(PreviewSource);
+    }
+    if (!Data || Texture == nullptr || Textures == nullptr) continue;
+    const size_t Size = static_cast<size_t>(Width) * Height * 4;
+    if (Size == 0) continue;
+    if (PreviewStage.size() != Size) PreviewStage.resize(Size);
+    Capture::Nv12ToRgba(Data->data(), Width, Height, PreviewStage.data());
+    if (VisionEnabled.load()) {
+      const auto Now = std::chrono::steady_clock::now();
+      if (LastVisionTick.time_since_epoch().count() == 0 || std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastVisionTick).count() >= 500) {
+        LastVisionTick = Now;
+        std::vector<uint8_t> Frame(static_cast<size_t>(1280) * 720 * 4);
+        ScaleRgba(PreviewStage.data(), Width, Height, Frame.data(), 1280, 720);
+        std::lock_guard<std::mutex> Guard(VisionLock);
+        VisionFrame.swap(Frame);
+      }
+    }
+    {
+      std::lock_guard<std::mutex> Guard(PreviewLock);
+      PreviewStage.swap(PreviewFrame);
+    }
+    fl_texture_registrar_mark_texture_frame_available(Textures, Texture);
+  }
+}
+
+bool CaptureHost::WriteFrame(const std::vector<uint8_t>& Data) {
+  if (PipeFd < 0) return false;
+  size_t Offset = 0;
+  while (Offset < Data.size()) {
+    if (!RecordRunning) return false;
+    const ssize_t Count = write(PipeFd, Data.data() + Offset, Data.size() - Offset);
+    if (Count > 0) {
+      Offset += static_cast<size_t>(Count);
+      continue;
+    }
+    if (Count < 0 && errno == EINTR) continue;
+    if (Count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      pollfd Poll{};
+      Poll.fd = PipeFd;
+      Poll.events = POLLOUT;
+      const int Ready = poll(&Poll, 1, 100);
+      if (Ready < 0 && errno == EINTR) continue;
+      if (Ready > 0 && (Poll.revents & POLLOUT) != 0) continue;
+      if (!RecordRunning) return false;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 std::string ValueString(FlValue* Args, const char* Key) {
   if (Args == nullptr || fl_value_get_type(Args) != FL_VALUE_TYPE_MAP) return std::string();
   FlValue* Value = fl_value_lookup_string(Args, Key);
@@ -367,7 +505,6 @@ bool CaptureHost::Prepare(const std::string& Path, int RequestedWidth, int Reque
     Buffers[Index].Start = Mapped;
     Buffers[Index].Length = Buffer.length;
   }
-  Frame.resize(static_cast<size_t>(Width) * Height * 3 / 2);
   AudioDevice = AudioName;
   AudioFifo.clear();
   if (!AudioName.empty() && !AudioFifoPath.empty()) {
@@ -418,6 +555,8 @@ bool CaptureHost::Start(const std::string& Exe, const std::vector<std::string>& 
   }
   close(Pipe[0]);
   PipeFd = Pipe[1];
+  const int Flags = fcntl(PipeFd, F_GETFL, 0);
+  if (Flags >= 0) fcntl(PipeFd, F_SETFL, Flags | O_NONBLOCK);
   Child = Pid;
   for (size_t Index = 0; Index < Buffers.size(); Index++) {
     v4l2_buffer Buffer{};
@@ -434,7 +573,13 @@ bool CaptureHost::Start(const std::string& Exe, const std::vector<std::string>& 
   }
   Running = true;
   Frames = 0;
+  WrittenFrames = 0;
+  DroppedFrames = 0;
   LastTick = std::chrono::steady_clock::now();
+  RecordRunning = true;
+  PreviewRunning = true;
+  PreviewWorker = std::thread(&CaptureHost::PreviewLoop, this);
+  RecordWorker = std::thread(&CaptureHost::WriterLoop, this);
   Worker = std::thread(&CaptureHost::FrameLoop, this);
   if (!AudioFifo.empty()) {
     AudioRunning = true;
@@ -456,13 +601,12 @@ void CaptureHost::FrameLoop() {
     Buffer.memory = V4L2_MEMORY_MMAP;
     if (Xioctl(Fd, VIDIOC_DQBUF, &Buffer) < 0) continue;
     if (Buffer.index < Buffers.size()) {
-      Convert(static_cast<const uint8_t*>(Buffers[Buffer.index].Start));
-      if (!WriteFrame()) {
-        Xioctl(Fd, VIDIOC_QBUF, &Buffer);
-        SendError("写入编码进程失败");
-        break;
+      auto Data = AcquireFrame();
+      if (Convert(static_cast<const uint8_t*>(Buffers[Buffer.index].Start), *Data)) {
+        SubmitPreview(Data);
+        SubmitRecord(std::move(Data));
+        Frames++;
       }
-      Frames++;
     }
     Xioctl(Fd, VIDIOC_QBUF, &Buffer);
     auto Now = std::chrono::steady_clock::now();
@@ -473,21 +617,23 @@ void CaptureHost::FrameLoop() {
   }
 }
 
-void CaptureHost::Convert(const uint8_t* Source) {
+bool CaptureHost::Convert(const uint8_t* Source, std::vector<uint8_t>& Target) {
+  const size_t Size = static_cast<size_t>(Width) * Height * 3 / 2;
+  if (Target.size() < Size) Target.resize(Size);
   if (PixelFormat == V4L2_PIX_FMT_NV12) {
     for (int Row = 0; Row < Height; Row++) {
-      memcpy(Frame.data() + static_cast<size_t>(Row) * Width, Source + static_cast<size_t>(Row) * Stride, Width);
+      memcpy(Target.data() + static_cast<size_t>(Row) * Width, Source + static_cast<size_t>(Row) * Stride, Width);
     }
     const uint8_t* UV = Source + static_cast<size_t>(Stride) * Height;
-    uint8_t* Target = Frame.data() + static_cast<size_t>(Width) * Height;
+    uint8_t* UvTarget = Target.data() + static_cast<size_t>(Width) * Height;
     for (int Row = 0; Row < Height / 2; Row++) {
-      memcpy(Target + static_cast<size_t>(Row) * Width, UV + static_cast<size_t>(Row) * Stride, Width);
+      memcpy(UvTarget + static_cast<size_t>(Row) * Width, UV + static_cast<size_t>(Row) * Stride, Width);
     }
-    PushPreview(Frame.data());
-    return;
+    return true;
   }
-  uint8_t* YPlane = Frame.data();
-  uint8_t* UVPlane = Frame.data() + static_cast<size_t>(Width) * Height;
+  if (PixelFormat != V4L2_PIX_FMT_YUYV && PixelFormat != V4L2_PIX_FMT_UYVY) return false;
+  uint8_t* YPlane = Target.data();
+  uint8_t* UVPlane = Target.data() + static_cast<size_t>(Width) * Height;
   for (int Row = 0; Row + 1 < Height; Row += 2) {
     const uint8_t* Top = Source + static_cast<size_t>(Row) * Stride;
     const uint8_t* Bottom = Source + static_cast<size_t>(Row + 1) * Stride;
@@ -495,7 +641,7 @@ void CaptureHost::Convert(const uint8_t* Source) {
     uint8_t* YBottom = YTop + Width;
     uint8_t* UV = UVPlane + static_cast<size_t>(Row / 2) * Width;
     for (int Column = 0; Column + 3 < Stride && Column + 3 < Width * 2; Column += 4) {
-      int Index = Column / 2;
+      const int Index = Column / 2;
       YTop[Index] = Top[Column];
       YTop[Index + 1] = Top[Column + 2];
       YBottom[Index] = Bottom[Column];
@@ -503,22 +649,6 @@ void CaptureHost::Convert(const uint8_t* Source) {
       UV[Index] = static_cast<uint8_t>((Top[Column + 1] + Bottom[Column + 1]) / 2);
       UV[Index + 1] = static_cast<uint8_t>((Top[Column + 3] + Bottom[Column + 3]) / 2);
     }
-  }
-  PushPreview(Frame.data());
-}
-
-bool CaptureHost::WriteFrame() {
-  if (PipeFd < 0) return false;
-  size_t Total = Frame.size();
-  size_t Offset = 0;
-  while (Offset < Total) {
-    ssize_t Count = write(PipeFd, Frame.data() + Offset, Total - Offset);
-    if (Count > 0) {
-      Offset += static_cast<size_t>(Count);
-      continue;
-    }
-    if (errno == EINTR) continue;
-    return false;
   }
   return true;
 }
@@ -543,15 +673,22 @@ void CaptureHost::SendError(const std::string& Text) {
 
 void CaptureHost::SendStats() {
   if (Events == nullptr) return;
-  int Count = Frames.exchange(0);
+  const int Count = Frames.exchange(0);
+  size_t QueueSize = 0;
+  {
+    std::lock_guard<std::mutex> Guard(RecordLock);
+    QueueSize = RecordQueue.size();
+  }
   FlValue* Map = fl_value_new_map();
   fl_value_set_string_take(Map, "type", fl_value_new_string("stats"));
   fl_value_set_string_take(Map, "captureFps", fl_value_new_int(Count));
-  fl_value_set_string_take(Map, "previewFps", fl_value_new_int(0));
+  fl_value_set_string_take(Map, "previewFps", fl_value_new_int(Count));
+  fl_value_set_string_take(Map, "previewWidth", fl_value_new_int(Width));
+  fl_value_set_string_take(Map, "previewHeight", fl_value_new_int(Height));
   fl_value_set_string_take(Map, "latency", fl_value_new_int(0));
-  fl_value_set_string_take(Map, "dropped", fl_value_new_int(0));
-  fl_value_set_string_take(Map, "written", fl_value_new_int(Count));
-  fl_value_set_string_take(Map, "queue", fl_value_new_int(0));
+  fl_value_set_string_take(Map, "dropped", fl_value_new_int(static_cast<int64_t>(DroppedFrames.load())));
+  fl_value_set_string_take(Map, "written", fl_value_new_int(static_cast<int64_t>(WrittenFrames.load())));
+  fl_value_set_string_take(Map, "queue", fl_value_new_int(static_cast<int64_t>(QueueSize)));
   fl_value_set_string_take(Map, "convertMs", fl_value_new_int(0));
   auto* Item = new EventPayload{Events, Map};
   g_main_context_invoke(nullptr, DeliverEvent, Item);
@@ -565,8 +702,6 @@ void CaptureHost::AudioLoop() {
     usleep(100000);
   }
   if (Fd < 0) return;
-  int Flags = fcntl(Fd, F_GETFL, 0);
-  fcntl(Fd, F_SETFL, Flags & ~O_NONBLOCK);
   snd_pcm_t* Pcm = nullptr;
   if (snd_pcm_open(&Pcm, AudioDevice.c_str(), SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK) < 0) {
     close(Fd);
@@ -601,15 +736,25 @@ void CaptureHost::AudioLoop() {
     size_t Total = static_cast<size_t>(Frames) * 4;
     size_t Offset = 0;
     const char* Data = reinterpret_cast<const char*>(Buffer);
-    while (Offset < Total) {
+    while (Offset < Total && AudioRunning) {
       ssize_t Count = write(Fd, Data + Offset, Total - Offset);
       if (Count > 0) {
         Offset += static_cast<size_t>(Count);
         continue;
       }
-      if (errno == EINTR) continue;
-      Offset = Total;
+      if (Count < 0 && errno == EINTR) continue;
+      if (Count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        pollfd Poll{};
+        Poll.fd = Fd;
+        Poll.events = POLLOUT;
+        const int ReadyToWrite = poll(&Poll, 1, 100);
+        if (ReadyToWrite < 0 && errno == EINTR) continue;
+        if (ReadyToWrite > 0 && (Poll.revents & POLLOUT) != 0) continue;
+        if (!AudioRunning) break;
+        continue;
+      }
       AudioRunning = false;
+      break;
     }
   }
   snd_pcm_close(Pcm);
@@ -626,12 +771,35 @@ void CaptureHost::Stop(bool Fast) {
 void CaptureHost::Release() {
   Running = false;
   AudioRunning = false;
-  if (AudioWorker.joinable()) AudioWorker.join();
-  if (!AudioFifo.empty()) {
-    unlink(AudioFifo.c_str());
-    AudioFifo.clear();
-  }
+  PreviewRunning = false;
+  PreviewSignal.notify_all();
   if (Worker.joinable()) Worker.join();
+  if (PreviewWorker.joinable()) PreviewWorker.join();
+  for (int Attempt = 0; Attempt < 100; Attempt++) {
+    bool Empty = false;
+    {
+      std::lock_guard<std::mutex> Guard(RecordLock);
+      Empty = RecordQueue.empty();
+    }
+    if (Empty) break;
+    usleep(10000);
+  }
+  RecordRunning = false;
+  RecordSignal.notify_all();
+  if (RecordWorker.joinable()) RecordWorker.join();
+  if (AudioWorker.joinable()) AudioWorker.join();
+  {
+    std::lock_guard<std::mutex> Guard(RecordLock);
+    RecordQueue.clear();
+  }
+  {
+    std::lock_guard<std::mutex> Guard(PreviewLock);
+    PreviewSource.reset();
+    PreviewFrame.clear();
+    PreviewOut.clear();
+  }
+  PreviewStage.clear();
+  FramePool.clear();
   if (Fd >= 0) {
     v4l2_buf_type Type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     Xioctl(Fd, VIDIOC_STREAMOFF, &Type);
@@ -652,7 +820,12 @@ void CaptureHost::Release() {
     waitpid(Child, &Status, 0);
     Child = -1;
   }
-  Frame.clear();
+  if (!AudioFifo.empty()) {
+    unlink(AudioFifo.c_str());
+    AudioFifo.clear();
+  }
+  WrittenFrames = 0;
+  DroppedFrames = 0;
 }
 
 CaptureHost* Host = nullptr;
@@ -708,6 +881,21 @@ void MethodCallCallback(FlMethodChannel* Channel, FlMethodCall* Call, gpointer U
     Response = FL_METHOD_RESPONSE(fl_method_success_response_new(fl_value_new_int(HostRef->PreviewId())));
   } else if (Name == "PreviewState") {
     Response = FL_METHOD_RESPONSE(fl_method_success_response_new(fl_value_new_map()));
+  } else if (Name == "Vision") {
+    FlValue* Enabled = Args == nullptr ? nullptr : fl_value_lookup_string(Args, "enabled");
+    HostRef->SetVision(Enabled != nullptr && fl_value_get_type(Enabled) == FL_VALUE_TYPE_BOOL && fl_value_get_bool(Enabled));
+    Response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (Name == "VisionSnapshot") {
+    std::vector<uint8_t> Frame;
+    if (!HostRef->VisionSnapshot(Frame)) {
+      Response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    } else {
+      FlValue* Value = fl_value_new_map();
+      fl_value_set_string_take(Value, "width", fl_value_new_int(1280));
+      fl_value_set_string_take(Value, "height", fl_value_new_int(720));
+      fl_value_set_string_take(Value, "bytes", fl_value_new_uint8_list(Frame.data(), Frame.size()));
+      Response = FL_METHOD_RESPONSE(fl_method_success_response_new(Value));
+    }
   } else if (Name == "Snapshot" || Name == "Mask" || Name == "OpenMaskPipe" || Name == "CloseMaskPipe") {
     Response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
   } else {

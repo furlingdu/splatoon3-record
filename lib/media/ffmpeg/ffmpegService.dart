@@ -17,27 +17,73 @@ class FFmpegService {
   final AppDirectories Directories;
   String? _Path;
   String? _Encoder;
+  String? _EncoderNote;
+  String? _ArchiveEncoder;
+  String? _ArchiveNote;
+  String? _EncoderText;
+  String? _Version;
   String? _PlayPath;
+  Future<String>? _Extracting;
+  Future<String>? _PlayExtracting;
+  final Map<String, String?> _EncoderStates = <String, String?>{};
   List<CaptureDevice> _Devices = <CaptureDevice>[];
   final Map<String, List<CaptureMode>> _Modes = <String, List<CaptureMode>>{};
 
-  Future<String> Ensure() async {
+  String? get EncoderNote => _EncoderNote;
+  String? get ArchiveNote => _ArchiveNote;
+
+  Future<String> Version() async {
     if (PlatformInfo.Mobile) return '';
-    if (_Path != null && (_Path == 'ffmpeg' || File(_Path!).existsSync())) return _Path!;
+    final Cached = _Version;
+    if (Cached != null) return Cached;
+    try {
+      final Out = await Run(<String>['-hide_banner', '-version'], Timeout: const Duration(seconds: 8));
+      final Line = '${Out.stdout}${Out.stderr}'.split(RegExp(r'\r?\n')).firstWhere((Item) => Item.trim().isNotEmpty, orElse: () => '');
+      _Version = Line.split(' Copyright').first.replaceFirst('ffmpeg version ', '').trim();
+    } catch (_) {
+      return '';
+    }
+    return _Version ?? '';
+  }
+
+  Future<String> Ensure() {
+    if (PlatformInfo.Mobile) return Future<String>.value('');
+    final Cached = _Path;
+    if (Cached != null && (Cached == 'ffmpeg' || File(Cached).existsSync())) return Future<String>.value(Cached);
+    final Pending = _Extracting;
+    if (Pending != null) return Pending;
+    final Task = _Extract();
+    _Extracting = Task;
+    return Task.whenComplete(() {
+      if (identical(_Extracting, Task)) _Extracting = null;
+    });
+  }
+
+  Future<String> _Extract() async {
     final Asset = Platform.isWindows ? Config.FFmpegAsset : Config.FFmpegAssetUnix;
     final Name = Platform.isWindows ? 'ffmpeg.exe' : 'ffmpeg';
+    final Target = '${Directories.Cache}${Platform.pathSeparator}Tools${Platform.pathSeparator}$Name';
     try {
       final Data = await rootBundle.load(Asset);
       if (Data.lengthInBytes > 1000000) {
-        final Target = '${Directories.Cache}${Platform.pathSeparator}Tools${Platform.pathSeparator}$Name';
         final FileRef = File(Target);
         if (!FileRef.existsSync() || FileRef.lengthSync() != Data.lengthInBytes) {
           await FileRef.parent.create(recursive: true);
-          await FileRef.writeAsBytes(Data.buffer.asUint8List(Data.offsetInBytes, Data.lengthInBytes), flush: true);
+          final Temp = File('$Target.$pid.tmp');
+          try {
+            await Temp.writeAsBytes(Data.buffer.asUint8List(Data.offsetInBytes, Data.lengthInBytes), flush: true);
+            await Temp.rename(Target);
+          } catch (_) {
+            try {
+              await Temp.delete();
+            } catch (_) {}
+          }
           if (!Platform.isWindows) await Process.run('chmod', <String>['755', Target]);
         }
-        _Path = Target;
-        return Target;
+        if (File(Target).existsSync()) {
+          _Path = Target;
+          return Target;
+        }
       }
     } catch (_) {}
     if (!Platform.isWindows) {
@@ -62,15 +108,35 @@ class FFmpegService {
     return Out.exitCode == 0 && File(Output).existsSync();
   }
 
-  Future<String> EnsureFFplay() async {
-    if (_PlayPath != null && File(_PlayPath!).existsSync()) return _PlayPath!;
-    if (!Platform.isWindows) throw StateError('声音返听暂不支持当前平台');
+  Future<String> EnsureFFplay() {
+    final Cached = _PlayPath;
+    if (Cached != null && File(Cached).existsSync()) return Future<String>.value(Cached);
+    if (!Platform.isWindows) return Future<String>.error(StateError('声音返听暂不支持当前平台'));
+    final Pending = _PlayExtracting;
+    if (Pending != null) return Pending;
+    final Task = _ExtractPlay();
+    _PlayExtracting = Task;
+    return Task.whenComplete(() {
+      if (identical(_PlayExtracting, Task)) _PlayExtracting = null;
+    });
+  }
+
+  Future<String> _ExtractPlay() async {
     final Target = '${Directories.Cache}${Platform.pathSeparator}Tools${Platform.pathSeparator}ffplay.exe';
     final FileRef = File(Target);
     if (!FileRef.existsSync() || FileRef.lengthSync() < 1000000) {
       await FileRef.parent.create(recursive: true);
       final Data = await rootBundle.load(Config.FFplayAsset);
-      await FileRef.writeAsBytes(Data.buffer.asUint8List(Data.offsetInBytes, Data.lengthInBytes), flush: true);
+      final Temp = File('$Target.$pid.tmp');
+      try {
+        await Temp.writeAsBytes(Data.buffer.asUint8List(Data.offsetInBytes, Data.lengthInBytes), flush: true);
+        await Temp.rename(Target);
+      } catch (_) {
+        try {
+          await Temp.delete();
+        } catch (_) {}
+      }
+      if (!FileRef.existsSync()) throw StateError('无法解压 ffplay');
     }
     _PlayPath = Target;
     return Target;
@@ -186,29 +252,129 @@ class FFmpegService {
   }
 
   Future<String> Encoder(RecordSettings Value) async {
-    if (Value.Encoder == 'software' && !PlatformInfo.Mobile) return 'libx264';
+    if (Value.Encoder == 'software' && !PlatformInfo.Mobile) {
+      _EncoderNote = null;
+      return 'libx264';
+    }
     if (_Encoder != null && Value.Encoder == 'auto') return _Encoder!;
-    final Out = await Run(<String>['-hide_banner', '-encoders'], Timeout: const Duration(seconds: 30));
-    final Text = '${Out.stdout}${Out.stderr}';
-    final Candidate = PlatformInfo.IOS
-        ? <String>[Config.VideoToolbox, 'libx264']
-        : PlatformInfo.Android
-            ? <String>[Config.MediaCodec, 'libx264']
-            : Value.Encoder == 'nvidia'
-                ? <String>['h264_nvenc', 'libx264']
-                : Value.Encoder == 'amd'
-                    ? <String>['h264_amf', 'libx264']
-                    : Value.Encoder == 'intel'
-                        ? <String>['h264_qsv', 'libx264']
-                        : <String>['h264_nvenc', 'h264_qsv', 'h264_amf', 'libx264'];
-    for (final Name in Candidate) {
-      if (Text.contains(Name)) {
-        _Encoder = Name;
-        return Name;
+    final Text = await _Encoders();
+    final Rejected = <String>[];
+    for (final Name in EncoderOrder(Value)) {
+      if (!Text.contains(Name)) continue;
+      if (!PlatformInfo.Mobile && !await Probe(Name)) {
+        final Reason = _EncoderStates[Name];
+        Rejected.add(Reason == null ? EncoderLabel(Name) : '${EncoderLabel(Name)}（$Reason）');
+        continue;
       }
+      _Encoder = Name;
+      _EncoderNote = Rejected.isEmpty ? null : '${Rejected.join('、')}不可用，已改用${EncoderLabel(Name)}';
+      return Name;
     }
     _Encoder = 'libx264';
+    _EncoderNote = Rejected.isEmpty ? null : '${Rejected.join('、')}不可用，已改用软件编码';
     return 'libx264';
+  }
+
+  Future<String> ArchiveEncoder(RecordSettings Value) async {
+    final Cached = _ArchiveEncoder;
+    if (Cached != null) return Cached;
+    final Text = await _Encoders();
+    final Rejected = <String>[];
+    for (final Name in ArchiveEncoderOrder(Value)) {
+      if (!Text.contains(Name)) {
+        Rejected.add('${EncoderLabel(Name)}（捆绑 FFmpeg 未包含）');
+        continue;
+      }
+      if (!PlatformInfo.Mobile && !await Probe(Name)) {
+        final Reason = _EncoderStates[Name];
+        Rejected.add(Reason == null ? EncoderLabel(Name) : '${EncoderLabel(Name)}（$Reason）');
+        continue;
+      }
+      _ArchiveEncoder = Name;
+      _ArchiveNote = Rejected.isEmpty ? null : '${Rejected.join('、')}不可用，已改用${EncoderLabel(Name)}';
+      return Name;
+    }
+    _ArchiveEncoder = 'libx265';
+    _ArchiveNote = Rejected.isEmpty ? null : '${Rejected.join('、')}不可用，已改用软件编码';
+    return 'libx265';
+  }
+
+  Future<String> _Encoders() async {
+    final Cached = _EncoderText;
+    if (Cached != null) return Cached;
+    final Out = await Run(<String>['-hide_banner', '-encoders'], Timeout: const Duration(seconds: 30));
+    final Text = '${Out.stdout}${Out.stderr}';
+    if (Text.isNotEmpty) _EncoderText = Text;
+    return Text;
+  }
+
+  static List<String> EncoderOrder(RecordSettings Value) {
+    if (PlatformInfo.IOS) return <String>[Config.VideoToolbox, 'libx264'];
+    if (PlatformInfo.Android) return <String>[Config.MediaCodec, 'libx264'];
+    if (Value.Encoder == 'nvidia') return <String>['h264_nvenc', 'libx264'];
+    if (Value.Encoder == 'amd') return <String>['h264_amf', 'libx264'];
+    if (Value.Encoder == 'intel') return <String>['h264_qsv', 'libx264'];
+    return <String>['h264_nvenc', 'h264_qsv', 'h264_amf', 'libx264'];
+  }
+
+  static List<String> ArchiveEncoderOrder(RecordSettings Value) {
+    if (PlatformInfo.IOS) return <String>['hevc_videotoolbox', 'libx265'];
+    if (PlatformInfo.Android) return <String>['hevc_mediacodec', 'libx265'];
+    if (PlatformInfo.MacOS) return <String>['hevc_videotoolbox', 'libx265'];
+    if (Value.Encoder == 'nvidia') return <String>['hevc_nvenc', 'libx265'];
+    if (Value.Encoder == 'amd') return <String>['hevc_amf', 'libx265'];
+    if (Value.Encoder == 'intel') return <String>['hevc_qsv', 'libx265'];
+    return <String>['hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'libx265'];
+  }
+
+  Future<bool> Probe(String Name) async {
+    if (_EncoderStates.containsKey(Name)) return _EncoderStates[Name] == null;
+    final Out = await Run(<String>[
+      '-hide_banner', '-nostdin', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', 'color=c=black:s=256x256:r=30:d=0.2',
+      '-c:v', Name, '-pix_fmt', 'yuv420p', '-f', 'null', '-',
+    ], Timeout: const Duration(seconds: 8));
+    if (Out.exitCode == 0) {
+      _EncoderStates[Name] = null;
+      return true;
+    }
+    final Hint = EncoderHint('${Out.stderr}${Out.stdout}');
+    _EncoderStates[Name] = Out.stderr == 'timeout' ? '编码器初始化超时' : (Hint.isEmpty ? '编码器初始化失败' : Hint);
+    return false;
+  }
+
+  static String EncoderLabel(String Name) {
+    if (Name.contains('nvenc')) return 'NVIDIA NVENC';
+    if (Name.contains('qsv')) return 'Intel QSV';
+    if (Name.contains('amf')) return 'AMD AMF';
+    if (Name.contains('videotoolbox')) return 'VideoToolbox';
+    if (Name.contains('mediacodec')) return 'MediaCodec';
+    return '软件编码';
+  }
+
+  static String EncoderHint(String Text) {
+    final Lower = Text.toLowerCase();
+    final Driver = RegExp(r'minimum required nvidia driver for nvenc is ([\d.]+)').firstMatch(Lower);
+    if (Lower.contains('nvenc api version') || Lower.contains('required nvenc') || Lower.contains('minimum required nvidia driver')) {
+      return Driver == null ? 'NVIDIA 驱动版本过低，需要更新显卡驱动' : 'NVIDIA 驱动版本过低，需要 ${Driver.group(1)} 或更新版本';
+    }
+    if (Lower.contains('cannot load nvcuda') || Lower.contains('no capable devices') || Lower.contains('nvenc is not supported')) {
+      return '未检测到支持 NVENC 的 NVIDIA 显卡';
+    }
+    if (Lower.contains('no free encoding sessions') || Lower.contains('openencodesessionex failed')) {
+      return '硬件编码会话已满，请关闭其他录制或直播软件';
+    }
+    if (Lower.contains('mfx session') || Lower.contains('mfx') || Lower.contains('qsv')) {
+      return 'Intel QSV 硬件编码不可用，请更新核显驱动';
+    }
+    if (Lower.contains('amf') || Lower.contains('createcomponent')) {
+      return 'AMD AMF 硬件编码不可用，请更新显卡驱动';
+    }
+    if (Lower.contains('unknown encoder')) return '当前 FFmpeg 未包含该编码器';
+    if (Lower.contains('error while opening encoder') || Lower.contains('could not open encoder') || Lower.contains('error initializing')) {
+      return '编码器初始化失败';
+    }
+    return '';
   }
 
   List<String> QualityArgs(String Encoder, int Quality) {
@@ -217,11 +383,26 @@ class FFmpegService {
       final Bitrate = Quality >= 28 ? 6000 : Quality >= 22 ? 10000 : 16000;
       return <String>['-b:v', '${Bitrate}k', '-maxrate', '${Bitrate}k', '-bufsize', '${Bitrate * 2}k'];
     }
-    if (Encoder == 'h264_nvenc' || Encoder == 'hevc_nvenc') return <String>['-preset', 'p1', '-rc', 'constqp', '-qp', Q];
-    if (Encoder == 'h264_qsv' || Encoder == 'hevc_qsv') return <String>['-preset', 'medium', '-global_quality', Q];
-    if (Encoder == 'h264_amf' || Encoder == 'hevc_amf') return <String>['-quality', 'quality', '-rc', 'cqp', '-qp_i', Q, '-qp_p', Q, '-qp_b', Q];
+    if (Encoder == 'hevc_videotoolbox' || Encoder == 'hevc_mediacodec') {
+      final Bitrate = Quality >= 28 ? 8000 : Quality >= 22 ? 14000 : 24000;
+      return <String>['-b:v', '${Bitrate}k', '-maxrate', '${Bitrate}k', '-bufsize', '${Bitrate * 2}k'];
+    }
+    if (Encoder == 'h264_nvenc') return <String>['-preset', 'p1', '-rc', 'constqp', '-qp', Q];
+    if (Encoder == 'hevc_nvenc') return <String>['-preset', 'p4', '-tune', 'hq', '-rc', 'constqp', '-qp', Q];
+    if (Encoder == 'h264_qsv') return <String>['-preset', 'medium', '-global_quality', Q];
+    if (Encoder == 'hevc_qsv') return <String>['-preset', 'medium', '-global_quality', Q];
+    if (Encoder == 'h264_amf') return <String>['-quality', 'quality', '-rc', 'cqp', '-qp_i', Q, '-qp_p', Q, '-qp_b', Q];
+    if (Encoder == 'hevc_amf') return <String>['-quality', 'quality', '-rc', 'cqp', '-qp_i', Q, '-qp_p', Q, '-qp_b', Q];
     if (Encoder == 'libx264') return <String>['-preset', 'veryfast', '-crf', Q, '-profile:v', 'high'];
+    if (Encoder == 'libx265') {
+      final Threads = (Platform.numberOfProcessors ~/ 2).clamp(2, 8).toInt();
+      return <String>['-preset', 'veryfast', '-crf', Q, '-threads', '$Threads', '-x265-params', 'log-level=error'];
+    }
     return <String>['-preset', 'veryfast', '-crf', Q];
+  }
+
+  List<String> ArchiveVideoArgs(String Encoder, int Quality) {
+    return <String>['-c:v', Encoder, ...QualityArgs(Encoder, Quality), '-tag:v', 'hvc1'];
   }
 
   List<String> InputArgs(RecordSettings Value) {

@@ -30,7 +30,7 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
-  capture_host_ = std::make_unique<Capture::CaptureHost>(flutter_controller_->engine()->GetRegistrarForPlugin("Splatoon3Capture"));
+  capture_host_ = std::make_unique<Capture::CaptureHost>(flutter_controller_->engine()->GetRegistrarForPlugin("Splatoon3Capture"), GetHandle());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

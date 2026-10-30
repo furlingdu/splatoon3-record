@@ -3,10 +3,24 @@
 #include "devices.h"
 #include "binary_messenger_impl.h"
 
+#include <dwmapi.h>
 #include <mfapi.h>
 
 #include <algorithm>
 #include <cstring>
+
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+#ifndef DWMWA_BORDER_COLOR
+#define DWMWA_BORDER_COLOR 34
+#endif
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+#ifndef DWMWA_TEXT_COLOR
+#define DWMWA_TEXT_COLOR 36
+#endif
 
 namespace Capture {
 
@@ -91,8 +105,9 @@ class CaptureHost::EventStreamHandler : public flutter::StreamHandler<flutter::E
   CaptureHost* Host = nullptr;
 };
 
-CaptureHost::CaptureHost(FlutterDesktopPluginRegistrarRef Registrar) {
+CaptureHost::CaptureHost(FlutterDesktopPluginRegistrarRef Registrar, HWND Window) {
   RegistrarRef = Registrar;
+  WindowRef = Window;
   TextureRegistrarRef = FlutterDesktopRegistrarGetTextureRegistrar(Registrar);
   Messenger = std::make_unique<flutter::BinaryMessengerImpl>(FlutterDesktopPluginRegistrarGetMessenger(Registrar));
   MfStarted = SUCCEEDED(MFStartup(MF_VERSION, MFSTARTUP_LITE));
@@ -112,13 +127,18 @@ CaptureHost::CaptureHost(FlutterDesktopPluginRegistrarRef Registrar) {
       [this](const std::string& Text) {
         SendLog(Text);
       },
-      [this](int CaptureRate, int PreviewRate, int Latency, int ConvertMs, long long Dropped, long long Written, long long Duplicated, int WriteMs, int Queue) {
+      [this]() {
+        if (Texture) Texture->Notify();
+      },
+      [this](int CaptureRate, int PreviewRate, int Latency, int ConvertMs, int PreviewWidth, int PreviewHeight, long long Dropped, long long Written, long long Duplicated, int WriteMs, int Queue) {
         flutter::EncodableMap Value;
         Value[flutter::EncodableValue("type")] = flutter::EncodableValue("stats");
         Value[flutter::EncodableValue("captureFps")] = flutter::EncodableValue(CaptureRate);
         Value[flutter::EncodableValue("previewFps")] = flutter::EncodableValue(PreviewRate);
         Value[flutter::EncodableValue("latency")] = flutter::EncodableValue(Latency);
         Value[flutter::EncodableValue("convertMs")] = flutter::EncodableValue(ConvertMs);
+        Value[flutter::EncodableValue("previewWidth")] = flutter::EncodableValue(PreviewWidth);
+        Value[flutter::EncodableValue("previewHeight")] = flutter::EncodableValue(PreviewHeight);
         Value[flutter::EncodableValue("dropped")] = flutter::EncodableValue(Dropped);
         Value[flutter::EncodableValue("written")] = flutter::EncodableValue(Written);
         Value[flutter::EncodableValue("duplicated")] = flutter::EncodableValue(Duplicated);
@@ -236,6 +256,26 @@ void CaptureHost::HandleMethod(const flutter::MethodCall<flutter::EncodableValue
     }
     const double Fps = DoubleValue(*Map, "fps", 60.0);
     const bool UseWriter = BoolValue(*Map, "writer", true);
+    const bool Native = BoolValue(*Map, "native", false);
+    if (Native) {
+      CaptureEngine::NativeConfig Value;
+      Value.Directory = FromUtf8(StringValue(*Map, "directory"));
+      Value.AudioDevice = FromUtf8(StringValue(*Map, "audioDevice"));
+      Value.Quality = IntValue(*Map, "quality", 28);
+      Value.SegmentSeconds = IntValue(*Map, "segmentSeconds", 600);
+      Value.Audio = BoolValue(*Map, "audio", false);
+      Value.Monitor = BoolValue(*Map, "monitor", false);
+      Value.MonitorDelayMs = IntValue(*Map, "monitorDelayMs", 30);
+      PostTask([this, Value]() {
+        std::lock_guard<std::mutex> Lock(EngineMutex);
+        if (!Engine->StartNative(Value)) {
+          SendError(Engine->LastError());
+          SendState("error");
+        }
+      });
+      Result->Success(flutter::EncodableValue(true));
+      return;
+    }
     PostTask([this, Exe, Args, Fps, UseWriter]() {
       std::lock_guard<std::mutex> Lock(EngineMutex);
       if (!Engine->Start(Exe, Args, Fps, UseWriter)) {
@@ -244,6 +284,22 @@ void CaptureHost::HandleMethod(const flutter::MethodCall<flutter::EncodableValue
       }
     });
     Result->Success(flutter::EncodableValue(true));
+    return;
+  }
+  if (Method == "Theme") {
+    const auto* Map = Arguments == nullptr ? nullptr : std::get_if<flutter::EncodableMap>(Arguments);
+    if (Map != nullptr) ApplyTheme(IntValue(*Map, "color", 0));
+    Result->Success();
+    return;
+  }
+  if (Method == "Monitor") {
+    const auto* Map = Arguments == nullptr ? nullptr : std::get_if<flutter::EncodableMap>(Arguments);
+    const bool Enabled = Map != nullptr && BoolValue(*Map, "enabled", false);
+    PostTask([this, Enabled]() {
+      std::lock_guard<std::mutex> Lock(EngineMutex);
+      Engine->SetMonitor(Enabled);
+    });
+    Result->Success();
     return;
   }
   if (Method == "Stop") {
@@ -268,8 +324,8 @@ void CaptureHost::HandleMethod(const flutter::MethodCall<flutter::EncodableValue
     Value[flutter::EncodableValue("active")] = flutter::EncodableValue(SharedFrames && SharedFrames->IsActive() && SharedFrames->IsRecent(3000));
     Value[flutter::EncodableValue("publish")] = flutter::EncodableValue(SharedFrames ? static_cast<int>(SharedFrames->PublishCount()) : 0);
     Value[flutter::EncodableValue("sequence")] = flutter::EncodableValue(SharedFrames ? SharedFrames->LatestSequence() : 0);
-    Value[flutter::EncodableValue("width")] = flutter::EncodableValue(PreviewWidth);
-    Value[flutter::EncodableValue("height")] = flutter::EncodableValue(PreviewHeight);
+    Value[flutter::EncodableValue("width")] = flutter::EncodableValue(SharedFrames ? SharedFrames->Width() : 0);
+    Value[flutter::EncodableValue("height")] = flutter::EncodableValue(SharedFrames ? SharedFrames->Height() : 0);
     Result->Success(flutter::EncodableValue(Value));
     return;
   }
@@ -286,6 +342,35 @@ void CaptureHost::HandleMethod(const flutter::MethodCall<flutter::EncodableValue
       return;
     }
     Result->Success(flutter::EncodableValue(Frame));
+    return;
+  }
+  if (Method == "Vision") {
+    const auto* Map = Arguments == nullptr ? nullptr : std::get_if<flutter::EncodableMap>(Arguments);
+    const bool Enabled = Map != nullptr && BoolValue(*Map, "enabled", false);
+    std::lock_guard<std::mutex> Lock(EngineMutex);
+    Engine->SetVision(Enabled);
+    Result->Success(flutter::EncodableValue(true));
+    return;
+  }
+  if (Method == "VisionSnapshot") {
+    std::vector<uint8_t> Frame;
+    int Width = 0;
+    int Height = 0;
+    uint32_t Sequence = 0;
+    bool Ok = false;
+    {
+      std::lock_guard<std::mutex> Lock(EngineMutex);
+      Ok = Engine->VisionSnapshot(Frame, Width, Height, Sequence);
+    }
+    if (!Ok) {
+      Result->Success(flutter::EncodableValue());
+      return;
+    }
+    flutter::EncodableMap Value;
+    Value[flutter::EncodableValue("width")] = flutter::EncodableValue(Width);
+    Value[flutter::EncodableValue("height")] = flutter::EncodableValue(Height);
+    Value[flutter::EncodableValue("bytes")] = flutter::EncodableValue(Frame);
+    Result->Success(flutter::EncodableValue(Value));
     return;
   }
   if (Method == "Mask") {
@@ -359,6 +444,22 @@ void CaptureHost::SendLog(const std::string& Text) {
   Event[flutter::EncodableValue("type")] = flutter::EncodableValue("log");
   Event[flutter::EncodableValue("text")] = flutter::EncodableValue(Text);
   SendEvent(std::move(Event));
+}
+
+void CaptureHost::ApplyTheme(int Color) {
+  if (WindowRef == nullptr) return;
+  const unsigned int Value = static_cast<unsigned int>(Color);
+  const BYTE Red = static_cast<BYTE>((Value >> 16) & 0xFF);
+  const BYTE Green = static_cast<BYTE>((Value >> 8) & 0xFF);
+  const BYTE Blue = static_cast<BYTE>(Value & 0xFF);
+  const BOOL Dark = TRUE;
+  DwmSetWindowAttribute(WindowRef, DWMWA_USE_IMMERSIVE_DARK_MODE, &Dark, sizeof(Dark));
+  const COLORREF Caption = RGB(Red, Green, Blue);
+  DwmSetWindowAttribute(WindowRef, DWMWA_CAPTION_COLOR, &Caption, sizeof(Caption));
+  DwmSetWindowAttribute(WindowRef, DWMWA_BORDER_COLOR, &Caption, sizeof(Caption));
+  const int Luma = (299 * Red + 587 * Green + 114 * Blue) / 1000;
+  const COLORREF Text = Luma > 160 ? RGB(18, 18, 22) : RGB(255, 255, 255);
+  DwmSetWindowAttribute(WindowRef, DWMWA_TEXT_COLOR, &Text, sizeof(Text));
 }
 
 void CaptureHost::PostTask(std::function<void()> Task) {

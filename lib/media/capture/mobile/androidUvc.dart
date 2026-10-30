@@ -244,6 +244,18 @@ class AndroidUvcSource implements MobileCaptureSource {
   }
 
   @override
+  Future<MobileSnapshot?> Snapshot() async {
+    if (!Active) return null;
+    try {
+      final Frame = Camera.copyLatestFrameTransformed(UvcPreviewTransform(flipVertical: Flip));
+      if (Frame == null || Frame.rgbaBytes.isEmpty || Frame.width <= 0 || Frame.height <= 0) return null;
+      return MobileSnapshot(Width: Frame.width, Height: Frame.height, Rgba: Frame.rgbaBytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<String?> Finish(String Video, String? Audio, String Target, {int AudioOffsetUs = 0}) async {
     if (Audio == null || !File(Audio).existsSync()) return Video;
     final Temp = '$Target.mux.mp4';
