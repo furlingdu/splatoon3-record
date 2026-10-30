@@ -71,7 +71,7 @@ extension AppMatchFlow on AppController {
     if (Match.HasVideo || Match.SkipReason != null || Match.Duration <= 0) return;
     if (!Archiving.add(Match.Key)) return;
     PushStatus();
-    ArchiveTask = ArchiveTask.then((_) async {
+    ArchiveTask = ArchiveTask.catchError((_) {}).then((_) async {
       try {
         await WaitAndArchive(Match);
       } catch (Cause) {

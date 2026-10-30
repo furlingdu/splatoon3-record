@@ -197,7 +197,10 @@ extension AppVisionFlow on AppController {
       return;
     }
     HighlightTimers.remove(Key)?.cancel();
-    ArchiveTask = ArchiveTask.then((_) => ArchiveHighlight(Match));
+    ArchiveTask = ArchiveTask.catchError((_) {}).then((_) => ArchiveHighlight(Match)).catchError((Object Cause) async {
+      await Logs.App('highlight archive failed ${Match.Key} $Cause');
+      RetryHighlight(Match);
+    });
   }
 
   Future<void> ArchiveHighlight(BattleMatch Match) async {
