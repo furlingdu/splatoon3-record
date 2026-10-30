@@ -48,7 +48,7 @@ inline void ConvertBlock8(const uint8_t* Y, const uint8_t* Uv, uint8_t* Target) 
   const __m128i D = _mm_sub_epi16(U, _mm_set1_epi16(128));
   const __m128i E = _mm_sub_epi16(V, _mm_set1_epi16(128));
   const __m128i CoeffRE = _mm_set1_epi32((409 << 16) | 298);
-  const __m128i CoeffGD = _mm_set1_epi32(((-100) << 16) | 298);
+  const __m128i CoeffGD = _mm_set1_epi32(-100 * 65536 + 298);
   const __m128i CoeffE = _mm_set1_epi32(static_cast<int>(static_cast<uint16_t>(-208)));
   const __m128i CoeffBD = _mm_set1_epi32((516 << 16) | 298);
   const __m128i Half = _mm_set1_epi32(128);
