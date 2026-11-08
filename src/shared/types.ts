@@ -242,6 +242,7 @@ export interface AppStatus {
   encoder?: string;
   nsoState: LinkState;
   nsoError?: string;
+  nsoRetry?: NsoRetryState;
   nsoAccounts: NsoAccountStatus[];
   nsoCurrentAccountId?: string;
   nsoCurrentNickname?: string;
@@ -278,6 +279,22 @@ export interface NsoAccountSecret {
   token: NsoToken;
   addedAt: number;
   lastRefreshAt?: number;
+}
+
+export interface NsoRetryState {
+  attempt: number;
+  max: number;
+  error: string;
+}
+
+export type NsoBackendState = 'online' | 'offline';
+
+export interface NsoBackendStatus {
+  url: string;
+  state: NsoBackendState;
+  version?: string;
+  latencyMs: number;
+  error?: string;
 }
 
 export interface NsoAccountStatus {
@@ -324,6 +341,7 @@ export interface BridgeApi {
   unbindNso: () => Promise<void>;
   deleteNsoAccount: (accountId: string) => Promise<void>;
   selectNsoAccount: (accountId: string) => Promise<void>;
+  checkNsoBackend: () => Promise<NsoBackendStatus>;
   pickBackground: () => Promise<string | undefined>;
   startQqLogin: () => Promise<void>;
   unbindQq: () => Promise<void>;

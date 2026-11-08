@@ -112,7 +112,7 @@ async function installMock(page, status, matches) {
       missingDevice: null, statusListeners: [], sealListeners: [], mediaListeners: {}, audioReady: false, pipElement: null, pipOpens: 0, pipExits: 0,
       liveStarted: 0, blurStart: null, blurChunks: 0, copied: [], reportText: null,
       deleted: [], deletedAccounts: [], selectedAccount: '', lastNsoLogin: '', updateListeners: [], update: { current: '2.4.0', available: false, phase: 'idle', progress: 0, received: 0, total: 0 },
-      liveChunks: 0, liveViewerListeners: [],
+      liveChunks: 0, liveViewerListeners: [], backendOffline: false,
     };
     window.__ui = state;
     const mark = (name) => { state.calls[name] = (state.calls[name] || 0) + 1; };
@@ -251,6 +251,11 @@ async function installMock(page, status, matches) {
         return latest;
       },
       openNsoLogin: async (accountId) => { mark('openNsoLogin'); state.lastNsoLogin = accountId || ''; },
+      checkNsoBackend: async () => {
+        mark('checkNsoBackend');
+        if (state.backendOffline) return { url: 'https://znca.example.test', state: 'offline', latencyMs: 120, error: 'HTTP 503 Service Unavailable' };
+        return { url: 'https://znca.example.test', state: 'online', version: '3.6.0', latencyMs: 42 };
+      },
       clearNsoLogin: async () => mark('clearNsoLogin'),
       unbindNso: async () => mark('unbindNso'),
       deleteNsoAccount: async (accountId) => { mark('deleteNsoAccount'); state.deletedAccounts.push(accountId); },

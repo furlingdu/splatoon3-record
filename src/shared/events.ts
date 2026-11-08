@@ -10,6 +10,7 @@ export const ipcNames = {
   unbindNso: 'nso:unbind',
   deleteNsoAccount: 'nso:delete-account',
   selectNsoAccount: 'nso:select-account',
+  checkNsoBackend: 'nso:backend',
   pickBackground: 'background:pick',
   startQqLogin: 'qq:login',
   unbindQq: 'qq:unbind',

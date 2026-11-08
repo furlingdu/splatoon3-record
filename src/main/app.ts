@@ -16,6 +16,7 @@ import { cancelBlur, clearBlur, endBlur, startBlur, writeBlur } from './match/bl
 import { closeLive, liveInfo, onLiveChange, onLiveKey, onLiveViewers, openLive, pushLiveChunk, startLive, stopLive } from './live/control.js';
 import { detectFrame, startDetect, stopDetect } from './detect/engine.js';
 import { NsoAccounts } from './nso/login.js';
+import { checkNsoBackend } from './nso/backend.js';
 import { SplatnetClient } from './nso/splatnet.js';
 import { makeQuery } from './nso/query.js';
 import { BattlePoller } from './nso/poll.js';
@@ -106,7 +107,7 @@ export async function bootApp(): Promise<void> {
   nso = new NsoAccounts(() => {
     pushStatus();
     scheduleSync();
-  });
+  }, () => pushStatus());
   qq = new QqBot({ status: getStatus, latest: async () => recentList()[0] ?? matches[0], changed: pushStatus });
   qqLogin = new QqLogin({
     qr: (url) => { qrUrl = url; pushStatus(); },
@@ -122,6 +123,7 @@ export async function bootApp(): Promise<void> {
     nso,
     qq,
     startQqLogin: () => qqLogin.start(),
+    checkNsoBackend: () => checkNsoBackend(),
     setSettings,
     pickBackground: pickBackground,
     writeChunk: (id, chunk, offset) => writer.writeChunk(id, chunk, offset),
@@ -307,7 +309,6 @@ async function keepTokenFresh(): Promise<void> {
       } catch (error) {
         nsoRetryAt.set(account.accountId, Date.now() + nsoRetryInterval);
         nso.markAccountFailure(account.accountId, error);
-        nso.notifyFailure();
       }
     }
     await syncPollers();
@@ -756,6 +757,7 @@ export function getStatus(): AppStatus {
     ...accelSummary(),
     nsoState: nso?.state ?? 'unbound',
     nsoError: nso?.lastError || undefined,
+    nsoRetry: nso?.retryInfo,
     nsoAccounts: accounts,
     nsoCurrentAccountId: nso?.currentAccountId,
     nsoCurrentNickname: nso?.currentNickname,

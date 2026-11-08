@@ -1,19 +1,19 @@
 import { randomBytes, createHash } from 'node:crypto';
-import { BrowserWindow, dialog, session, type WebContents } from 'electron';
+import { BrowserWindow, session, type WebContents } from 'electron';
 import { URL } from 'node:url';
 import { userAgent } from '../store/env.js';
 import { readSecret, updateSecret } from '../store/secret.js';
-import { coralToken, nsoVersion, postForm, type CoralAccountToken } from './coral.js';
+import { coralToken, nsoVersion, type CoralAccountToken } from './coral.js';
+import { postForm } from './http.js';
 import { isRetryableLogin, retryLogin } from './retry.js';
 import { logLogin } from './log.js';
 import { isExpired } from './token.js';
 import { nsoAccountLimit } from '../../shared/constants.js';
 import { normalizeAccounts, mergeAccount, removeAccountFromList, legacyAccountId } from './accountmodel.js';
-import type { LinkState, NsoAccountSecret, NsoAccountStatus, NsoLoginData, NsoToken } from '../../shared/types.js';
+import type { LinkState, NsoAccountSecret, NsoAccountStatus, NsoLoginData, NsoRetryState, NsoToken } from '../../shared/types.js';
 
 const loginRetries = 5;
 const loginRetryDelay = 5000;
-const dialogInterval = 600000;
 const loginPartition = 'persist:splatoon3record-nso';
 
 const authUrl = 'https://accounts.nintendo.com/connect/1.0.0/authorize';
@@ -64,12 +64,12 @@ export class NsoAccounts {
   private linked = false;
   private loginTargetId?: string;
   private loginBusy = false;
-  private dialogAt = 0;
+  private retryState?: NsoRetryState;
   private ready = false;
   private refreshes = new Map<string, Promise<NsoToken | undefined>>();
   private restoring?: Promise<boolean>;
 
-  constructor(private changed?: () => void) {}
+  constructor(private changed?: () => void, private progress?: () => void) {}
 
   get currentAccountId(): string | undefined {
     return this.currentId || undefined;
@@ -77,6 +77,10 @@ export class NsoAccounts {
 
   get currentNickname(): string | undefined {
     return this.accounts.find((item) => item.id === this.currentId)?.nickname;
+  }
+
+  get retryInfo(): NsoRetryState | undefined {
+    return this.retryState;
   }
 
   hasAccount(accountId: string): boolean {
@@ -193,6 +197,7 @@ export class NsoAccounts {
     this.loginBusy = true;
     this.loginTargetId = target?.id;
     this.lastError = '';
+    this.retryState = undefined;
     this.state = 'connecting';
     this.emit();
     try {
@@ -260,7 +265,7 @@ export class NsoAccounts {
       } catch (error) {
         if (this.loginWindow !== target || this.linked) return;
         if (attempt >= loginRetries || !isRetryableLogin(error)) {
-          this.failLogin(error, true);
+          this.failLogin(error);
           return;
         }
         logLogin(`load retry ${attempt + 1}/${loginRetries} ${messageOf(error)}`);
@@ -269,14 +274,14 @@ export class NsoAccounts {
     }
   }
 
-  private failLogin(error: unknown, interactive = false): void {
+  private failLogin(error: unknown): void {
     this.loginBusy = false;
     this.loginWindow?.destroy();
     this.loginWindow = undefined;
+    this.retryState = undefined;
     this.lastError = messageOf(error);
     this.state = /重新登录/.test(this.lastError) ? 'expired' : 'error';
     this.changed?.();
-    this.notifyFailure(interactive);
   }
 
   markAccountFailure(accountId: string, error: unknown): void {
@@ -427,20 +432,9 @@ export class NsoAccounts {
     await this.open(parent);
   }
 
-  notifyFailure(interactive = false): void {
-    if (this.state !== 'error' && this.state !== 'expired') return;
-    if (!interactive && (this.state !== 'expired' || Date.now() - this.dialogAt < dialogInterval)) return;
-    this.dialogAt = Date.now();
-    const failed = this.accounts.find((item) => item.error);
-    void dialog.showMessageBox({
-      type: 'warning',
-      title: 'NSO 登录失败',
-      message: `NSO 登录失败：${this.lastError || failed?.error || '未知错误'}`,
-      detail: interactive ? '登录未能完成，请重新登录后再试。' : '已自动重试 5 次仍未成功，应用会继续定期自动重试；你也可以到绑定页重新登录。',
-      buttons: ['稍后重试', '重新登录'],
-      defaultId: 0,
-      cancelId: 0,
-    }).then(({ response }) => { if (response === 1) void this.open(undefined, failed?.id); });
+  private setRetry(attempt: number, error: unknown): void {
+    this.retryState = { attempt, max: loginRetries, error: messageOf(error) };
+    this.progress?.();
   }
 
   private captureCallback(source: string, event: { preventDefault(): void }, url: string): void {
@@ -478,12 +472,14 @@ export class NsoAccounts {
       logLogin('login window closed, fetching in background');
       const result = await retryLogin(() => coralToken(sessionToken), loginRetries, loginRetryDelay, (attempt, error) => {
         logLogin(`coral retry ${attempt}/${loginRetries} ${messageOf(error)}`);
+        this.setRetry(attempt, error);
       });
+      this.retryState = undefined;
       const stored = await this.storeAccount(result, targetId, sessionToken, true);
       if (stored) logLogin(`login complete account=${result.accountId}`);
     } catch (error) {
       logLogin(`login failed ${messageOf(error)}`);
-      this.failLogin(error, true);
+      this.failLogin(error);
     }
   }
 }

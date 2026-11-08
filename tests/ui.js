@@ -488,6 +488,16 @@ async function main() {
     const remove = Array.from(row?.querySelectorAll('mdui-button') ?? []).find((element) => element.textContent?.includes('删除'));
     return Boolean(remove?.disabled);
   }));
+  check('绑定页显示 znca 实例状态', await page.waitForFunction(() => (document.querySelector('.backend-status')?.textContent ?? '').includes('znca 校验服务可用 · NSO 3.6.0'), { timeout: 5000 }).then(() => true).catch(() => false));
+  await page.evaluate(() => { window.__ui.backendOffline = true; });
+  await clickText(page, '.bind-row mdui-button', '添加 Nintendo 账号');
+  check('绑定页 znca 不可用时先提示而不直接登录', await page.waitForFunction(() => {
+    const dialog = document.querySelector('mdui-dialog.backend-block');
+    return Boolean(dialog && (dialog.open === true || dialog.hasAttribute('open')));
+  }, { timeout: 5000 }).then(() => true).catch(() => false));
+  await page.evaluate(() => { window.__ui.backendOffline = false; });
+  await clickText(page, 'mdui-dialog.backend-block mdui-button', '仍然登录');
+  check('绑定页确认后仍可登录', await page.waitForFunction(() => (window.__ui.calls.openNsoLogin || 0) > 0, { timeout: 5000 }).then(() => true).catch(() => false));
   check('绑定页已连接时仍可添加账户', await page.evaluate(() => {
     const add = Array.from(document.querySelectorAll('.bind-row mdui-button')).find((element) => element.textContent?.includes('添加 Nintendo 账号'));
     return Boolean(add) && add.disabled === false;
@@ -522,7 +532,7 @@ async function main() {
   await page.evaluate(() => window.__patchStatus({ nsoState: 'unbound', qqState: 'unbound', nsoAccounts: [], nsoCurrentAccountId: undefined, nsoCurrentNickname: undefined }));
   await new Promise((resolve) => setTimeout(resolve, 200));
   await clickText(page, '.bind-row mdui-button', '添加 Nintendo 账号');
-  check('绑定页未绑定状态下可添加 NSO 账户', await page.evaluate(() => (window.__ui.calls.openNsoLogin || 0) > 0));
+  check('绑定页未绑定状态下可添加 NSO 账户', await page.waitForFunction(() => (window.__ui.calls.openNsoLogin || 0) > 0, { timeout: 5000 }).then(() => true).catch(() => false));
   await clickText(page, '.bind-row mdui-button', '获取绑定机器人二维码');
   check('绑定页未绑定时可重新获取二维码', await page.evaluate(() => (window.__ui.calls.startQqLogin || 0) === 1));
 
@@ -934,6 +944,8 @@ async function main() {
     return Boolean(saved && saved.videoDevice === 'obs1' && saved.width === 1920 && saved.height === 1080 && saved.fps === 60);
   }));
   check('setup 页进入账号绑定步骤', await waitText(page, '绑定 Nintendo 账号'));
+  check('setup 页在登录前显示 znca 实例状态', await page.waitForFunction(() => (document.querySelector('.backend-status')?.textContent ?? '').includes('znca 校验服务可用 · NSO 3.6.0'), { timeout: 5000 }).then(() => true).catch(() => false));
+  check('setup 页在登录前主动检测 znca 实例', await page.evaluate(() => (window.__ui.calls.checkNsoBackend || 0) > 0));
   await page.evaluate(() => window.__patchStatus({ nsoState: 'unbound' }));
   await new Promise((resolve) => setTimeout(resolve, 200));
   check('setup 页未登录时无法继续', await page.evaluate(() => {

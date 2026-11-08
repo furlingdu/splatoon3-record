@@ -13,7 +13,7 @@ import { getThumb, dropThumb } from './media/thumbs.js';
 import { listModes } from './capture/modes.js';
 import { makeVideoUrl } from './media/video.js';
 import { matchKey } from '../shared/nso.js';
-import type { AppStatus, BattleMatch, BlurJob, CaptureReport, DetectReply, LiveChunk, RuntimeInfo, SegmentDraft, SetupResult, VideoRecord } from '../shared/types.js';
+import type { AppStatus, BattleMatch, BlurJob, CaptureReport, DetectReply, LiveChunk, NsoBackendStatus, RuntimeInfo, SegmentDraft, SetupResult, VideoRecord } from '../shared/types.js';
 import type { NsoAccounts } from './nso/login.js';
 import type { QqBot } from './qq/bot.js';
 
@@ -25,6 +25,7 @@ export interface IpcContext {
   nso: NsoAccounts;
   qq: QqBot;
   startQqLogin: () => void;
+  checkNsoBackend: () => Promise<NsoBackendStatus>;
   setSettings: (raw: unknown) => Promise<AppStatus>;
   pickBackground: () => Promise<string | undefined>;
   writeChunk: (id: string, chunk: Uint8Array, offset: number) => Promise<boolean>;
@@ -57,6 +58,7 @@ export function registerIpc(context: IpcContext): void {
   ipcMain.handle(ipcNames.unbindNso, () => context.nso.clear());
   ipcMain.handle(ipcNames.deleteNsoAccount, (_event, accountId: string) => context.nso.removeAccount(textArg(accountId)));
   ipcMain.handle(ipcNames.selectNsoAccount, (_event, accountId: string) => context.nso.selectAccount(textArg(accountId)));
+  ipcMain.handle(ipcNames.checkNsoBackend, () => context.checkNsoBackend());
   ipcMain.handle(ipcNames.startQqLogin, () => context.startQqLogin());
   ipcMain.handle(ipcNames.unbindQq, () => unbindQq(context.qq));
   ipcMain.handle(ipcNames.listMatches, () => context.getMatches());

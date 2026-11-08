@@ -10,6 +10,7 @@ const recordApi: BridgeApi = {
   unbindNso: () => ipcRenderer.invoke(ipcNames.unbindNso),
   deleteNsoAccount: (accountId: string) => ipcRenderer.invoke(ipcNames.deleteNsoAccount, accountId),
   selectNsoAccount: (accountId: string) => ipcRenderer.invoke(ipcNames.selectNsoAccount, accountId),
+  checkNsoBackend: () => ipcRenderer.invoke(ipcNames.checkNsoBackend),
   pickBackground: () => ipcRenderer.invoke(ipcNames.pickBackground),
   startQqLogin: () => ipcRenderer.invoke(ipcNames.startQqLogin),
   unbindQq: () => ipcRenderer.invoke(ipcNames.unbindQq),

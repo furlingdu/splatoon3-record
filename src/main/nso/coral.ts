@@ -1,12 +1,13 @@
-import { request } from 'node:https';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import CoralApi, { CoralErrorResponse, CoralStatus } from 'nxapi/coral';
 import SplatNet3Api from 'nxapi/splatnet3';
-import { nsoEnv, userAgent } from '../store/env.js';
+import { nsoEnv } from '../store/env.js';
 import { nsoPath } from '../store/path.js';
 import { logLogin } from './log.js';
+import { getJson, withTimeout } from './http.js';
+import { backendConfigUrl } from './backend.js';
 import type { NsoToken } from '../../shared/types.js';
 import { splatnetUserAgent } from './splatnet.js';
 
@@ -17,7 +18,8 @@ const webServiceId = 4834290508791808;
 const publicClientId = 'Orh4jxABP3D3jYaBFgL9Ug';
 const configPath = join(nsoPath, 'zncaConfig.json');
 const backendUrl = nsoEnv().backendUrl;
-const fConfigUrl = `${backendUrl}/config`;
+const fConfigUrl = backendConfigUrl();
+const coralTimeoutMs = 30000;
 
 process.env.NXAPI_ZNCA_API_CLIENT_ID ||= publicClientId;
 process.env.ZNCA_API_URL = backendUrl;
@@ -34,13 +36,13 @@ export async function coralToken(sessionToken: string): Promise<CoralAccountToke
   
   await writeZncaConfig();
   try {
-    const { nso, data } = await CoralApi.createWithSessionToken(sessionToken, fUserAgent);
+    const { nso, data } = await withTimeout(CoralApi.createWithSessionToken(sessionToken, fUserAgent), coralTimeoutMs, 'Coral 登录');
     const accountId = String(data.nsoAccount?.user?.id ?? data.user?.id ?? '');
     const nickname = String(data.user?.nickname ?? '');
     logLogin(`coral account login ok user=${accountId} country=${data.user.country} name=${nickname}`);
-    const service = await nso.getWebServiceToken(webServiceId);
+    const service = await withTimeout(nso.getWebServiceToken(webServiceId), coralTimeoutMs, 'Coral Web Service Token');
     logLogin('coral webservice token ok');
-    const s3 = await SplatNet3Api.loginWithWebServiceToken(service, data.user);
+    const s3 = await withTimeout(SplatNet3Api.loginWithWebServiceToken(service, data.user), coralTimeoutMs, 'SplatNet 登录');
     const bulletToken = String(s3.bullet_token.bulletToken || '');
     if (!bulletToken) throw new Error('bullet token 获取失败');
     logLogin(`coral bullet token ok version=${s3.version}`);
@@ -75,6 +77,7 @@ async function writeZncaConfig(): Promise<void> {
 function loginErrorText(error: unknown): string {
   
   const raw = error instanceof Error ? error.message : String(error);
+  if (/超时|timeout/i.test(raw)) return '网络请求超时，请检查网络后重试';
   if (/znca-api/i.test(raw)) return '第三方 znca 校验服务暂时不可用，请稍后重试，恢复后应用会自动重新连接';
   if (error instanceof CoralErrorResponse) {
     const status = Number(error.status ?? 0);
@@ -100,41 +103,4 @@ export async function nsoVersion(): Promise<string> {
     appVersion = appVersionFallback;
   }
   return appVersion;
-}
-
-export function postForm(url: string, data: Record<string, string>, headers: Record<string, string> = {}): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const body = new URLSearchParams(data).toString();
-    const target = new URL(url);
-    const req = request({ hostname: target.hostname, path: `${target.pathname}${target.search}`, method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body), 'User-Agent': userAgent, ...headers } }, (res) => collectBody(res, resolve, reject));
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-function getJson(url: string, headers: Record<string, string> = {}): Promise<Record<string, any>> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const req = request({ hostname: target.hostname, path: `${target.pathname}${target.search}`, method: 'GET', headers: { Accept: 'application/json', 'User-Agent': userAgent, ...headers } }, (res) => collectBody(res, resolve, reject));
-    req.on('error', reject);
-    req.end();
-  });
-}
-
-function collectBody(res: import('node:http').IncomingMessage, resolve: (data: Record<string, any>) => void, reject: (error: Error) => void): void {
-  let text = '';
-  res.setEncoding('utf8');
-  res.on('data', (chunk) => { text += chunk; });
-  res.on('end', () => {
-    try {
-      const value = JSON.parse(text) as Record<string, any>;
-      if ((res.statusCode ?? 500) >= 400) {
-        const detail = [value.reason, value.errorMessage, value.error_description, value.error].filter((item): item is string => typeof item === 'string').join(' ');
-        reject(new Error(`HTTP ${res.statusCode} ${detail} ${text.slice(0, 120)}`.trim()));
-      } else resolve(value);
-    } catch {
-      reject(new Error(`Nintendo 响应格式错误 HTTP ${res.statusCode} ${text.slice(0, 120)}`));
-    }
-  });
 }

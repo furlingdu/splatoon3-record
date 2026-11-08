@@ -3,7 +3,11 @@ import QRCode from 'qrcode';
 import { snackbar } from 'mdui/functions/snackbar.js';
 import { StatusItem } from '../components/item.js';
 import { NsoApiNotice } from '../components/notice.js';
+import { NsoBackendDialog } from '../components/backenddialog.js';
+import { NsoBackendStatusBar } from '../components/backendstatus.js';
 import { useElementEvent } from '../lib/event.js';
+import { retryText, useNsoLoginGate } from '../lib/nso.js';
+import { errorText } from '../lib/error.js';
 import { nsoAccountLimit } from '../../shared/constants.js';
 import type { AppStatus, NsoAccountStatus } from '../../shared/types.js';
 
@@ -21,6 +25,7 @@ function bindingPage(props: { status?: AppStatus }): ReactElement {
   const [deleteId, setDeleteId] = useState<string>();
   const accounts = status?.nsoAccounts ?? [];
   const connecting = status?.nsoState === 'connecting';
+  const login = useNsoLoginGate(status?.nsoState);
   const deleteCloseRef = useElementEvent<HTMLElement>('closed', () => setDeleteId(undefined));
   useEffect(() => {
     const url = status?.qrCode || '';
@@ -29,10 +34,10 @@ function bindingPage(props: { status?: AppStatus }): ReactElement {
   }, [status?.qrCode]);
 
   const addAccount = (): void => {
-    void window.recordApi.openNsoLogin().catch((error) => snackbar({ message: errorText(error) }));
+    void login.start();
   };
   const relogin = (accountId: string): void => {
-    void window.recordApi.openNsoLogin(accountId).catch((error) => snackbar({ message: errorText(error) }));
+    void login.start(accountId);
   };
   const select = (accountId: string): void => {
     void window.recordApi.selectNsoAccount(accountId).catch((error) => snackbar({ message: errorText(error) }));
@@ -49,12 +54,16 @@ function bindingPage(props: { status?: AppStatus }): ReactElement {
       <h2 className="page-title">绑定</h2>
       <h3 className="section-title">Nintendo Switch Online</h3>
       <NsoApiNotice />
+      <NsoBackendStatusBar status={login.backend.status} checking={login.backend.checking} onRetry={() => void login.backend.check()} />
       <div className="status-grid">
         <StatusItem label="当前 NSO 账户" value={status?.nsoCurrentNickname || '未选择'} />
         <StatusItem label="已绑定账户" value={`${accounts.length} / ${nsoAccountLimit}`} />
         <StatusItem label="NSO 状态" value={stateNames[status?.nsoState || 'unbound']} />
       </div>
-      {status?.nsoError ? <div className="bind-info">失败原因：{status.nsoError}</div> : null}
+      {connecting && status?.nsoRetry ? (
+        <div className="bind-info">{retryText(status.nsoRetry)}</div>
+      ) : null}
+      {!connecting && status?.nsoError ? <div className="bind-info">失败原因：{status.nsoError}</div> : null}
       <div className="bind-row">
         <mdui-button variant="filled" disabled={connecting || accounts.length >= nsoAccountLimit} onClick={addAccount}>添加 Nintendo 账号</mdui-button>
       </div>
@@ -89,6 +98,7 @@ function bindingPage(props: { status?: AppStatus }): ReactElement {
         <mdui-button slot="action" variant="text" onClick={() => setDeleteId(undefined)}>取消</mdui-button>
         <mdui-button slot="action" variant="filled" onClick={remove}>删除</mdui-button>
       </mdui-dialog>
+      <NsoBackendDialog status={login.block} onCancel={login.cancel} onConfirm={() => void login.confirm()} />
     </div>
   );
 }
@@ -119,8 +129,3 @@ function accountRow(props: { account: NsoAccountStatus; only: boolean; connectin
 export { bindingPage as BindingPage };
 
 const AccountRow = accountRow;
-
-function errorText(error: unknown): string {
-  const text = (error instanceof Error ? error.message : String(error ?? '')).replace(/^Error invoking remote method '[^']*':\s*(Error:\s*)?/, '').trim();
-  return text || '操作失败';
-}

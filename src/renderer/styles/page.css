@@ -232,6 +232,54 @@
   color: rgb(var(--mdui-color-on-surface-variant));
 }
 
+.backend-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+  padding: 10px 14px;
+  border: 1px solid rgb(var(--mdui-color-outline-variant));
+  border-radius: 12px;
+  font-size: 13px;
+  color: rgb(var(--mdui-color-on-surface-variant));
+}
+
+.backend-status.is-offline {
+  border-color: rgba(234, 67, 53, 0.45);
+}
+
+.backend-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgb(var(--mdui-color-outline));
+}
+
+.backend-status.is-checking .backend-dot {
+  background: rgb(var(--mdui-color-primary));
+}
+
+.backend-status.is-online .backend-dot {
+  background: #34a853;
+}
+
+.backend-status.is-offline .backend-dot {
+  background: #ea4335;
+}
+
+.backend-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.backend-url {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
 .account-list {
   display: flex;
   flex-direction: column;

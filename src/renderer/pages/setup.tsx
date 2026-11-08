@@ -5,10 +5,13 @@ import { useElementEvent, markSelectClick, restoreSelect, targetChecked, targetV
 import { listDevices } from '../lib/device.js';
 import { deviceLabel, fpsList, matchDevice, resolutionKey, resolutionList, resolutionText } from '../../shared/capture.js';
 import { EncodeHint } from '../components/encodehint.js';
+import { NsoBackendDialog } from '../components/backenddialog.js';
+import { NsoBackendStatusBar } from '../components/backendstatus.js';
 import { appName, defaultSettings } from '../../shared/constants.js';
 import { NsoApiNotice } from '../components/notice.js';
 import characterImg from '../assets/character/character.png';
 import { iconSvg } from '../lib/icons.js';
+import { retryText, useNsoLoginGate } from '../lib/nso.js';
 import type { AppStatus, CaptureDevice, RecordSettings } from '../../shared/types.js';
 
 const stepTitles = ['选择采集卡设备', '绑定 Nintendo 账号', '绑定 QQBot'];
@@ -30,6 +33,7 @@ function setupApp(): ReactElement {
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [finishError, setFinishError] = useState('');
   const pickedDevice = useRef(false);
+  const login = useNsoLoginGate(status?.nsoState);
   const value = draft ?? status?.settings;
   const qqReady = status?.qqState === 'connected' && Boolean(status.qqOwner);
 
@@ -219,9 +223,10 @@ function setupApp(): ReactElement {
           <div>
             <h3 className="section-title">绑定 Nintendo 账号</h3>
             <NsoApiNotice />
+            <NsoBackendStatusBar status={login.backend.status} checking={login.backend.checking} onRetry={() => void login.backend.check()} />
             <div className="bind-info">点击下方按钮登录 Nintendo 账号并授权鱿鱼圈 3 数据读取，登录成功后应用才能检测对局结果。每次登录前都会自动清除登录窗口的 cookies。</div>
             <div className="setup-actions">
-              <mdui-button variant="filled" onClick={() => void window.recordApi.openNsoLogin()}>登录 Nintendo 账号</mdui-button>
+              <mdui-button variant="filled" onClick={() => void login.start()}>登录 Nintendo 账号</mdui-button>
             </div>
             <div className="status-grid">
               <StateRow label="当前状态" state={status?.nsoState} />
@@ -230,16 +235,23 @@ function setupApp(): ReactElement {
                 <span className="status-value">{status?.nsoAccounts?.length ?? 0} 个</span>
               </div>
             </div>
-            {status?.nsoState === 'error' && status?.nsoError ? <div className="bind-info">{status.nsoError}</div> : null}
             {status?.nsoState === 'connecting' ? (
               <div className="bind-info">
                 <mdui-linear-progress indeterminate className="connect-loading" />
-                已获取授权，正在登录并获取凭证，请稍候…
+                {status.nsoRetry
+                  ? retryText(status.nsoRetry)
+                  : '已获取授权，正在登录并获取凭证，请稍候…'}
               </div>
+            ) : null}
+            {status?.nsoState === 'error' && status?.nsoError ? (
+              <div className="bind-info" role="alert">登录失败：{status.nsoError}</div>
             ) : null}
             {status?.nsoState !== 'connected' && status?.nsoState !== 'connecting' ? <div className="bind-info">完成 Nintendo 账号登录授权后才能进入下一步。</div> : null}
             <div className="setup-actions">
               <mdui-button variant="text" onClick={goBack}>上一步</mdui-button>
+              {status?.nsoState === 'error' || status?.nsoState === 'expired' ? (
+                <mdui-button variant="outlined" onClick={() => void login.start()}>重新登录</mdui-button>
+              ) : null}
               <mdui-button variant="filled" disabled={status?.nsoState !== 'connected'} onClick={goNext}>下一步</mdui-button>
             </div>
           </div>
@@ -272,6 +284,7 @@ function setupApp(): ReactElement {
           </div>
         ) : null}
       </div>
+      <NsoBackendDialog status={login.block} onCancel={login.cancel} onConfirm={() => void login.confirm()} />
       <img className="mascot" src={characterImg} alt="" />
     </div>
   );
