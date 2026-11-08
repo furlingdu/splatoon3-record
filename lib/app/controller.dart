@@ -30,6 +30,7 @@ import '../media/nickname/events.dart';
 import '../match/filter.dart';
 import '../nso/battle.dart';
 import '../nso/callback.dart';
+import '../nso/backend.dart';
 import '../nso/nsoService.dart';
 import '../store/legacy.dart';
 import '../store/secrets.dart';
@@ -101,6 +102,10 @@ class AppController extends ChangeNotifier {
   Timer? NSOClock;
   bool NSOBusy = false;
   String? NSOErrorText;
+  NSOBackendStatus? NSOBackend;
+  bool NSOBackendBusy = false;
+  bool NSOBackendBlocked = false;
+  Future<NSOBackendStatus?>? _BackendCheck;
   NSOAuthRequest? PendingAuth;
   bool AuthBusy = false;
   String? LastAuthState;
@@ -182,6 +187,7 @@ class AppController extends ChangeNotifier {
       unawaited(StartQQBot(QQAppId!, QQSecret!));
     }
     unawaited(NSOConnect());
+    unawaited(CheckNSOBackend());
     unawaited(GenerateThumbs());
     unawaited(ArchiveCached());
     if (Configs.Current.SetupDone && Configs.Current.Settings.AutoRecord) {

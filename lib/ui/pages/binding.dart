@@ -7,6 +7,7 @@ import '../../domain/models.dart';
 import '../../format/formats.dart';
 import '../theme.dart';
 import '../controls.dart';
+import '../nsoBackend.dart';
 import '../nsoLogin.dart';
 import '../shell.dart';
 
@@ -26,6 +27,8 @@ class BindingPage extends StatelessWidget {
         const AppSectionTitle('Nintendo Switch Online'),
         const NSONotice(),
         const SizedBox(height: 16),
+        NSOBackendBar(Controller: Controller),
+        const SizedBox(height: 12),
         StatusGrid(
           Children: <Widget>[
             AppStatusItem(Label: '当前 NSO 账户', Value: AppStatusText(Status?.NSOCurrentNickname ?? '未选择')),
@@ -39,7 +42,7 @@ class BindingPage extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
             children: <Widget>[
-              AppButton(Label: '添加 Nintendo 账号', Enabled: Accounts.length < 5 && !Controller.AuthBusy, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : Controller.StartNSOLogin()),
+              AppButton(Label: '添加 Nintendo 账号', Enabled: Accounts.length < 5 && !Controller.AuthBusy && !Controller.NSOBackendBusy, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : RequestNSOLogin(context, Controller)),
             ],
           ),
         ),
@@ -73,7 +76,7 @@ class BindingPage extends StatelessWidget {
                   ]);
                   final Actions = Wrap(spacing: 2, children: <Widget>[
                     AppButton(Label: '设为当前', Kind: AppButtonKind.Text, Enabled: Account.Id != Status?.NSOCurrentId, OnPressed: () => Controller.SelectNSOAccount(Account.Id)),
-                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, Enabled: Account.State != 'connecting', OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : Controller.StartNSOLogin(Account.Id)),
+                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, Enabled: Account.State != 'connecting' && !Controller.NSOBackendBusy, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : RequestNSOLogin(context, Controller, Account.Id)),
                     AppButton(Label: '删除', Kind: AppButtonKind.Text, Enabled: Accounts.length > 1, OnPressed: () => RemoveAccount(context, Account.Id)),
                   ]);
                   if (Constraints.maxWidth < 560) {

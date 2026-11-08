@@ -7,6 +7,7 @@ import '../app/controller.dart';
 import '../config/system.dart';
 import '../nso/callback.dart';
 import 'drop.dart';
+import 'nsoBackend.dart';
 import 'theme.dart';
 import 'controls.dart';
 
@@ -94,12 +95,12 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
   @override
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
-    final Busy = widget.Controller.AuthBusy;
+    final Busy = widget.Controller.AuthBusy || widget.Controller.NSOBackendBusy;
     if (!PlatformInfo.Mobile) {
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
         Text('点击下方按钮登录 Nintendo 账号并授权鱿鱼圈 3 数据读取，登录成功后应用才能检测对局结果。每次登录前都会自动清除登录窗口的 cookies。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.6)),
         const SizedBox(height: 16),
-        AppButton(Label: Busy ? '正在登录…' : '登录 Nintendo 账号', Enabled: !Busy, OnPressed: () => widget.Controller.StartNSOLogin()),
+        AppButton(Label: Busy ? '正在登录…' : '登录 Nintendo 账号', Enabled: !Busy, OnPressed: () => RequestNSOLogin(context, widget.Controller)),
         if (Busy) const Padding(padding: EdgeInsets.only(top: 12), child: AppLinearProgress(Indeterminate: true)),
       ]);
     }
@@ -108,7 +109,7 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
       Text('1. 点击“获取登录链接”。\n2. 复制链接并在浏览器中打开，完成 Nintendo 登录。\n3. 登录后长按“选择此人”按钮，复制回调 URL。\n4. 将回调 URL 粘贴${PlatformInfo.IOS ? '或拖入' : '到'}下方输入框并点击登录。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.7)),
       const SizedBox(height: 12),
       if (Pending == null)
-        AppButton(Label: '获取登录链接', Enabled: !Busy, OnPressed: () => widget.Controller.StartNSOLogin())
+        AppButton(Label: '获取登录链接', Enabled: !Busy, OnPressed: () => RequestNSOLogin(context, widget.Controller))
       else ...<Widget>[
         AppTextField(Label: 'Nintendo 登录链接', Value: Pending.Url, ReadOnly: true, OnIcon: Icons.copy, OnIconTap: CopyLink),
         Row(children: <Widget>[
@@ -116,7 +117,7 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
           const SizedBox(width: 12),
           Expanded(child: AppButton(Label: '在浏览器中打开', Kind: AppButtonKind.Outlined, OnPressed: () => widget.Controller.OpenAuth())),
         ]),
-        AppButton(Label: '重新获取登录链接', Kind: AppButtonKind.Text, Enabled: !Busy, OnPressed: () => widget.Controller.StartNSOLogin()),
+        AppButton(Label: '重新获取登录链接', Kind: AppButtonKind.Text, Enabled: !Busy, OnPressed: () => RequestNSOLogin(context, widget.Controller)),
       ],
       if (Busy) const Padding(padding: EdgeInsets.only(top: 8), child: AppLinearProgress(Indeterminate: true)),
       AnimatedContainer(
@@ -145,8 +146,8 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
 }
 
 Future<void> OpenNSOLogin(BuildContext Context, AppController Controller) async {
-  if (Controller.PendingAuth == null) await Controller.StartNSOLogin();
-  if (!Context.mounted) return;
+  final Ok = await RequestNSOLogin(Context, Controller);
+  if (!Ok || !Context.mounted) return;
   await showDialog<void>(
     context: Context,
     builder: (Context) => AppDialog(
