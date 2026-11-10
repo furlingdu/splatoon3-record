@@ -118,6 +118,51 @@ void main() {
     expect(Match.TimeExact, false);
     expect(Match.Key, 'account-1:coop-1');
   });
+
+  test('Resolve znca version from config', () {
+    expect(
+      NSOService.VersionFromConfig(<String, dynamic>{
+        'versions': <dynamic>[
+          <String, dynamic>{'platform': 'Android', 'version': '3.6.0', 'worker_count': 3},
+        ],
+        'nso_version': '3.6.0',
+      }),
+      '3.6.0',
+    );
+    expect(
+      NSOService.VersionFromConfig(<String, dynamic>{
+        'versions': <dynamic>[
+          <String, dynamic>{'platform': 'Android', 'version': '3.5.0', 'worker_count': 1},
+          <String, dynamic>{'platform': 'iOS', 'version': '3.9.0', 'worker_count': 1},
+          <String, dynamic>{'platform': 'Android', 'version': '3.10.0', 'worker_count': 2},
+        ],
+      }),
+      '3.10.0',
+    );
+    expect(
+      NSOService.VersionFromConfig(<String, dynamic>{
+        'versions': <dynamic>[
+          <String, dynamic>{'platform': 'Android', 'version': '3.5.0', 'worker_count': 0},
+          <String, dynamic>{'platform': 'Android', 'version': '3.6.0', 'worker_count': 0},
+        ],
+        'nso_version': '3.7.0',
+      }),
+      '3.6.0',
+    );
+    expect(NSOService.VersionFromConfig(<String, dynamic>{'nso_version': '3.5.0'}), isNull);
+    expect(NSOService.VersionFromConfig(<String, dynamic>{'versions': <dynamic>[]}), isNull);
+    expect(NSOService.VersionFromConfig(<String, dynamic>{'versions': <dynamic>[<String, dynamic>{'platform': 'Android', 'version': 'latest', 'worker_count': 1}]}), isNull);
+    expect(NSOService.VersionFromConfig(null), isNull);
+  });
+
+  test('Format znca API failures', () {
+    expect(NSOService.RawError(StateError('https://example.com/f: No matching workers available')), 'https://example.com/f: No matching workers available');
+    expect(
+      NSOService.ErrorText(StateError('NSO 校验服务不可用：No matching workers available')),
+      'NSO 校验服务暂不支持当前 NSO 版本，请更新应用后重试',
+    );
+    expect(NSOService.ErrorText(StateError('NSO 校验服务不可用：No workers available')), 'NSO 校验服务暂时不可用，请稍后重试');
+  });
 }
 
 

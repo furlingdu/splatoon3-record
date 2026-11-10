@@ -52,8 +52,8 @@ class NSOService {
   static const String Coral = Config.NSOCoral;
   static const String SplatNet = Config.NSOSplatNet;
   static const String AppVersion = Config.NSOAppVersion;
-  static const String ZncaVersion = Config.NSOZncaVersion;
   static const String ClientVersion = Config.NSOClientVersion;
+  static final RegExp VersionPattern = RegExp(r'^\d+\.\d+\.\d+$');
   static const int WebServiceId = Config.NSOWebServiceId;
   static const String LatestQuery = Config.NSOLatestQuery;
   static const String DetailQuery = Config.NSODetailQuery;
@@ -62,6 +62,79 @@ class NSOService {
 
   String? _AccessToken;
   int _AccessExpires = 0;
+  String _LastVersion = Config.NSOZncaVersion;
+
+  static int _VersionWeight(String Value) {
+    final Parts = Value.split('.');
+    var Result = 0;
+    for (var Index = 0; Index < 3; Index++) {
+      final Part = Index < Parts.length ? int.tryParse(Parts[Index]) ?? 0 : 0;
+      Result = Result * 1000 + Part;
+    }
+    return Result;
+  }
+
+  static String? VersionFromConfig(Object? Value) {
+    if (Value is! Map) return null;
+    final Versions = Value['versions'];
+    if (Versions is! List) return null;
+    final Available = <String>[];
+    final Listed = <String>[];
+    for (final Item in Versions) {
+      if (Item is! Map) continue;
+      if ('${Item['platform'] ?? ''}' != 'Android') continue;
+      final Version = '${Item['version'] ?? ''}';
+      if (!VersionPattern.hasMatch(Version)) continue;
+      Listed.add(Version);
+      final Count = Item['worker_count'] is num ? (Item['worker_count'] as num).toInt() : 1;
+      if (Count > 0) Available.add(Version);
+    }
+    final Source = Available.isNotEmpty ? Available : Listed;
+    if (Source.isEmpty) return null;
+    Source.sort((Left, Right) => _VersionWeight(Left).compareTo(_VersionWeight(Right)));
+    return Source.last;
+  }
+
+  static String RawError(Object? Cause) {
+    final Text = '${Cause ?? ''}'.trim();
+    const Prefix = 'Bad state: ';
+    return Text.startsWith(Prefix) ? Text.substring(Prefix.length) : Text;
+  }
+
+  static String ErrorText(Object? Cause) {
+    final Text = RawError(Cause);
+    if (Text.contains('No matching workers available')) return 'NSO 校验服务暂不支持当前 NSO 版本，请更新应用后重试';
+    if (Text.contains('Timeout waiting for a worker')) return 'NSO 校验服务排队超时，请稍后重试';
+    if (Text.contains('No workers available')) return 'NSO 校验服务暂时不可用，请稍后重试';
+    return Text;
+  }
+
+  Future<String> _ResolveVersion(String Server) async {
+    try {
+      final Response = await http.get(
+        Uri.parse('$Server/config'),
+        headers: <String, String>{'Accept': 'application/json', 'User-Agent': Config.UserAgent},
+      ).timeout(const Duration(seconds: 8));
+      if (Response.statusCode >= 200 && Response.statusCode < 300) {
+        final Version = VersionFromConfig(jsonDecode(Response.body));
+        if (Version != null) return Version;
+      }
+    } catch (_) {}
+    return Config.NSOZncaVersion;
+  }
+
+  String _Failure(String Server, Object Cause) {
+    final Text = RawError(Cause);
+    final Url = '$Server/f';
+    var Reason = Text;
+    if (Text.startsWith('$Url: ')) {
+      Reason = Text.substring(Url.length + 2);
+    } else if (Text.startsWith(Url)) {
+      Reason = Text.substring(Url.length).replaceFirst(RegExp(r'^:\s*'), '');
+    }
+    final Host = Uri.tryParse(Server)?.host ?? Server;
+    return '$Host：$Reason';
+  }
 
   void RestoreAuth(String Token, int ExpiresAt) {
     _AccessToken = Token;
@@ -220,23 +293,28 @@ class NSOService {
     if (CoralUserId != null && CoralUserId.isNotEmpty) Body['coral_user_id'] = CoralUserId;
     if (EncryptUrl != null && Parameter != null) Body['encrypt_token_request'] = <String, dynamic>{'url': EncryptUrl, 'parameter': Parameter};
     Object? Last;
+    final Errors = <String>[];
     for (final Server in Servers) {
       try {
+        final Version = await _ResolveVersion(Server);
         final Data = await _PostJson('$Server/f', Body, <String, String>{
           'Authorization': 'Bearer ${await _AuthToken()}',
           'Content-Type': 'application/json',
           'X-znca-Platform': 'Android',
-          'X-znca-Version': ZncaVersion,
+          'X-znca-Version': Version,
           'X-znca-Client-Version': ClientVersion,
           'User-Agent': Config.UserAgent,
         });
         _LastServer = Server;
+        _LastVersion = Version;
         return Data;
       } catch (Cause) {
         Last = Cause;
+        Errors.add(_Failure(Server, Cause));
       }
     }
-    throw StateError('$Last');
+    final Reasons = Errors.isEmpty ? RawError(Last) : Errors.toSet().join('；');
+    throw StateError('NSO 校验服务不可用：$Reasons');
   }
 
   Future<Map<String, dynamic>> _EncryptedCoral(String Path, Map<String, dynamic> FData, String? Token) async {
@@ -248,8 +326,8 @@ class NSOService {
         'Content-Type': 'application/octet-stream',
         'Accept': 'application/octet-stream,application/json',
         'X-Platform': 'Android',
-        'X-ProductVersion': ZncaVersion,
-        'User-Agent': 'com.nintendo.znca/$ZncaVersion(Android/12)',
+        'X-ProductVersion': _LastVersion,
+        'User-Agent': 'com.nintendo.znca/$_LastVersion(Android/12)',
         if (Token != null) 'Authorization': 'Bearer $Token',
       },
       body: base64Decode(Encrypted),
@@ -267,7 +345,7 @@ class NSOService {
           'Authorization': 'Bearer ${await _AuthToken()}',
           'Content-Type': 'application/json',
           'X-znca-Platform': 'Android',
-          'X-znca-Version': ZncaVersion,
+          'X-znca-Version': _LastVersion,
           'X-znca-Client-Version': ClientVersion,
           'Accept': 'application/json',
         });
@@ -279,7 +357,7 @@ class NSOService {
         Last = Cause;
       }
     }
-    throw StateError('$Last');
+    throw StateError(RawError(Last));
   }
 
   Future<String> _AuthToken() async {

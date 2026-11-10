@@ -65,7 +65,7 @@ abstract final class Config {
   static const String NSOCoral = 'https://api-lp1.znc.srv.nintendo.net';
   static const String NSOSplatNet = 'https://api.lp1.av5ja.srv.nintendo.net';
   static const String NSOAppVersion = '10.0.0-dfefd0af';
-  static const String NSOZncaVersion = '3.5.0';
+  static const String NSOZncaVersion = '3.6.0';
   static const String NSOClientVersion = 'd8fAZDPzwimzQ7c6';
   static const int NSOWebServiceId = 4834290508791808;
   static const String NSOLatestQuery = 'b24d22fd6cb251c515c2b90044039698aa27bc1fab15801d83014d919cd45780';

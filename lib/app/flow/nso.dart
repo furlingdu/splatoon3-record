@@ -156,8 +156,10 @@ extension AppNSOFlow on AppController {
       StartNSOPoll();
       PushStatus();
     } catch (Cause) {
-      NSOErrorText = '$Cause';
-      Notice = 'Nintendo 登录失败：$Cause';
+      final Reason = NSOService.ErrorText(Cause);
+      await Logs.Login('nso authorize failed $Cause');
+      NSOErrorText = Reason;
+      Notice = 'Nintendo 登录失败：$Reason';
     } finally {
       AuthBusy = false;
       Notify();
@@ -255,9 +257,11 @@ extension AppNSOFlow on AppController {
       if (Session.Nickname.isNotEmpty) Account.Nickname = Session.Nickname;
       await SaveVaultAccounts();
     } catch (Cause) {
+      final Reason = NSOService.ErrorText(Cause);
+      await Logs.Login('nso refresh failed account=${Account.Id} $Cause');
       Account.State = 'error';
-      Account.Error = '$Cause';
-      NSOErrorText = '$Cause';
+      Account.Error = Reason;
+      NSOErrorText = Reason;
       NSOSessions.remove(Account.Id);
     }
     PushStatus();
