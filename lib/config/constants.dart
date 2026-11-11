@@ -3,7 +3,8 @@ abstract final class Config {
   static const int DetectInputSize = 1280;
   static const int DetectSnapshotWidth = 1280;
   static const int DetectSnapshotHeight = 720;
-  static const int DetectIntervalMs = 500;
+  static const int DetectIntervalMs = 1000;
+  static const int DetectMinGapMs = 150;
   static const double DetectConfidence = 0.25;
   static const double EventConfidence = 0.8;
   static const double NicknameConfidence = 0.5;

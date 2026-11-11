@@ -80,8 +80,8 @@ extension AppVisionFlow on AppController {
       if (VisionRunning) {
         VisionClock?.cancel();
         final Elapsed = DateTime.now().millisecondsSinceEpoch - RequestedAt;
-        final Delay = Config.DetectIntervalMs - Elapsed;
-        VisionClock = Timer(Duration(milliseconds: Delay > 0 ? Delay : 0), () => unawaited(VisionTick()));
+        final Delay = (Config.DetectIntervalMs - Elapsed).clamp(Config.DetectMinGapMs, Config.DetectIntervalMs).toInt();
+        VisionClock = Timer(Duration(milliseconds: Delay), () => unawaited(VisionTick()));
       }
     }
   }
