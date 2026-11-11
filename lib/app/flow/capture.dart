@@ -309,6 +309,10 @@ extension AppCaptureFlow on AppController {
   }
 
   Future<bool> OpenPreviewWindow() async {
+    // The detached preview window reads the capture texture through shared
+    // memory, which is only implemented by the Windows capture host. Other
+    // platforms use the in-process preview dialog instead.
+    if (!PlatformInfo.Windows) return false;
     try {
       final Client = await Socket.connect(InternetAddress.loopbackIPv4, Config.PreviewInstancePort, timeout: const Duration(milliseconds: 500));
       Client.write('SHOW');

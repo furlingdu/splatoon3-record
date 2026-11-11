@@ -22,6 +22,7 @@ class SettingsPage extends StatefulWidget {
 class SettingsPageState extends State<SettingsPage> {
   late RecordSettings Draft;
   List<CaptureMode> Modes = <CaptureMode>[];
+  int ModeRequest = 0;
   bool LoadingDevices = false;
   bool LoadingModes = false;
   bool Picking = false;
@@ -83,9 +84,13 @@ class SettingsPageState extends State<SettingsPage> {
       return;
     }
     if (Draft.VideoDevice.isEmpty) return;
+    final Request = ++ModeRequest;
     final List = await widget.Controller.Capture.Modes(Draft.VideoDevice).catchError((_) => <CaptureMode>[]);
-    if (!mounted) return;
-    setState(() => Modes = List);
+    if (!mounted || Request != ModeRequest) return;
+    setState(() {
+      Modes = List;
+      LoadingModes = false;
+    });
   }
 
   Future<void> RefreshMobileDevices() async {
@@ -185,12 +190,24 @@ class SettingsPageState extends State<SettingsPage> {
     }.toList();
     return PageBody(Children: <Widget>[
       const AppPageTitle('设置'),
-      AppFormSwitch(Label: '打工模式录制', Value: Draft.RecordWork, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'recordWork': Value}))),
-      AppFormSwitch(Label: '真格模式录制', Value: Draft.RecordRanked, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'recordRanked': Value}))),
-      AppFormSwitch(Label: '涂地模式录制', Value: Draft.RecordTurf, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'recordTurf': Value}))),
-      AppFormSwitch(Label: '高亮操作录制', Value: Draft.RecordHighlight, OnChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'recordHighlight': Value}))),
-      AppHint('开启后，将录制不同模式的画面。'),
-      AppHint('打工模式包含全部打工规则；真格模式包含私人对战、活动比赛和真格区域、塔楼、鱼虎、蛤蜊；涂地模式对应占地对战；高亮操作会保存判定前 15 秒的画面。'),
+      const AppSectionTitle('录制模式'),
+      Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Scheme.outlineVariant),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(children: <Widget>[
+          RecordModeRow('打工模式', '包含全部打工规则', Draft.RecordWork, (Value) => Update(Draft.Copy(<String, dynamic>{'recordWork': Value}))),
+          Divider(height: 1, color: Scheme.outlineVariant),
+          RecordModeRow('真格模式', '包含私人对战、活动比赛和真格区域、塔楼、鱼虎、蛤蜊', Draft.RecordRanked, (Value) => Update(Draft.Copy(<String, dynamic>{'recordRanked': Value}))),
+          Divider(height: 1, color: Scheme.outlineVariant),
+          RecordModeRow('涂地模式', '对应占地对战', Draft.RecordTurf, (Value) => Update(Draft.Copy(<String, dynamic>{'recordTurf': Value}))),
+          Divider(height: 1, color: Scheme.outlineVariant),
+          RecordModeRow('高亮操作', '保存判定前 15 秒的画面', Draft.RecordHighlight, (Value) => Update(Draft.Copy(<String, dynamic>{'recordHighlight': Value}))),
+        ]),
+      ),
+      AppHint('勾选需要录制的模式；未勾选的模式只记录对局数据，不保存录像。'),
       if (Draft.CaptureMode == 'rtmp') AppHint('RTMP 采集模式无法读取本地画面，画面识别不可用。'),
       if (PlatformInfo.Mobile) ...<Widget>[
         const AppSectionTitle('采集设备'),
@@ -299,6 +316,7 @@ class SettingsPageState extends State<SettingsPage> {
           Display: FormatName,
           OnChanged: (Value) => ChangeFormat(Value),
         ),
+        if (LoadingModes) const Padding(padding: EdgeInsets.only(bottom: 8), child: AppLinearProgress(Indeterminate: true)),
         Row(crossAxisAlignment: CrossAxisAlignment.end, children: <Widget>[
           Expanded(
             child: AppSelect<String>(
@@ -433,7 +451,8 @@ class SettingsPageState extends State<SettingsPage> {
         min: 0,
         max: 100,
         divisions: 20,
-        onChanged: Draft.BackgroundPath.isEmpty ? null : (Value) => Update(Draft.Copy(<String, dynamic>{'backgroundDim': Value.round()}), Save: false),
+        padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+        onChanged: (Value) => Update(Draft.Copy(<String, dynamic>{'backgroundDim': Value.round()}), Save: false),
         onChangeEnd: (Value) => Update(Draft.Copy(<String, dynamic>{'backgroundDim': Value.round()})),
       ),
       AppHint('数值越高背景越暗，能避免背景图案影响文字阅读。'),
@@ -451,8 +470,36 @@ class SettingsPageState extends State<SettingsPage> {
     ]);
   }
 
+  Widget RecordModeRow(String Label, String Note, bool Value, ValueChanged<bool> OnChanged) {
+    final Scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: () => OnChanged(!Value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+          Checkbox(value: Value, onChanged: (Item) => OnChanged(Item ?? false)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                Text(Label, style: AppTheme.Style(Size: 14, Weight: FontWeight.w500)),
+                const SizedBox(height: 2),
+                Text(Note, style: AppTheme.Style(Size: 12, ColorValue: Scheme.onSurfaceVariant, Height: 1.5)),
+              ]),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
   Future<void> SelectVideo(String Device) async {
-    final Available = await widget.Controller.FFmpeg.Modes(Device).catchError((_) => <CaptureMode>[]);
+    if (Device == Draft.VideoDevice) return;
+    final Request = ++ModeRequest;
+    setState(() => LoadingModes = true);
+    final Available = await widget.Controller.Capture.Modes(Device).catchError((_) => <CaptureMode>[]);
+    if (!mounted || Request != ModeRequest) return;
     final PreferredFormat = Available.any((Item) => Item.Format == Draft.CaptureFormat)
         ? Draft.CaptureFormat
         : (Available.isEmpty ? Draft.CaptureFormat : Available.first.Format);
@@ -465,8 +512,14 @@ class SettingsPageState extends State<SettingsPage> {
       if (Pick != null) 'height': Pick.Height,
       if (Pick != null) 'fps': Pick.MaxFps,
     });
-    setState(() => Modes = Available);
+    setState(() {
+      Modes = Available;
+      LoadingModes = false;
+    });
     await Update(Next);
+    if (Available.isEmpty && mounted) {
+      AppSnack.Show(context, '未能读取该设备的采集格式，请检查设备连接后重试');
+    }
   }
 
   CaptureMode? BestMode(List<CaptureMode> Items) {

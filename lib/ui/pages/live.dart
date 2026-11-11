@@ -80,18 +80,16 @@ class LivePageState extends State<LivePage> {
           },
         ),
         const AppSectionTitle('RTMP 输入'),
-        StatusGrid(Children: <Widget>[
-          if (Settings.CaptureMode == 'rtmp')
-            AppStatusItem(
-              Label: '输入地址',
-              Value: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
-                Flexible(child: AppStatusText(Status?.RtmpInputUrl ?? '等待 RTMP 服务启动')),
-                if ((Status?.RtmpInputUrl ?? '').isNotEmpty)
-                  AppIconButton(Glyph: Icons.copy, Tooltip: '复制', OnPressed: () => Copy(Status!.RtmpInputUrl!, 'RTMP 输入地址已复制')),
-              ]),
-            ),
-          AppStatusItem(Label: '推流目标', Value: AppStatusText(Target.isEmpty ? '未设置' : Target)),
-        ]),
+        if (Settings.CaptureMode == 'rtmp')
+          AppStatusItem(
+            Label: '输入地址',
+            Value: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
+              Flexible(child: AppStatusText(Status?.RtmpInputUrl ?? '等待 RTMP 服务启动')),
+              if ((Status?.RtmpInputUrl ?? '').isNotEmpty)
+                AppIconButton(Glyph: Icons.copy, Tooltip: '复制', OnPressed: () => Copy(Status!.RtmpInputUrl!, 'RTMP 输入地址已复制')),
+            ]),
+          ),
+        AppStatusItem(Label: '推流目标', Value: AppStatusText(Target.isEmpty ? '未设置' : Target)),
         Padding(
           padding: const EdgeInsets.only(top: 8),
           child: Text(

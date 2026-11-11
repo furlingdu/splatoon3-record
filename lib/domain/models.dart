@@ -445,6 +445,7 @@ class NSOAccount {
     this.State = 'connected',
     this.Error,
     this.LastMatchAt,
+    this.NeedsAuth = false,
   });
 
   String Id;
@@ -457,6 +458,11 @@ class NSOAccount {
   String? Error;
   int? LastMatchAt;
 
+  /// The saved session token is permanently rejected by Nintendo (for example
+  /// the account password changed), so a token refresh cannot recover it and a
+  /// full Nintendo login is required.
+  bool NeedsAuth;
+
   Map<String, dynamic> ToMap() => {
         'id': Id,
         'nickname': Nickname,
@@ -464,16 +470,22 @@ class NSOAccount {
         'token': Token.ToMap(),
         'addedAt': AddedAt,
         if (LastRefreshAt != null) 'lastRefreshAt': LastRefreshAt,
+        if (NeedsAuth) 'needsAuth': true,
       };
 
-  static NSOAccount FromMap(Map<String, dynamic> Data) => NSOAccount(
-        Id: '${Data['id'] ?? ''}',
-        Nickname: '${Data['nickname'] ?? 'Nintendo 账号'}',
-        Session: '${Data['session'] ?? ''}',
-        Token: NSOToken.FromMap(Data['token'] is Map ? Map<String, dynamic>.from(Data['token'] as Map) : {}),
-        AddedAt: Data['addedAt'] is num ? (Data['addedAt'] as num).toInt() : DateTime.now().millisecondsSinceEpoch,
-        LastRefreshAt: Data['lastRefreshAt'] is num ? (Data['lastRefreshAt'] as num).toInt() : null,
-      );
+  static NSOAccount FromMap(Map<String, dynamic> Data) {
+    final NeedsAuth = Data['needsAuth'] == true;
+    return NSOAccount(
+      Id: '${Data['id'] ?? ''}',
+      Nickname: '${Data['nickname'] ?? 'Nintendo 账号'}',
+      Session: '${Data['session'] ?? ''}',
+      Token: NSOToken.FromMap(Data['token'] is Map ? Map<String, dynamic>.from(Data['token'] as Map) : {}),
+      AddedAt: Data['addedAt'] is num ? (Data['addedAt'] as num).toInt() : DateTime.now().millisecondsSinceEpoch,
+      LastRefreshAt: Data['lastRefreshAt'] is num ? (Data['lastRefreshAt'] as num).toInt() : null,
+      State: NeedsAuth ? 'expired' : 'connected',
+      NeedsAuth: NeedsAuth,
+    );
+  }
 }
 
 class NSOToken {

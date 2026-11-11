@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 namespace Capture {
@@ -163,6 +164,9 @@ bool CaptureRecorder::Start(const Options& Value, std::string* ErrorText) {
   PreopenFailed = false;
   LastVideoIndex = -1;
   LastAudioTime = -1;
+  VideoAnchorQpc = 0;
+  VideoAnchorTimestamp = 0;
+  HasVideoAnchor = false;
   QueueBytes = 0;
   Retiring.clear();
   {
@@ -334,17 +338,43 @@ void CaptureRecorder::CollectRetired() {
 }
 
 bool CaptureRecorder::Process(Item& Value, std::string* ErrorText) {
+  LONGLONG ItemQpc = Value.Qpc;
+  if (!Value.Audio && Value.Video) {
+    const LONGLONG SampleTime = Value.Video->Timestamp;
+    if (SampleTime > 0) {
+      if (!HasVideoAnchor) {
+        HasVideoAnchor = true;
+        VideoAnchorTimestamp = SampleTime;
+        VideoAnchorQpc = Value.Qpc;
+      } else {
+        const LONGLONG Delta = SampleTime - VideoAnchorTimestamp;
+        if (Delta >= 0) {
+          const LONGLONG Expected = VideoAnchorQpc + Delta;
+          if (std::llabs(Expected - Value.Qpc) < 5000000LL) {
+            ItemQpc = Expected;
+          } else {
+            // The driver reset its clock (device re-opened or timestamp jump).
+            VideoAnchorTimestamp = SampleTime;
+            VideoAnchorQpc = Value.Qpc;
+          }
+        } else {
+          VideoAnchorTimestamp = SampleTime;
+          VideoAnchorQpc = Value.Qpc;
+        }
+      }
+    }
+  }
   if (Current == nullptr) {
-    if (!OpenSegment(Value.Qpc, ErrorText)) return false;
+    if (!OpenSegment(ItemQpc, ErrorText)) return false;
   }
   if (!Current->Written && LastVideoIndex < 0 && LastAudioTime < 0) {
-    Current->BaseQpc = Value.Qpc;
+    Current->BaseQpc = ItemQpc;
   }
-  const LONGLONG Elapsed = Value.Qpc > Current->BaseQpc ? Value.Qpc - Current->BaseQpc : 0;
+  const LONGLONG Elapsed = ItemQpc > Current->BaseQpc ? ItemQpc - Current->BaseQpc : 0;
   if (Elapsed >= SegmentTicks && PreopenFailed) {
     PreopenFailed = false;
     CloseSegment();
-    if (!OpenSegment(Value.Qpc, ErrorText)) return false;
+    if (!OpenSegment(ItemQpc, ErrorText)) return false;
   }
   if (!PreopenFailed && Elapsed >= PreopenTicks && !Next.valid() && Pending == nullptr) {
     const LONGLONG Remaining = std::max<LONGLONG>(SegmentTicks - (QpcNow() - Current->BaseQpc), 0);
@@ -358,7 +388,7 @@ bool CaptureRecorder::Process(Item& Value, std::string* ErrorText) {
     SegmentResult Result = Next.get();
     if (Result.Ok) {
       if (Elapsed >= SegmentTicks) {
-        Result.Value.BaseQpc = Value.Qpc;
+        Result.Value.BaseQpc = ItemQpc;
         RetireSegment(std::move(*Current));
         Current = std::make_unique<Segment>(std::move(Result.Value));
         LastVideoIndex = -1;
@@ -373,14 +403,14 @@ bool CaptureRecorder::Process(Item& Value, std::string* ErrorText) {
     }
   }
   if (Pending != nullptr && Elapsed >= SegmentTicks) {
-    Pending->BaseQpc = Value.Qpc;
+    Pending->BaseQpc = ItemQpc;
     RetireSegment(std::move(*Current));
     Current = std::move(Pending);
     LastVideoIndex = -1;
     LastAudioTime = -1;
     if (Log) Log("recorder rotate");
   }
-  const LONGLONG Time = Value.Qpc > Current->BaseQpc ? Value.Qpc - Current->BaseQpc : 0;
+  const LONGLONG Time = ItemQpc > Current->BaseQpc ? ItemQpc - Current->BaseQpc : 0;
   if (!Value.Audio) return WriteVideo(Value.Video, Time, ErrorText);
   return WriteAudio(Value.AudioData, Time, ErrorText);
 }
@@ -392,6 +422,11 @@ bool CaptureRecorder::WriteVideo(const std::shared_ptr<Frame>& Value, LONGLONG T
   if (Value->Data.size() < Size) return true;
   LONGLONG Index = FrameIndex(Time);
   if (Index <= LastVideoIndex) Index = LastVideoIndex + 1;
+  // A frame that was decoded/queued slightly late used to create a one-frame
+  // timestamp gap. Players pad that gap with a repeated frame, which is what
+  // looked like periodic dropped frames. Keep the cadence at one frame unless
+  // the capture genuinely missed two or more frames.
+  else if (LastVideoIndex >= 0 && Index - LastVideoIndex == 2) Index = LastVideoIndex + 1;
   LastVideoIndex = Index;
   const LONGLONG SampleTime = FrameTime(Index);
   const LONGLONG SampleDuration = FrameTime(Index + 1) - SampleTime;

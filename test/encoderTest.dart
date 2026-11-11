@@ -25,14 +25,25 @@ void main() {
     expect(FFmpegService.EncoderOrder(RecordSettings(Encoder: 'amd')), <String>['h264_amf', 'libx264']);
     expect(FFmpegService.EncoderOrder(RecordSettings(Encoder: 'intel')), <String>['h264_qsv', 'libx264']);
   });
-  test('Order archive H.265 encoders', () {
-    expect(FFmpegService.ArchiveEncoderOrder(RecordSettings()), <String>['hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'libx265']);
-    expect(FFmpegService.ArchiveEncoderOrder(RecordSettings(Encoder: 'software')), <String>['hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'libx265']);
-    expect(FFmpegService.ArchiveEncoderOrder(RecordSettings(Encoder: 'nvidia')), <String>['hevc_nvenc', 'libx265']);
-    expect(FFmpegService.ArchiveEncoderOrder(RecordSettings(Encoder: 'amd')), <String>['hevc_amf', 'libx265']);
-    expect(FFmpegService.ArchiveEncoderOrder(RecordSettings(Encoder: 'intel')), <String>['hevc_qsv', 'libx265']);
+  test('Order archive encoders with hardware H.264 fallbacks', () {
+    expect(FFmpegService.ArchiveEncoderOrder(RecordSettings()), <String>['hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'h264_nvenc', 'h264_qsv', 'h264_amf', 'libx265']);
+    expect(FFmpegService.ArchiveEncoderOrder(RecordSettings(Encoder: 'software')), <String>['hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'h264_nvenc', 'h264_qsv', 'h264_amf', 'libx265']);
+    expect(FFmpegService.ArchiveEncoderOrder(RecordSettings(Encoder: 'nvidia')), <String>['hevc_nvenc', 'h264_nvenc', 'libx265']);
+    expect(FFmpegService.ArchiveEncoderOrder(RecordSettings(Encoder: 'amd')), <String>['hevc_amf', 'h264_amf', 'libx265']);
+    expect(FFmpegService.ArchiveEncoderOrder(RecordSettings(Encoder: 'intel')), <String>['hevc_qsv', 'h264_qsv', 'libx265']);
   });
-  test('Build archive H.265 quality arguments', () {
+  test('Build archive encoder candidate list', () {
+    expect(
+      FFmpegService.ArchiveEncoderCandidates('hevc_nvenc', RecordSettings()),
+      <String>['hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'h264_nvenc', 'h264_qsv', 'h264_amf', 'libx265'],
+    );
+    expect(
+      FFmpegService.ArchiveEncoderCandidates('hevc_amf', RecordSettings(Encoder: 'amd')),
+      <String>['hevc_amf', 'h264_amf', 'libx265'],
+    );
+    expect(FFmpegService.ArchiveEncoderCandidates('libx265', RecordSettings()), <String>['libx265']);
+  });
+  test('Build archive quality arguments', () {
     final Temp = Directory.systemTemp.createTempSync('s3r-args-');
     final Service = FFmpegService(AppDirectories(Root: Temp.path));
     expect(Service.QualityArgs('hevc_nvenc', 22), containsAll(<String>['-preset', 'p4', '-rc', 'constqp', '-qp', '22']));
@@ -40,6 +51,7 @@ void main() {
     expect(Service.QualityArgs('libx265', 22), containsAll(<String>['-crf', '22']));
     expect(Service.QualityArgs('hevc_videotoolbox', 22), contains('-b:v'));
     expect(Service.ArchiveVideoArgs('libx265', 22), containsAll(<String>['-c:v', 'libx265', '-tag:v', 'hvc1']));
+    expect(Service.ArchiveVideoArgs('h264_nvenc', 22), isNot(contains('-tag:v')));
     Temp.deleteSync(recursive: true);
   });
   test('Probe bundled encoders and fall back to a working one', () async {

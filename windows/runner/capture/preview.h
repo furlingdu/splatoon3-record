@@ -41,7 +41,7 @@ class CapturePreview {
 
  private:
   void Run();
-  void Convert(const Frame& Value);
+  bool Convert(const Frame& Value);
   void ConvertMask(const Frame& Value);
   void ConvertVision(const Frame& Value);
 

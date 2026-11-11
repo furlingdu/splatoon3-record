@@ -132,7 +132,7 @@ class LegacySecret {
         if (Item is! Map) continue;
         final Account = NSOAccount.FromMap(Map<String, dynamic>.from(Item));
         if (Account.Id.isEmpty || Account.Session.isEmpty) continue;
-        Account.State = Account.Token.Expired() ? 'expired' : 'connected';
+        Account.State = Account.NeedsAuth || Account.Token.Expired() ? 'expired' : 'connected';
         Result.add(Account);
       }
     } else if (Secret['nsoSession'] is String && Secret['nsoToken'] is Map) {
@@ -143,7 +143,7 @@ class LegacySecret {
         Token: NSOToken.FromMap(Map<String, dynamic>.from(Secret['nsoToken'] as Map)),
         AddedAt: DateTime.now().millisecondsSinceEpoch,
       );
-      Account.State = Account.Token.Expired() ? 'expired' : 'connected';
+      Account.State = Account.NeedsAuth || Account.Token.Expired() ? 'expired' : 'connected';
       Result.add(Account);
     }
     return Result;

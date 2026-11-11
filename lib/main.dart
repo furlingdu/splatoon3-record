@@ -52,18 +52,18 @@ Future<void> main(List<String> Args) async {
   }
   final Incoming = Args.where((Item) => Item.startsWith('npf')).isEmpty ? null : Uri.tryParse(Args.firstWhere((Item) => Item.startsWith('npf')));
   ExternalLinkBus.Pending = Incoming;
-  var Width = 1440.0;
-  var Height = 900.0;
-  var DisplayWidth = 1440.0;
-  var DisplayHeight = 900.0;
+  var Width = 1180.0;
+  var Height = 760.0;
+  var DisplayWidth = 1180.0;
+  var DisplayHeight = 760.0;
   if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
     await windowManager.ensureInitialized();
     try {
       final Display = await screenRetriever.getPrimaryDisplay();
       DisplayWidth = Display.size.width;
       DisplayHeight = Display.size.height;
-      Width = min(1440, DisplayWidth);
-      Height = min(900, DisplayHeight);
+      Width = min(1180, max(760, DisplayWidth - 60));
+      Height = min(760, max(560, DisplayHeight - 60));
     } catch (_) {}
     final Options = WindowOptions(
       size: Size(Width, Height),
@@ -74,7 +74,6 @@ Future<void> main(List<String> Args) async {
     );
     await windowManager.waitUntilReadyToShow(Options, () async {
       await windowManager.show();
-      if (DisplayWidth < 1000) await windowManager.setSize(Size(DisplayWidth, DisplayHeight));
       await windowManager.focus();
     });
     var Existing = false;
@@ -123,6 +122,7 @@ Future<void> PreviewMode(bool Hidden) async {
       return;
     }
     Visible = Value;
+    await windowManager.setAlwaysOnTop(Value);
     await windowManager.setSkipTaskbar(!Value);
     if (Value) {
       await windowManager.show();
@@ -214,7 +214,7 @@ class RecordAppState extends State<RecordApp> with WindowListener {
       await windowManager.setResizable(true);
       try {
         final Display = await screenRetriever.getPrimaryDisplay();
-        await windowManager.setSize(Size(min(1180, Display.size.width), min(760, Display.size.height)));
+        await windowManager.setSize(Size(min(1180, max(760, Display.size.width - 60)), min(760, max(560, Display.size.height - 60))));
       } catch (_) {
         await windowManager.setSize(const Size(1180, 760));
       }
@@ -224,7 +224,7 @@ class RecordAppState extends State<RecordApp> with WindowListener {
     await windowManager.setResizable(false);
     try {
       final Display = await screenRetriever.getPrimaryDisplay();
-      await windowManager.setSize(Size(min(760, Display.size.width), min(640, Display.size.height)));
+      await windowManager.setSize(Size(min(760, max(560, Display.size.width - 60)), min(640, max(520, Display.size.height - 60))));
     } catch (_) {
       await windowManager.setSize(const Size(760, 640));
     }

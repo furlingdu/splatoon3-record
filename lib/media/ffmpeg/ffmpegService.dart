@@ -318,13 +318,24 @@ class FFmpegService {
   }
 
   static List<String> ArchiveEncoderOrder(RecordSettings Value) {
-    if (PlatformInfo.IOS) return <String>['hevc_videotoolbox', 'libx265'];
-    if (PlatformInfo.Android) return <String>['hevc_mediacodec', 'libx265'];
-    if (PlatformInfo.MacOS) return <String>['hevc_videotoolbox', 'libx265'];
-    if (Value.Encoder == 'nvidia') return <String>['hevc_nvenc', 'libx265'];
-    if (Value.Encoder == 'amd') return <String>['hevc_amf', 'libx265'];
-    if (Value.Encoder == 'intel') return <String>['hevc_qsv', 'libx265'];
-    return <String>['hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'libx265'];
+    if (PlatformInfo.IOS) return <String>['hevc_videotoolbox', 'h264_videotoolbox', 'libx265'];
+    if (PlatformInfo.Android) return <String>['hevc_mediacodec', 'h264_mediacodec', 'libx265'];
+    if (PlatformInfo.MacOS) return <String>['hevc_videotoolbox', 'h264_videotoolbox', 'libx265'];
+    if (Value.Encoder == 'nvidia') return <String>['hevc_nvenc', 'h264_nvenc', 'libx265'];
+    if (Value.Encoder == 'amd') return <String>['hevc_amf', 'h264_amf', 'libx265'];
+    if (Value.Encoder == 'intel') return <String>['hevc_qsv', 'h264_qsv', 'libx265'];
+    return <String>['hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'h264_nvenc', 'h264_qsv', 'h264_amf', 'libx265'];
+  }
+
+  static List<String> ArchiveEncoderCandidates(String Primary, RecordSettings Value) {
+    if (Primary == 'libx265') return <String>[Primary];
+    final Result = <String>[Primary];
+    for (final Encoder in ArchiveEncoderOrder(Value)) {
+      if (Encoder == 'libx265' || Result.contains(Encoder)) continue;
+      Result.add(Encoder);
+    }
+    Result.add('libx265');
+    return Result;
   }
 
   Future<bool> Probe(String Name) async {
@@ -402,7 +413,8 @@ class FFmpegService {
   }
 
   List<String> ArchiveVideoArgs(String Encoder, int Quality) {
-    return <String>['-c:v', Encoder, ...QualityArgs(Encoder, Quality), '-tag:v', 'hvc1'];
+    final Hevc = Encoder.contains('hevc') || Encoder.contains('x265');
+    return <String>['-c:v', Encoder, ...QualityArgs(Encoder, Quality), if (Hevc) ...<String>['-tag:v', 'hvc1']];
   }
 
   List<String> InputArgs(RecordSettings Value) {

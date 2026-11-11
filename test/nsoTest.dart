@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splatoon3record/config/constants.dart';
+import 'package:splatoon3record/domain/models.dart';
 import 'package:splatoon3record/nso/battle.dart';
 import 'package:splatoon3record/nso/callback.dart';
 import 'package:splatoon3record/nso/nsoService.dart';
@@ -162,6 +163,36 @@ void main() {
       'NSO 校验服务暂不支持当前 NSO 版本，请更新应用后重试',
     );
     expect(NSOService.ErrorText(StateError('NSO 校验服务不可用：No workers available')), 'NSO 校验服务暂时不可用，请稍后重试');
+  });
+
+  test('Detect permanently invalid Nintendo session tokens', () {
+    expect(NSOService.AuthInvalid(StateError('The provided grant is invalid')), true);
+    expect(NSOService.AuthInvalid('invalid_grant'), true);
+    expect(NSOService.AuthInvalid(StateError('The provided session_token is invalid')), true);
+    expect(NSOService.AuthInvalid(StateError('Nintendo 登录已过期')), true);
+    expect(NSOService.AuthInvalid(StateError('NSO 校验服务不可用：Timeout waiting for a worker')), false);
+    expect(NSOService.AuthInvalid(StateError('SplatNet 请求失败：HTTP 401')), false);
+    expect(NSOService.AuthInvalid(null), false);
+  });
+
+  test('Persist accounts that need a full Nintendo login', () {
+    final Original = NSOAccount(
+      Id: 'account-1',
+      Nickname: 'Tester',
+      Session: 'session',
+      Token: NSOToken(BulletToken: '', GToken: '', Language: 'zh-CN', Country: 'CN', UserAgent: '', ExpiresAt: 0),
+      AddedAt: 1,
+      State: 'expired',
+      NeedsAuth: true,
+    );
+    final Saved = Original.ToMap();
+    expect(Saved['needsAuth'], true);
+    final Loaded = NSOAccount.FromMap(Saved);
+    expect(Loaded.NeedsAuth, true);
+    expect(Loaded.State, 'expired');
+    final Healthy = NSOAccount.FromMap(<String, dynamic>{'id': 'account-2', 'session': 'session'});
+    expect(Healthy.NeedsAuth, false);
+    expect(Healthy.State, 'connected');
   });
 }
 

@@ -69,8 +69,8 @@ class NicknameBlur {
     if (MaskResult.exitCode != 0 || !File(Mask).existsSync()) return null;
     await Directory(File(Output).parent.path).create(recursive: true);
     final Primary = await FFmpeg.ArchiveEncoder(RecordSettings());
-    for (var Attempt = 0; Attempt < 2; Attempt++) {
-      final Encoder = Attempt == 0 ? Primary : 'libx265';
+    final Candidates = FFmpegService.ArchiveEncoderCandidates(Primary, RecordSettings());
+    for (final Encoder in Candidates) {
       final Args = <String>[
         '-hide_banner', '-loglevel', 'error', '-y',
         '-i', Source, '-loop', '1', '-i', Mask,
@@ -90,7 +90,6 @@ class NicknameBlur {
       try {
         await File(Output).delete();
       } catch (_) {}
-      if (Encoder == 'libx265') break;
     }
     try {
       await File(Mask).delete();

@@ -602,10 +602,10 @@ class CaptureService {
       final Primary = await FFmpeg.ArchiveEncoder(Value);
       final Note = FFmpeg.ArchiveNote;
       final Fps = Selected.first.Fps > 0 ? Selected.first.Fps : Value.Fps;
-      await Log('archive encoder=$Primary${Note == null ? '' : ' $Note'} fps=$Fps');
+      final Candidates = FFmpegService.ArchiveEncoderCandidates(Primary, Value);
+      await Log('archive encoder=$Primary${Note == null ? '' : ' $Note'} fallbacks=${Candidates.skip(1).join(',')} fps=$Fps');
       await Directory(File(Output).parent.path).create(recursive: true);
-      for (var Attempt = 0; Attempt < 2; Attempt++) {
-        final Encoder = Attempt == 0 ? Primary : 'libx265';
+      for (final Encoder in Candidates) {
         final Args = <String>[
           '-hide_banner', '-loglevel', 'error', '-y',
           '-f', 'concat', '-safe', '0', '-i', Temp,
@@ -626,7 +626,6 @@ class CaptureService {
         } catch (_) {}
         final Detail = '${Result.stderr}${Result.stdout}'.trim();
         await Log('archive failed encoder=$Encoder ${Detail.length > 500 ? Detail.substring(Detail.length - 500) : Detail}');
-        if (Encoder == 'libx265') break;
       }
       return null;
     } finally {

@@ -1,5 +1,8 @@
 #include "texture.h"
 
+#include <chrono>
+#include <thread>
+
 namespace Capture {
 
 namespace {
@@ -30,10 +33,23 @@ bool PreviewTexture::Start() {
     return false;
   }
   MarkedPublish = 0;
+  // The preview window runs in a separate process and has no capture engine of
+  // its own, so nothing would mark its texture when the main process publishes
+  // a new frame. Poll the shared publish counter and request a repaint; the
+  // main process does the same through its OnPreview callback.
+  PollStopping = false;
+  PollThread = std::thread([this]() {
+    while (!PollStopping.load()) {
+      Notify();
+      std::this_thread::sleep_for(std::chrono::milliseconds(8));
+    }
+  });
   return true;
 }
 
 void PreviewTexture::Stop() {
+  PollStopping = true;
+  if (PollThread.joinable()) PollThread.join();
   if (TextureId < 0) return;
   HANDLE Done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   FlutterDesktopTextureRegistrarUnregisterExternalTexture(RegistrarRef, TextureId, &PreviewTexture::Unregistered, Done);

@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <thread>
 
 namespace Capture {
 
@@ -35,6 +36,8 @@ class PreviewTexture {
   FlutterDesktopTextureInfo TextureInfo{};
   int64_t TextureId = -1;
   std::atomic<LONG> MarkedPublish{0};
+  std::atomic<bool> PollStopping{false};
+  std::thread PollThread;
 };
 
 }

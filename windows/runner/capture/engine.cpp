@@ -37,7 +37,9 @@ bool CaptureEngine::Prepare(const Config& Value) {
   }
   PreparedConfig = Value;
   PreparedMode = Selected;
-  PreparedMode.Format = "nv12";
+  // The Media Foundation reader always negotiates NV12 output, but that is an
+  // internal conversion format. Keep the source format picked above so the UI
+  // reports the format the camera actually captures (NV12 / YUY2 / MJPEG).
   ErrorText.clear();
   return true;
 }

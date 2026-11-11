@@ -109,6 +109,21 @@ class NSOService {
     return Text;
   }
 
+  /// Whether the stored Nintendo session token cannot be reused anymore, so a
+  /// refresh is pointless and the user has to complete the Nintendo login page
+  /// again (for example after changing the account password).
+  static bool AuthInvalid(Object? Cause) {
+    final Text = RawError(Cause).toLowerCase();
+    if (Text.isEmpty) return false;
+    return Text.contains('provided grant is invalid') ||
+        Text.contains('invalid_grant') ||
+        Text.contains('invalid grant') ||
+        Text.contains('invalid session token') ||
+        Text.contains('session token is invalid') ||
+        Text.contains('session_token is invalid') ||
+        Text.contains('登录已过期');
+  }
+
   Future<String> _ResolveVersion(String Server) async {
     try {
       final Response = await http.get(

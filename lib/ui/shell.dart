@@ -443,7 +443,7 @@ class DrawerPanel extends StatelessWidget {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
             child: Material(
-              color: Active ? Scheme.secondaryContainer : Colors.transparent,
+              color: Active ? Scheme.primary.withValues(alpha: 0.20) : Colors.transparent,
               borderRadius: BorderRadius.circular(28),
               child: InkWell(
                 borderRadius: BorderRadius.circular(28),
@@ -452,9 +452,9 @@ class DrawerPanel extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   child: Row(
                     children: <Widget>[
-                      Icon(IconFor(Item[2]), color: Active ? Scheme.onSecondaryContainer : Scheme.onSurfaceVariant),
+                      Icon(IconFor(Item[2]), color: Active ? Scheme.onSurface : Scheme.onSurfaceVariant),
                       const SizedBox(width: 16),
-                      Text(Item[1], style: AppTheme.Style(Size: 16, ColorValue: Active ? Scheme.onSecondaryContainer : Scheme.onSurface)),
+                      Text(Item[1], style: AppTheme.Style(Size: 16, ColorValue: Scheme.onSurface)),
                     ],
                   ),
                 ),

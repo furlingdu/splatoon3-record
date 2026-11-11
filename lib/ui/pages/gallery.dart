@@ -24,15 +24,25 @@ class GalleryPageState extends State<GalleryPage> {
   String Kind = 'all';
   bool HideUnrecorded = true;
   final Set<String> Picked = <String>{};
+  final Map<String, bool> ThumbCache = <String, bool>{};
+  int VisibleLimit = 24;
+  int LastMatchCount = -1;
 
   @override
   Widget build(BuildContext context) {
     final All = widget.Controller.Matches.toList();
+    if (All.length != LastMatchCount) {
+      LastMatchCount = All.length;
+      ThumbCache.clear();
+    }
     final Normal = All.where((Item) => Item.Kind != 'highlight').toList();
     final Highlights = All.where((Item) => Item.Kind == 'highlight' && (!HideUnrecorded || Item.HasVideo)).toList();
     final Kinds = <String>{'all', ...Normal.map((Item) => Item.Kind)}.toList();
     final Visible = Normal.where((Item) => (Kind == 'all' || Item.Kind == Kind) && (!HideUnrecorded || Item.HasVideo)).toList();
     final PickedList = <BattleMatch>[...Visible, ...Highlights].where((Item) => Picked.contains(Item.Key) && Item.HasVideo).toList();
+    final Shown = Visible.take(VisibleLimit).toList();
+    final ShownHighlights = Highlights.take(VisibleLimit).toList();
+    final Hidden = (Visible.length - Shown.length) + (Highlights.length - ShownHighlights.length);
     return PageBody(
       Children: <Widget>[
         const AppPageTitle('相册'),
@@ -48,11 +58,17 @@ class GalleryPageState extends State<GalleryPage> {
                 Value: Kind,
                 Items: Kinds,
                 Display: (Value) => Value == 'all' ? '全部类型' : Formats.Kind(Value),
-                OnChanged: (Value) => setState(() => Kind = Value),
+                OnChanged: (Value) => setState(() {
+                  Kind = Value;
+                  VisibleLimit = 24;
+                }),
               ),
             ),
             Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
-              Checkbox(value: HideUnrecorded, onChanged: (Value) => setState(() => HideUnrecorded = Value ?? true)),
+              Checkbox(value: HideUnrecorded, onChanged: (Value) => setState(() {
+                HideUnrecorded = Value ?? true;
+                VisibleLimit = 24;
+              })),
               const Text('不显示未录制对局'),
             ]),
             AppButton(Label: '刷新', Kind: AppButtonKind.Text, OnPressed: () => widget.Controller.RefreshMatches()),
@@ -84,13 +100,24 @@ class GalleryPageState extends State<GalleryPage> {
           if (Visible.isEmpty)
             AppEmpty(Highlights.isEmpty ? '暂无对局录像' : '暂无普通对局录像')
           else
-            BuildGrid(Visible),
+            BuildGrid(Shown),
           if (Highlights.isNotEmpty) ...<Widget>[
             const AppSectionTitle('高亮操作'),
             const AppHint('高亮操作录像单独列出，点击视频框后手动播放，不会自动播放。'),
             const SizedBox(height: 8),
-            BuildGrid(Highlights),
+            BuildGrid(ShownHighlights),
           ],
+          if (Hidden > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Center(
+                child: AppButton(
+                  Label: '加载更多（剩余 $Hidden 个）',
+                  Kind: AppButtonKind.Outlined,
+                  OnPressed: () => setState(() => VisibleLimit += 24),
+                ),
+              ),
+            ),
         ],
       ],
     );
@@ -109,7 +136,7 @@ class GalleryPageState extends State<GalleryPage> {
                   Expanded(
                     child: Padding(
                       padding: EdgeInsets.only(right: Slot == Count - 1 ? 0 : 16, bottom: 16),
-                      child: Index + Slot < Items.length ? CardView(Items[Index + Slot]) : const SizedBox.shrink(),
+                      child: Index + Slot < Items.length ? RepaintBoundary(child: CardView(Items[Index + Slot])) : const SizedBox.shrink(),
                     ),
                   ),
               ],
@@ -117,6 +144,15 @@ class GalleryPageState extends State<GalleryPage> {
         ],
       );
     });
+  }
+
+  bool HasThumb(String Path) {
+    if (Path.isEmpty) return false;
+    final Cached = ThumbCache[Path];
+    if (Cached != null) return Cached;
+    final Exists = File(Path).existsSync();
+    ThumbCache[Path] = Exists;
+    return Exists;
   }
 
   Widget CardView(BattleMatch Match) {
@@ -141,8 +177,15 @@ class GalleryPageState extends State<GalleryPage> {
                 fit: StackFit.expand,
                 children: <Widget>[
                   Container(color: Colors.black),
-                  if (Thumb.isNotEmpty && File(Thumb).existsSync())
-                    Image.file(File(Thumb), fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink())
+                  if (HasThumb(Thumb))
+                    Image.file(
+                      File(Thumb),
+                      fit: BoxFit.cover,
+                      cacheWidth: 480,
+                      filterQuality: FilterQuality.low,
+                      gaplessPlayback: true,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    )
                   else
                     Center(child: Icon(Icons.movie, size: 40, color: Scheme.onSurfaceVariant)),
                   if (Match.HasVideo)

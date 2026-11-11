@@ -24,7 +24,16 @@ extension AppNSOFlow on AppController {
     }
     final Matches = Accounts.where((Item) => Item.Id == AccountId);
     if (Matches.isEmpty) return;
-    await NSORefresh(Matches.first);
+    final Account = Matches.first;
+    if (Account.NeedsAuth) {
+      await BeginNSOAuth();
+      return;
+    }
+    await NSORefresh(Account);
+    if (Account.NeedsAuth) {
+      await BeginNSOAuth();
+      return;
+    }
     StartNSOPoll();
   }
 
@@ -127,6 +136,7 @@ extension AppNSOFlow on AppController {
       Account.Token = NSOToken(BulletToken: Session.BulletToken, GToken: Session.GToken, Language: Session.Language, Country: Session.Country, UserAgent: Config.UserAgent, ExpiresAt: Session.ExpiresAt);
       Account.State = 'connected';
       Account.Error = null;
+      Account.NeedsAuth = false;
       Account.LastRefreshAt = DateTime.now().millisecondsSinceEpoch;
       if (Existing.isEmpty) Accounts.add(Account);
       NSOSessions[Account.Id] = Session;
@@ -195,6 +205,7 @@ extension AppNSOFlow on AppController {
   Future<void> NSOConnect() async {
     if (Accounts.isEmpty) return;
     for (final Account in Accounts) {
+      if (Account.NeedsAuth) continue;
       final Cached = Vault.Data['nsoSessions'] is Map && (Vault.Data['nsoSessions'] as Map)[Account.Id] is Map
           ? Map<String, dynamic>.from((Vault.Data['nsoSessions'] as Map)[Account.Id] as Map)
           : null;
@@ -235,6 +246,7 @@ extension AppNSOFlow on AppController {
       Account.Token = NSOToken(BulletToken: Session.BulletToken, GToken: Session.GToken, Language: Session.Language, Country: Session.Country, UserAgent: Config.UserAgent, ExpiresAt: Session.ExpiresAt);
       Account.State = 'connected';
       Account.Error = null;
+      Account.NeedsAuth = false;
       NSOErrorText = null;
       Account.LastRefreshAt = DateTime.now().millisecondsSinceEpoch;
       if (CurrentNSOId == null) CurrentNSOId = Account.Id;
@@ -258,11 +270,15 @@ extension AppNSOFlow on AppController {
       await SaveVaultAccounts();
     } catch (Cause) {
       final Reason = NSOService.ErrorText(Cause);
-      await Logs.Login('nso refresh failed account=${Account.Id} $Cause');
-      Account.State = 'error';
+      final NeedsAuth = NSOService.AuthInvalid(Cause);
+      final Changed = Account.NeedsAuth != NeedsAuth;
+      await Logs.Login('nso refresh failed account=${Account.Id} needsAuth=$NeedsAuth $Cause');
+      Account.State = NeedsAuth ? 'expired' : 'error';
       Account.Error = Reason;
+      Account.NeedsAuth = NeedsAuth;
       NSOErrorText = Reason;
       NSOSessions.remove(Account.Id);
+      if (Changed) await SaveVaultAccounts();
     }
     PushStatus();
   }
@@ -270,7 +286,7 @@ extension AppNSOFlow on AppController {
   void StartNSOPoll() {
     NSOClock?.cancel();
     if (NSOSessions.isEmpty) {
-      if (Accounts.any((Item) => Item.State != 'connected' && Item.Session.isNotEmpty)) {
+      if (Accounts.any((Item) => Item.State != 'connected' && Item.Session.isNotEmpty && !Item.NeedsAuth)) {
         NSOClock = Timer(const Duration(minutes: Config.NSORetryMinutes), () {
           unawaited(NSOConnect());
         });

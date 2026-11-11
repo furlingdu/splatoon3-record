@@ -115,13 +115,19 @@ extension AppMatchFlow on AppController {
   }
 
   Future<void> GenerateThumbs() async {
+    var Added = 0;
     for (final Match in List<BattleMatch>.of(Archive.Matches)) {
       if (!Match.HasVideo) continue;
       final Path = '${Directories.Thumbs}${Platform.pathSeparator}${Archive.SafeName(Match.Key)}.jpg';
       if (File(Path).existsSync()) continue;
       final Ok = await FFmpeg.Thumbnail(Match.VideoPath!, Path);
-      if (Ok) Notify();
+      if (!Ok) continue;
+      Added++;
+      // Notify in small batches: rebuilding the whole shell once per thumbnail
+      // made the first gallery visit stutter while boot-time thumbnails ran.
+      if (Added % 8 == 0) Notify();
     }
+    if (Added > 0) Notify();
   }
 
 }

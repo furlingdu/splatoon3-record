@@ -34,7 +34,19 @@ class BindingPage extends StatelessWidget {
           ],
         ),
         if (Status?.NSOError != null && Status?.NSOState != 'unbound')
-          Text('失败原因：${Status!.NSOError}', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant)),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Scheme.errorContainer.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Scheme.error.withValues(alpha: 0.35)),
+              ),
+              child: Text('失败原因：${Status!.NSOError}', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onErrorContainer, Height: 1.5)),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(

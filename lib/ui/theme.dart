@@ -8,9 +8,9 @@ class AppTheme {
   }
 
   static Color ChromeFor(ColorScheme Scheme, {bool Soft = false}) {
-    final Tint = Scheme.primary.withValues(alpha: Soft ? 0.28 : 0.36);
+    final Tint = Scheme.primary.withValues(alpha: Soft ? 0.10 : 0.14);
     final Base = Color.alphaBlend(Tint, const Color(0xff17161d));
-    return Base.withValues(alpha: Soft ? 0.64 : 0.80);
+    return Base.withValues(alpha: Soft ? 0.55 : 0.75);
   }
   static const List<String> FontFallback = <String>[
     'SplatoonZhL1',

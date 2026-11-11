@@ -134,16 +134,19 @@ void ConvertNv12(const uint8_t* Source, int Width, int Height, uint8_t* Target) 
 void ConvertNv12Scaled(const uint8_t* Source, int SourceWidth, int SourceHeight, uint8_t* Target, int TargetWidth, int TargetHeight) {
   const uint8_t* YPlane = Source;
   const uint8_t* UvPlane = Source + static_cast<size_t>(SourceWidth) * SourceHeight;
+  const int StepX = (SourceWidth << 16) / TargetWidth;
   for (int Y = 0; Y < TargetHeight; Y++) {
     uint8_t* Row = Target + static_cast<size_t>(Y) * TargetWidth * 4;
     const int SourceY = std::min(SourceHeight - 1, Y * SourceHeight / TargetHeight);
     const int SourceUvY = std::min((SourceHeight >> 1) - 1, SourceY >> 1);
     const uint8_t* Line = YPlane + static_cast<size_t>(SourceY) * SourceWidth;
     const uint8_t* UvLine = UvPlane + static_cast<size_t>(SourceUvY) * SourceWidth;
+    int SourceX = 0;
     for (int X = 0; X < TargetWidth; X++) {
-      const int SourceX = std::min(SourceWidth - 1, X * SourceWidth / TargetWidth);
-      const int UvIndex = (SourceX & ~1);
-      WritePixel(Row + static_cast<size_t>(X) * 4, Line[SourceX], UvLine[UvIndex], UvLine[UvIndex + 1]);
+      const int Sx = SourceX >> 16;
+      const int UvIndex = Sx & ~1;
+      WritePixel(Row + static_cast<size_t>(X) * 4, Line[Sx], UvLine[UvIndex], UvLine[UvIndex + 1]);
+      SourceX += StepX;
     }
   }
 }
@@ -245,8 +248,9 @@ void CapturePreview::Run() {
     }
     if (!Current) continue;
     const auto ConvertStart = std::chrono::steady_clock::now();
-    Convert(*Current);
+    const bool Converted = Convert(*Current);
     const auto ConvertEnd = std::chrono::steady_clock::now();
+    if (!Converted) continue;
     LastConvertMs.store(static_cast<int>(std::chrono::duration_cast<std::chrono::microseconds>(ConvertEnd - ConvertStart).count() / 1000));
     const LONGLONG Now = static_cast<LONGLONG>(GetTickCount64());
     if (LastRateTick == 0) LastRateTick = Now;
@@ -261,15 +265,18 @@ void CapturePreview::Run() {
   }
 }
 
-void CapturePreview::Convert(const Frame& Value) {
-  if (Value.Width <= 1 || Value.Height <= 1) return;
+bool CapturePreview::Convert(const Frame& Value) {
+  if (Value.Width <= 1 || Value.Height <= 1) return false;
+  // Preview is a pass-through: keep the captured resolution and frame rate.
+  // No scaling, no frame dropping and no extra processing here; the texture is
+  // presented as-is so the user sees the original 1080p60 (or higher) signal.
   const int Width = Value.Width & ~1;
   const int Height = Value.Height & ~1;
   int Index = -1;
   uint8_t* Target = nullptr;
   if (!SharedRef->BeginWrite(Index, &Target) || Target == nullptr) {
     DroppedFrames++;
-    return;
+    return false;
   }
   ConvertNv12(Value.Data.data(), Width, Height, Target);
   SharedRef->EndWrite(Index, Width, Height, Value.Timestamp);
@@ -285,6 +292,7 @@ void CapturePreview::Convert(const Frame& Value) {
     LastVisionTick = Now;
     ConvertVision(Value);
   }
+  return true;
 }
 
 void CapturePreview::ConvertVision(const Frame& Value) {

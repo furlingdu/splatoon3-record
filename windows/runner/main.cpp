@@ -34,7 +34,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   window.SetShowOnFirstFrame(!(preview && hidden));
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  // Start with the normal window size instead of a large default surface so
+  // startup never covers the screen before the boot-time resize is applied.
+  Win32Window::Size size(1180, 760);
   if (!window.Create(L"Splatoon3 Record", origin, size)) {
     return EXIT_FAILURE;
   }
