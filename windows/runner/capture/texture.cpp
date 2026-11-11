@@ -33,23 +33,30 @@ bool PreviewTexture::Start() {
     return false;
   }
   MarkedPublish = 0;
-  // The preview window runs in a separate process and has no capture engine of
-  // its own, so nothing would mark its texture when the main process publishes
-  // a new frame. Poll the shared publish counter and request a repaint; the
-  // main process does the same through its OnPreview callback.
-  PollStopping = false;
-  PollThread = std::thread([this]() {
-    while (!PollStopping.load()) {
-      Notify();
-      std::this_thread::sleep_for(std::chrono::milliseconds(8));
-    }
-  });
+  // The detached preview window has no capture engine of its own, so its Dart
+  // side calls SetPolling(true) only while the window is visible. The main
+  // process marks frames through its OnPreview callback instead.
   return true;
 }
 
-void PreviewTexture::Stop() {
+void PreviewTexture::SetPolling(bool Enabled) {
+  if (Enabled) {
+    if (PollThread.joinable()) return;
+    PollStopping = false;
+    PollThread = std::thread([this]() {
+      while (!PollStopping.load()) {
+        Notify();
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+      }
+    });
+    return;
+  }
   PollStopping = true;
   if (PollThread.joinable()) PollThread.join();
+}
+
+void PreviewTexture::Stop() {
+  SetPolling(false);
   if (TextureId < 0) return;
   HANDLE Done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   FlutterDesktopTextureRegistrarUnregisterExternalTexture(RegistrarRef, TextureId, &PreviewTexture::Unregistered, Done);
@@ -81,6 +88,7 @@ const FlutterDesktopPixelBuffer* PreviewTexture::CopyPixel(size_t Width, size_t 
   int FrameHeight = 0;
   int Index = -1;
   if (!Self->SharedRef->AcquireLatest(&Data, FrameWidth, FrameHeight, Index)) return nullptr;
+  Self->SharedRef->TouchRead();
   Self->PixelBuffer.buffer = Data;
   Self->PixelBuffer.width = static_cast<size_t>(FrameWidth);
   Self->PixelBuffer.height = static_cast<size_t>(FrameHeight);

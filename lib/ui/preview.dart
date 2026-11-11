@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../media/capture/bridge.dart';
 import 'theme.dart';
@@ -22,7 +23,7 @@ class PreviewWindowAppState extends State<PreviewWindowApp> {
   void initState() {
     super.initState();
     _Init();
-    _Poll = Timer.periodic(const Duration(milliseconds: 500), (_) => _Refresh());
+    _Poll = Timer.periodic(const Duration(milliseconds: 300), (_) => _Refresh());
   }
 
   Future<void> _Init() async {
@@ -50,12 +51,18 @@ class PreviewWindowAppState extends State<PreviewWindowApp> {
           _Message = Active ? null : '等待录制开始';
         });
       }
+      bool Visible = false;
+      try {
+        Visible = await windowManager.isVisible();
+      } catch (_) {}
+      await CaptureBridge.PreviewPolling(Visible && Active);
     } catch (_) {}
   }
 
   @override
   void dispose() {
     _Poll?.cancel();
+    unawaited(CaptureBridge.PreviewPolling(false).catchError((_) {}));
     super.dispose();
   }
 

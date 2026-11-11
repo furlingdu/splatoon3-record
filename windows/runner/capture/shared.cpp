@@ -6,9 +6,9 @@ namespace Capture {
 
 namespace {
 
-constexpr wchar_t SharedName[] = L"Local\\Splatoon3RecordPreviewFramesV2";
+constexpr wchar_t SharedName[] = L"Local\\Splatoon3RecordPreviewFramesV3";
 constexpr LONG SharedMagic = 0x53335232;
-constexpr LONG SharedVersion = 2;
+constexpr LONG SharedVersion = 3;
 constexpr size_t SharedHeaderSize = 128;
 constexpr size_t SharedSlotHeaderSize = 64;
 constexpr size_t SharedSlotDataSize = static_cast<size_t>(MaxPreviewWidth) * static_cast<size_t>(MaxPreviewHeight) * 4;
@@ -30,6 +30,7 @@ struct Shared::Header {
   volatile LONG Reserved;
   volatile LONGLONG LastTick;
   volatile LONGLONG Reserved2;
+  volatile LONGLONG LastReadTick;
 };
 
 struct Shared::SlotHeader {
@@ -71,6 +72,7 @@ bool Shared::Open() {
     Value->Reserved = 0;
     Value->LastTick = 0;
     Value->Reserved2 = 0;
+    Value->LastReadTick = 0;
     for (int Index = 0; Index < PreviewSlotCount; Index++) {
       SlotHeader* Slot = SlotRef(Index);
       Slot->Readers = 0;
@@ -175,6 +177,18 @@ bool Shared::IsActive() const {
 bool Shared::IsRecent(int Milliseconds) const {
   if (View == nullptr) return false;
   const LONGLONG Tick = HeaderRef()->LastTick;
+  if (Tick <= 0) return false;
+  return static_cast<LONGLONG>(GetTickCount64()) - Tick <= Milliseconds;
+}
+
+void Shared::TouchRead() {
+  if (View == nullptr) return;
+  InterlockedExchange64(&HeaderRef()->LastReadTick, static_cast<LONGLONG>(GetTickCount64()));
+}
+
+bool Shared::ReadRecently(int Milliseconds) const {
+  if (View == nullptr) return false;
+  const LONGLONG Tick = HeaderRef()->LastReadTick;
   if (Tick <= 0) return false;
   return static_cast<LONGLONG>(GetTickCount64()) - Tick <= Milliseconds;
 }

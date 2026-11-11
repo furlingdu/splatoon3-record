@@ -329,6 +329,13 @@ void CaptureHost::HandleMethod(const flutter::MethodCall<flutter::EncodableValue
     Result->Success(flutter::EncodableValue(Value));
     return;
   }
+  if (Method == "PreviewPolling") {
+    const auto* Map = Arguments == nullptr ? nullptr : std::get_if<flutter::EncodableMap>(Arguments);
+    const bool Enabled = Map != nullptr && BoolValue(*Map, "enabled", false);
+    if (Texture) Texture->SetPolling(Enabled);
+    Result->Success(flutter::EncodableValue(true));
+    return;
+  }
   if (Method == "Snapshot") {
     std::vector<uint8_t> Frame;
     uint32_t Sequence = 0;

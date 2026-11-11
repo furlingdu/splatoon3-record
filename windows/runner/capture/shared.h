@@ -30,6 +30,8 @@ class Shared {
   void SetActive(bool Value);
   bool IsActive() const;
   bool IsRecent(int Milliseconds) const;
+  void TouchRead();
+  bool ReadRecently(int Milliseconds) const;
   LONG PublishCount() const;
   int LatestSequence() const;
   int Width() const;

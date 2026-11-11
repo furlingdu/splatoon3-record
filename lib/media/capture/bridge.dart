@@ -110,6 +110,10 @@ class CaptureBridge {
     return Map<String, dynamic>.from(Raw ?? <dynamic, dynamic>{});
   }
 
+  static Future<void> PreviewPolling(bool Enabled) async {
+    await Channel.invokeMethod<void>('PreviewPolling', <String, dynamic>{'enabled': Enabled});
+  }
+
   static Future<Uint8List?> Snapshot() async {
     return await Channel.invokeMethod<Uint8List>('Snapshot');
   }

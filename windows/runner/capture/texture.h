@@ -22,6 +22,7 @@ class PreviewTexture {
 
   bool Start();
   void Stop();
+  void SetPolling(bool Enabled);
   void Notify();
   int64_t Id() const;
 

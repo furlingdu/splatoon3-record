@@ -115,20 +115,10 @@ void ConvertNv12Rows(const uint8_t* Source, int Width, int Height, uint8_t* Targ
 }
 
 void ConvertNv12(const uint8_t* Source, int Width, int Height, uint8_t* Target) {
-  const int ThreadCount = Width * Height >= 1920 * 1080 ? 4 : 1;
-  if (ThreadCount == 1) {
-    ConvertNv12Rows(Source, Width, Height, Target, 0, Height);
-    return;
-  }
-  std::vector<std::thread> Workers;
-  Workers.reserve(ThreadCount - 1);
-  for (int Index = 1; Index < ThreadCount; Index++) {
-    const int StartRow = Height * Index / ThreadCount;
-    const int EndRow = Height * (Index + 1) / ThreadCount;
-    Workers.emplace_back([&, StartRow, EndRow]() { ConvertNv12Rows(Source, Width, Height, Target, StartRow, EndRow); });
-  }
-  ConvertNv12Rows(Source, Width, Height, Target, 0, Height / ThreadCount);
-  for (std::thread& Worker : Workers) Worker.join();
+  // The preview conversion is intentionally single-threaded. Creating worker
+  // threads for every 1080p frame cost more CPU than the conversion itself and
+  // caused periodic spikes while recording.
+  ConvertNv12Rows(Source, Width, Height, Target, 0, Height);
 }
 
 void ConvertNv12Scaled(const uint8_t* Source, int SourceWidth, int SourceHeight, uint8_t* Target, int TargetWidth, int TargetHeight) {
@@ -267,9 +257,12 @@ void CapturePreview::Run() {
 
 bool CapturePreview::Convert(const Frame& Value) {
   if (Value.Width <= 1 || Value.Height <= 1) return false;
-  // Preview is a pass-through: keep the captured resolution and frame rate.
-  // No scaling, no frame dropping and no extra processing here; the texture is
-  // presented as-is so the user sees the original 1080p60 (or higher) signal.
+  // Keep the captured resolution and frame rate while a preview is actually
+  // being displayed. When nothing reads the texture (window hidden / another
+  // page), only publish a 5 fps heartbeat so the desktop stays responsive.
+  const LONGLONG Now = static_cast<LONGLONG>(GetTickCount64());
+  const bool Wanted = SharedRef->ReadRecently(1000);
+  if (!Wanted && LastPreviewTick != 0 && Now - LastPreviewTick < 200) return false;
   const int Width = Value.Width & ~1;
   const int Height = Value.Height & ~1;
   int Index = -1;
@@ -278,12 +271,12 @@ bool CapturePreview::Convert(const Frame& Value) {
     DroppedFrames++;
     return false;
   }
+  LastPreviewTick = Now;
   ConvertNv12(Value.Data.data(), Width, Height, Target);
   SharedRef->EndWrite(Index, Width, Height, Value.Timestamp);
   FrameWidth.store(Width);
   FrameHeight.store(Height);
   if (OnPublish) OnPublish();
-  const LONGLONG Now = static_cast<LONGLONG>(GetTickCount64());
   if (LastMaskTick == 0 || Now - LastMaskTick >= 1000 / MaskFps) {
     LastMaskTick = Now;
     ConvertMask(Value);

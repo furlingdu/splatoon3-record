@@ -66,6 +66,7 @@ class CapturePreview {
   int VisionWidth = 0;
   int VisionHeight = 0;
   LONGLONG LastRateTick = 0;
+  LONGLONG LastPreviewTick = 0;
   int RateFrames = 0;
   std::atomic<int> FrameRateValue{0};
   std::atomic<int> LatencyValue{0};
