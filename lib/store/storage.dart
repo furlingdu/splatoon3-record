@@ -71,7 +71,16 @@ class EnvStore {
   String get ProjectUrl => Get('PROJECT_URL', 'https://github.com/furlingdu/splatoon3-record');
   String get ProjectVersion => Get('PROJECT_VERSION', Config.AppVersion);
   String get AuthorAvatar => Get('AUTHOR_AVATAR_URL', 'https://q2.qlogo.cn/headimg_dl?dst_uin=3648192311&spec=640');
-  String get NSOBackend => Get('NSO_BACKEND_URL', 'https://znca.furlingdu.com');
+  String get NSOBackend {
+    var Value = Get('NSO_BACKEND_URL', 'https://znca.furlingdu.com/api/znca').trim();
+    while (Value.endsWith('/')) {
+      Value = Value.substring(0, Value.length - 1);
+    }
+    final Parsed = Uri.tryParse(Value);
+    if (Parsed == null || Parsed.host.isEmpty) return 'https://znca.furlingdu.com/api/znca';
+    if (Parsed.path.isEmpty || Parsed.path == '/') return '$Value/api/znca';
+    return Value;
+  }
   String get UpdateProxyPrefix => Get('UPDATE_PROXY_PREFIX', 'https://gh-proxy.com/');
   String get UserAgent => '${ProjectName}/${ProjectVersion} (+${ProjectUrl})';
   String get PushCodec => Get('PUSH_CODEC', 'hevc');

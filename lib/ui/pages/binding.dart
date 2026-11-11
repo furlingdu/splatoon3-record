@@ -27,8 +27,6 @@ class BindingPage extends StatelessWidget {
         const AppSectionTitle('Nintendo Switch Online'),
         const NSONotice(),
         const SizedBox(height: 16),
-        NSOBackendBar(Controller: Controller),
-        const SizedBox(height: 12),
         StatusGrid(
           Children: <Widget>[
             AppStatusItem(Label: '当前 NSO 账户', Value: AppStatusText(Status?.NSOCurrentNickname ?? '未选择')),
@@ -37,24 +35,12 @@ class BindingPage extends StatelessWidget {
           ],
         ),
         if (Status?.NSOError != null && Status?.NSOState != 'unbound')
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: Scheme.errorContainer.withValues(alpha: 0.35),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Scheme.error.withValues(alpha: 0.35)),
-              ),
-              child: Text('失败原因：${Status!.NSOError}', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onErrorContainer, Height: 1.5)),
-            ),
-          ),
+          AppErrorBox(Content: '失败原因：${Status!.NSOError}'),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
             children: <Widget>[
-              AppButton(Label: '添加 Nintendo 账号', Enabled: Accounts.length < 5 && !Controller.AuthBusy && !Controller.NSOBackendBusy, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : RequestNSOLogin(context, Controller)),
+              AppButton(Label: '添加 Nintendo 账号', Enabled: Accounts.length < 5 && !Controller.AuthBusy, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : RequestNSOLogin(context, Controller)),
             ],
           ),
         ),
@@ -88,7 +74,7 @@ class BindingPage extends StatelessWidget {
                   ]);
                   final Actions = Wrap(spacing: 2, children: <Widget>[
                     AppButton(Label: '设为当前', Kind: AppButtonKind.Text, Enabled: Account.Id != Status?.NSOCurrentId, OnPressed: () => Controller.SelectNSOAccount(Account.Id)),
-                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, Enabled: Account.State != 'connecting' && !Controller.NSOBackendBusy, OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : RequestNSOLogin(context, Controller, Account.Id)),
+                    AppButton(Label: '重新登录', Kind: AppButtonKind.Text, Enabled: Account.State != 'connecting', OnPressed: () => PlatformInfo.Mobile ? OpenNSOLogin(context, Controller) : RequestNSOLogin(context, Controller, Account.Id)),
                     AppButton(Label: '删除', Kind: AppButtonKind.Text, Enabled: Accounts.length > 1, OnPressed: () => RemoveAccount(context, Account.Id)),
                   ]);
                   if (Constraints.maxWidth < 560) {

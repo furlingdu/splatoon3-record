@@ -95,7 +95,7 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
   @override
   Widget build(BuildContext context) {
     final Scheme = Theme.of(context).colorScheme;
-    final Busy = widget.Controller.AuthBusy || widget.Controller.NSOBackendBusy;
+    final Busy = widget.Controller.AuthBusy;
     if (!PlatformInfo.Mobile) {
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
         Text('点击下方按钮登录 Nintendo 账号并授权鱿鱼圈 3 数据读取，登录成功后应用才能检测对局结果。每次登录前都会自动清除登录窗口的 cookies。', style: AppTheme.Style(Size: 14, ColorValue: Scheme.onSurfaceVariant, Height: 1.6)),

@@ -124,6 +124,7 @@ class AppController extends ChangeNotifier {
     Directories = PathStore.Open();
     await Directories.Create();
     Env = EnvStore(Directories);
+    NSO.UseBackend(Env.NSOBackend);
     Configs = ConfigStore(Directories, Env);
     Logs = LogStore(Directories);
     Archive = ArchiveStore(Directories);
@@ -187,7 +188,6 @@ class AppController extends ChangeNotifier {
       unawaited(StartQQBot(QQAppId!, QQSecret!));
     }
     unawaited(NSOConnect());
-    unawaited(CheckNSOBackend());
     unawaited(GenerateThumbs());
     unawaited(ArchiveCached());
     if (Configs.Current.SetupDone && Configs.Current.Settings.AutoRecord) {

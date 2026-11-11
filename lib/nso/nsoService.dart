@@ -46,6 +46,17 @@ class NSOService {
 
   final List<String> Servers;
   String? _LastServer;
+
+  /// Put the configured backend (NSO_BACKEND_URL) first, keeping the public
+  /// nxapi instances as fallbacks.
+  void UseBackend(String Url) {
+    final Base = Url.trim().replaceAll(RegExp(r'/+$'), '');
+    if (Base.isEmpty) return;
+    final Values = <String>[Base, ...Servers.where((Item) => Item != Base)];
+    Servers
+      ..clear()
+      ..addAll(Values);
+  }
   static const String ClientId = Config.NSOClientId;
   static const String AuthClientId = Config.NSOAuthClientId;
   static const String AuthServer = Config.NSOAuthServer;

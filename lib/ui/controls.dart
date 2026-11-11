@@ -331,6 +331,28 @@ class AppHint extends StatelessWidget {
   }
 }
 
+class AppErrorBox extends StatelessWidget {
+  const AppErrorBox({super.key, required this.Content});
+
+  final String Content;
+
+  @override
+  Widget build(BuildContext context) {
+    final Scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Scheme.errorContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Scheme.error.withValues(alpha: 0.35)),
+      ),
+      child: Text(Content, style: AppTheme.Style(Size: 14, ColorValue: Scheme.onErrorContainer, Height: 1.5)),
+    );
+  }
+}
+
 class AppEmpty extends StatelessWidget {
   const AppEmpty(this.Content, {super.key});
 
