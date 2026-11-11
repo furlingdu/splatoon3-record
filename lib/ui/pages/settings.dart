@@ -197,6 +197,7 @@ class SettingsPageState extends State<SettingsPage> {
           borderRadius: BorderRadius.circular(14),
         ),
         clipBehavior: Clip.antiAlias,
+        padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(children: <Widget>[
           RecordModeRow('打工模式', '包含全部打工规则', Draft.RecordWork, (Value) => Update(Draft.Copy(<String, dynamic>{'recordWork': Value}))),
           Divider(height: 1, color: Scheme.outlineVariant),
@@ -207,7 +208,6 @@ class SettingsPageState extends State<SettingsPage> {
           RecordModeRow('高亮操作', '保存判定前 15 秒的画面', Draft.RecordHighlight, (Value) => Update(Draft.Copy(<String, dynamic>{'recordHighlight': Value}))),
         ]),
       ),
-      AppHint('勾选需要录制的模式；未勾选的模式只记录对局数据，不保存录像。'),
       if (Draft.CaptureMode == 'rtmp') AppHint('RTMP 采集模式无法读取本地画面，画面识别不可用。'),
       if (PlatformInfo.Mobile) ...<Widget>[
         const AppSectionTitle('采集设备'),
@@ -475,13 +475,18 @@ class SettingsPageState extends State<SettingsPage> {
     return InkWell(
       onTap: () => OnChanged(!Value),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-          Checkbox(value: Value, onChanged: (Item) => OnChanged(Item ?? false)),
-          const SizedBox(width: 6),
+          Checkbox(
+            value: Value,
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            onChanged: (Item) => OnChanged(Item ?? false),
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.only(top: 2),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
                 Text(Label, style: AppTheme.Style(Size: 14, Weight: FontWeight.w500)),
                 const SizedBox(height: 2),
