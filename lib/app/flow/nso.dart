@@ -16,8 +16,42 @@ extension AppNSOFlow on AppController {
     return null;
   }
 
-  Future<void> StartNSOLogin([String? AccountId]) async {
+  Future<NSOBackendStatus?> CheckNSOBackend() {
+    final Running = _BackendCheck;
+    if (Running != null) return Running;
+    return _BackendCheck = _RunNSOBackendCheck().whenComplete(() => _BackendCheck = null);
+  }
+
+  Future<NSOBackendStatus> _RunNSOBackendCheck() async {
+    NSOBackendBusy = true;
+    Notify();
+    try {
+      NSOBackend = await const NSOBackendProbe().ProbeAll(NSO.Servers);
+    } catch (Cause) {
+      NSOBackend = NSOBackendStatus(Url: NSO.Servers.first, State: NSOBackendState.Offline, Error: NSOService.ErrorText(Cause));
+    } finally {
+      NSOBackendBusy = false;
+      Notify();
+    }
+    return NSOBackend!;
+  }
+
+  void CancelNSOBackendBlock() {
+    NSOBackendBlocked = false;
+    Notify();
+  }
+
+  Future<void> StartNSOLogin([String? AccountId, bool Force = false]) async {
     if (AuthBusy) return;
+    if (!Force) {
+      final Backend = await CheckNSOBackend();
+      if (Backend == null || !Backend.Online) {
+        NSOBackendBlocked = true;
+        Notify();
+        return;
+      }
+    }
+    NSOBackendBlocked = false;
     if (AccountId == null) {
       await BeginNSOAuth();
       return;

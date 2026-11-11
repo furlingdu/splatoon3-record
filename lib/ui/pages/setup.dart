@@ -11,6 +11,7 @@ import '../../format/formats.dart';
 import '../../media/capture/mobile/modes.dart';
 import '../theme.dart';
 import '../controls.dart';
+import '../nsoBackend.dart';
 import '../nsoLogin.dart';
 
 class SetupPage extends StatefulWidget {
@@ -293,6 +294,8 @@ class SetupPageState extends State<SetupPage> {
                 ],
                 if (Step == 1) ...<Widget>[
                   const AppSectionTitle('绑定 Nintendo 账号'),
+                  const SizedBox(height: 8),
+                  NSOBackendBar(Controller: widget.Controller),
                   const SizedBox(height: 8),
                   NSOLoginPanel(Controller: widget.Controller),
                   const SizedBox(height: 16),

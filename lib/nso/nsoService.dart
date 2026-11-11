@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -55,6 +56,7 @@ class NSOService {
   static const String ClientVersion = Config.NSOClientVersion;
   static final RegExp VersionPattern = RegExp(r'^\d+\.\d+\.\d+$');
   static const int WebServiceId = Config.NSOWebServiceId;
+  static const Duration RequestTimeout = Duration(seconds: 30);
   static const String LatestQuery = Config.NSOLatestQuery;
   static const String DetailQuery = Config.NSODetailQuery;
   static const String CoopQuery = Config.NSOCoopQuery;
@@ -102,11 +104,13 @@ class NSOService {
   }
 
   static String ErrorText(Object? Cause) {
+    if (Cause is TimeoutException) return '网络请求超时，请检查网络后重试';
     final Text = RawError(Cause);
     if (Text.contains('No matching workers available')) return 'NSO 校验服务暂不支持当前 NSO 版本，请更新应用后重试';
     if (Text.contains('Timeout waiting for a worker')) return 'NSO 校验服务排队超时，请稍后重试';
     if (Text.contains('No workers available')) return 'NSO 校验服务暂时不可用，请稍后重试';
-    return Text;
+    if (Text.isEmpty) return '请求失败';
+    return Text.length > 200 ? '${Text.substring(0, 200)}…' : Text;
   }
 
   /// Whether the stored Nintendo session token cannot be reused anymore, so a
@@ -240,7 +244,7 @@ class NSOService {
         'X-Requested-With': 'com.nintendo.znca',
         'User-Agent': 'Mozilla/5.0 (Linux; Android 8.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/58.0.3029.125 Mobile Safari/537.36',
       },
-    ).timeout(const Duration(seconds: 30));
+    ).timeout(RequestTimeout);
     final Version = Root.headers['x-be-version'] ?? AppVersion;
     Session.Version = Version;
     final Cookie = Root.headers['set-cookie'] ?? '';
@@ -258,7 +262,7 @@ class NSOService {
         'User-Agent': 'Mozilla/5.0 (Linux; Android 8.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/58.0.3029.125 Mobile Safari/537.36',
       },
       body: '',
-    ).timeout(const Duration(seconds: 30));
+    ).timeout(RequestTimeout);
     Client.close();
     if (Bullet.statusCode != 201) throw StateError('SplatNet 令牌获取失败：HTTP ${Bullet.statusCode} ${Bullet.body}');
     final BulletData = jsonDecode(Bullet.body);
@@ -294,7 +298,7 @@ class NSOService {
           'persistedQuery': <String, dynamic>{'version': 1, 'sha256Hash': Hash},
         },
       }),
-    ).timeout(const Duration(seconds: 30));
+    ).timeout(RequestTimeout);
     if (Response.body.isEmpty) throw StateError('SplatNet 空响应：HTTP ${Response.statusCode} hash=$Hash');
     final Data = jsonDecode(Response.body);
     if (Data is! Map<String, dynamic>) throw StateError('SplatNet 响应格式错误');
@@ -346,7 +350,7 @@ class NSOService {
         if (Token != null) 'Authorization': 'Bearer $Token',
       },
       body: base64Decode(Encrypted),
-    ).timeout(const Duration(seconds: 30));
+    ).timeout(RequestTimeout);
     if (Response.bodyBytes.isEmpty) throw StateError('NSO 响应为空');
     if (Response.bodyBytes[0] == 0x7b) {
       final Direct = jsonDecode(latin1.decode(Response.bodyBytes));
@@ -403,7 +407,7 @@ class NSOService {
   }
 
   Future<Map<String, dynamic>> _PostJson(String Url, Map<String, dynamic> Body, Map<String, String> Headers) async {
-    final Response = await http.post(Uri.parse(Url), headers: Headers, body: jsonEncode(Body)).timeout(const Duration(seconds: 30));
+    final Response = await http.post(Uri.parse(Url), headers: Headers, body: jsonEncode(Body)).timeout(RequestTimeout);
     final Data = jsonDecode(Response.body);
     if (Data is! Map<String, dynamic>) throw StateError('响应格式错误');
     if (Response.statusCode < 200 || Response.statusCode >= 300) throw StateError('$Url: ${Data['error_description'] ?? Data['errorMessage'] ?? '请求失败：HTTP ${Response.statusCode}'}');
@@ -411,7 +415,7 @@ class NSOService {
   }
 
   Future<Map<String, dynamic>> _PostForm(String Url, Map<String, String> Body) async {
-    final Response = await http.post(Uri.parse(Url), headers: <String, String>{'Content-Type': 'application/x-www-form-urlencoded'}, body: Body).timeout(const Duration(seconds: 30));
+    final Response = await http.post(Uri.parse(Url), headers: <String, String>{'Content-Type': 'application/x-www-form-urlencoded'}, body: Body).timeout(RequestTimeout);
     final Data = jsonDecode(Response.body);
     if (Data is! Map<String, dynamic>) throw StateError('响应格式错误');
     if (Response.statusCode < 200 || Response.statusCode >= 300) throw StateError('${Data['error_description'] ?? Data['errorMessage'] ?? '请求失败：HTTP ${Response.statusCode}'}');
@@ -419,7 +423,7 @@ class NSOService {
   }
 
   Future<Map<String, dynamic>> _GetJson(String Url, Map<String, String> Headers) async {
-    final Response = await http.get(Uri.parse(Url), headers: Headers).timeout(const Duration(seconds: 30));
+    final Response = await http.get(Uri.parse(Url), headers: Headers).timeout(RequestTimeout);
     final Data = jsonDecode(Response.body);
     if (Data is! Map<String, dynamic>) throw StateError('响应格式错误');
     if (Response.statusCode != 200) throw StateError('请求失败：HTTP ${Response.statusCode}');
