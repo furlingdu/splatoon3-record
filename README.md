@@ -1,6 +1,6 @@
 # Splatoon3 Record
 
-[![CI](https://github.com/furlingdu/splatoon3-record/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/furlingdu/splatoon3-record/actions/workflows/ci.yml)
+[![Mobile](https://github.com/furlingdu/splatoon3-record/actions/workflows/mobile.yml/badge.svg?branch=main)](https://github.com/furlingdu/splatoon3-record/actions/workflows/mobile.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 
 Splatoon3 Record 是一款面向 Splatoon 3 的本地录制、直播与对局归档工具。程序通过采集卡持续获取画面，依据 Nintendo Switch Online 返回的真实对局结束时间和持续时间裁剪整局录像并归档到本地，和 QQBot 压制后推送。
@@ -11,26 +11,18 @@ Splatoon3 Record 是一款面向 Splatoon 3 的本地录制、直播与对局归
 
 ## 功能
 
-- 通过采集卡录制画面与声音，自动捕获Splatoon3画面
-- 按对局自动裁剪录像
-- 提供本机 HTTP 直播页，可直接作为 OBS 浏览器源使用
+- 通过采集卡录制画面与声音，自动捕获 Splatoon3 画面
+- 按对局自动裁剪录像并归档
+- 提供 RTMP 直播推流与 RTMP 输入，可配合 OBS 等推流软件使用
 - 直播链路支持昵称检测和打码模糊
 - 通过 QQBot 完成绑定、录制控制、状态查询、最近对局和视频推送
 
 ## 运行要求
 
-- Node.js 24 或更高版本
+- Windows 10/11、macOS、Linux，或 Android / iOS 移动设备
 - 可用的采集卡或摄像头，以及音频采集设备
-- Nintendo Switch Online 登录需要访问 Nintendo 服务及项目配置的 NSO 接口
+- Nintendo Switch Online 登录需要访问 Nintendo 服务及项目配置的 NSO / znca 接口
 - QQBot 推送需要在本机完成机器人绑定
-
-## 采集与编码
-
-Windows 上统一使用 Media Foundation 采集后端，原生支持 NV12 与 YUY2，并在内部统一转换为 I420 后交给录制与直播链路。设置页只列出当前采集卡上报的分辨率与帧率上限，实际档位由采集卡协商决定：当采集卡无法给出所选档位时，程序会接受协商后的真实画幅与帧率，并把实际档位回写到设置，避免静默回退。
-
-录制与直播优先使用硬件编码，4K60 档位同样走硬编；探测与编码配置不下发 `framerate` 字段，以免 Chromium 在该字段存在时退回软件编码。
-
-缓存以增量文件方式写入：整场录制只创建一个编码器，不再按时长重建，因此不会周期性掉帧。单个文件写满 10 分钟（或体积达到 3 GB）时，以及每局结束需要归档时，程序会就地封存当前文件并立即接着写下一个文件，缓存只保留最近 10 分钟的画面。
 
 ## 更新
 
@@ -40,31 +32,54 @@ Windows 上统一使用 Media Foundation 采集后端，原生支持 NV12 与 YU
 
 ## 开发
 
-```bash
-npm install
-npm run typecheck
-npm run lint
-npm run test:unit
-npm run test:integration
-npm run build
-```
+需要 Flutter 3.8+ / Dart 3.8+。各平台还需要对应的原生工具链：
 
-### 测试
+- Windows：Visual Studio 2022「使用 C++ 的桌面开发」工作负载
+- Linux：GTK3、ALSA、libmpv、ninja 等开发包
+- macOS / iOS：Xcode
+- Android：Android SDK
+
+获取依赖并做静态检查：
 
 ```bash
-npm run test:ui
-npm run test:capture
-npm run dist:win
-npm run test:packaged
+flutter pub get
+flutter analyze
 ```
 
-构建安装包时使用：
+测试文件使用 `*Test.dart` 命名（不是 Flutter 默认的 `*_test.dart`），需要显式指定：
 
 ```bash
-npm run dist:win
-npm run dist:mac
-npm run dist:linux
+flutter test test/nsoTest.dart test/domainTest.dart test/uiTest.dart test/mobileTest.dart
 ```
+
+构建前先准备 FFmpeg 资源：
+
+```bash
+# Windows
+pwsh ./tool/fetchFFmpeg.ps1 -Target windows-x64
+
+# macOS / Linux
+bash tool/fetchFFmpeg.sh macos-arm64
+bash tool/fetchFFmpeg.sh linux-x64
+```
+
+构建应用与安装包：
+
+```bash
+flutter build windows --release
+flutter build macos --release
+flutter build linux --release
+flutter build apk --release --split-per-abi
+flutter build ios --release --no-codesign
+```
+
+Windows 安装包使用 Inno Setup：
+
+```powershell
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup\setup.iss
+```
+
+CI 使用 `.github/workflows/mobile.yml`；在 Actions 中手动运行 `Mobile` 工作流并选择 `target`（`windows` / `all` 等）即可构建对应安装包。
 
 ## 登录与 znca-api
 
@@ -77,5 +92,7 @@ npm run dist:linux
 ## 反馈
 
 设备相关的故障请在关于页点击「复制设备信息」，连同问题描述一起提交 issue。
+
+## 许可证
 
 本项目自有代码采用 AGPL-3.0-only；第三方组件、字体、图片、模型和 FFmpeg 仍受各自许可约束。
