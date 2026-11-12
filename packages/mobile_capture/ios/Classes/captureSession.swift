@@ -4,6 +4,7 @@ import CoreGraphics
 import CoreImage
 import CoreVideo
 import Flutter
+import os
 
 struct CaptureModeInfo {
   let Width: Int
@@ -12,10 +13,17 @@ struct CaptureModeInfo {
 }
 
 final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
-  let Session = AVCaptureSession()
+  private let Session = AVCaptureSession()
 
   private let SnapshotOutput = AVCaptureVideoDataOutput()
   private let CaptureQueue = DispatchQueue(label: "splatoon3record.mobile_capture")
+  private let StorageQueue = DispatchQueue(label: "splatoon3record.mobile_storage", qos: .utility)
+  private var Previews: [ObjectIdentifier: AVCaptureVideoPreviewLayer] = [:]
+  private let RequestLock = NSLock()
+  private var RequestVersion = 0
+  private let RecordLock = NSLock()
+  private var RecordToken = 0
+  private var PreparedVersion = 0
   private let SnapshotQueue = DispatchQueue(label: "splatoon3record.mobile_snapshot")
   // Snapshot conversion must not share the sample buffer queue: a slow render
   // there drops recorded frames (alwaysDiscardsLateVideoFrames).
@@ -24,7 +32,15 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   // Segment writes happen on their own serial queue so a slow encoder never
   // blocks session control (start / stop / monitor) and vice versa.
   private let RecordQueue = DispatchQueue(label: "splatoon3record.mobile_record")
+  private let SampleLock = NSLock()
+  private var RecordingSamples = false
+  private var SampleVersion = 0
+  private var PendingVideo = 0
+  private var PendingAudio = 0
+  private var Finishing = 0
+  private var FinishWaiters: [(String?) -> Void] = []
   private let SnapshotLock = NSLock()
+  private let TimingLog = Logger(subsystem: "splatoon3record.mobile_capture", category: "capture")
   private let SnapshotContext = CIContext(options: nil)
   private var SnapshotPixel: CVPixelBuffer?
   private var VideoInput: AVCaptureDeviceInput?
@@ -35,8 +51,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   private var MonitorPlayer: AVAudioPlayerNode?
   private var MonitorFormat: AVAudioFormat?
   private var MonitorEnabled = false
-  private var PreferredInputId = ""
-  private var LastRouteFix: TimeInterval = 0
   private var AudioConfigured = false
   // AVCaptureMovieFileOutput refuses to start on this capture chain
   // ("Cannot Record", AVFoundationErrorDomain -11805) and blocks for seconds on
@@ -54,13 +68,82 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   private var WriterStart = CMTime.invalid
   private var AudioSampleRate = 48000.0
   private var AudioChannels = 2
-  private var WriterInputSize = CGSize.zero
-  private var CaptureFps = 30
+  private var RecordSize = CGSize.zero
+  private var RecordFps = 30
+  private var RecordAudio = false
 
   var OnState: ((String) -> Void)?
   var OnAudio: ((String) -> Void)?
   var OnLog: ((String) -> Void)?
-  var VideoAngle: CGFloat = 0
+  private var VideoAngle: CGFloat = 0
+
+  private func Trace(_ Name: String, Since Start: TimeInterval) {
+    let Message = "\(Name) 耗时=\(Int((ProcessInfo.processInfo.systemUptime - Start) * 1000))ms"
+    TimingLog.info("\(Message, privacy: .public)")
+    OnLog?(Message)
+  }
+
+  private func NewRequest() -> Int {
+    RequestLock.lock()
+    defer { RequestLock.unlock() }
+    RequestVersion += 1
+    return RequestVersion
+  }
+
+  private func IsCurrent(_ Version: Int) -> Bool {
+    RequestLock.lock()
+    defer { RequestLock.unlock() }
+    return RequestVersion == Version
+  }
+
+  private func BeginRecordRequest() -> Int {
+    RecordLock.lock()
+    defer { RecordLock.unlock() }
+    RecordToken += 1
+    return RecordToken
+  }
+
+  private func CancelRecordRequest() {
+    RecordLock.lock()
+    RecordToken += 1
+    RecordLock.unlock()
+  }
+
+  private func IsRecordCurrent(_ Token: Int) -> Bool {
+    RecordLock.lock()
+    defer { RecordLock.unlock() }
+    return RecordToken == Token
+  }
+
+  func AttachPreview(_ Preview: AVCaptureVideoPreviewLayer, Completion: @escaping () -> Void) {
+    CaptureQueue.async {
+      let Start = ProcessInfo.processInfo.systemUptime
+      self.Previews[ObjectIdentifier(Preview)] = Preview
+      if self.Prepared { self.ConfigurePreview(Preview) }
+      self.Trace("预览挂接", Since: Start)
+      DispatchQueue.main.async(execute: Completion)
+    }
+  }
+
+  func DetachPreview(_ Preview: AVCaptureVideoPreviewLayer) {
+    CaptureQueue.async {
+      self.Previews.removeValue(forKey: ObjectIdentifier(Preview))
+      Preview.session = nil
+    }
+  }
+
+  private func ConfigurePreview(_ Preview: AVCaptureVideoPreviewLayer) {
+    if Preview.session !== Session { Preview.session = Session }
+    guard let Connection = Preview.connection else { return }
+    _ = Self.Rotate(Connection, Angle: VideoAngle)
+    Connection.automaticallyAdjustsVideoMirroring = false
+    if Connection.isVideoMirroringSupported { Connection.isVideoMirrored = false }
+    Connection.isEnabled = true
+  }
+
+  private func ConfigurePreviews() {
+    for Preview in Previews.values { ConfigurePreview(Preview) }
+  }
 
   override init() {
     super.init()
@@ -88,23 +171,10 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   }
 
   @objc private func RouteChanged(_ Note: Notification) {
-    guard AudioInput != nil, !PreferredInputId.isEmpty else { return }
-    // Switching the preferred input mid-recording renegotiates the audio graph
-    // and can truncate the segment, so only do it while idle.
-    if Writer != nil {
-      ReportAudio()
-      return
+    CaptureQueue.async {
+      guard self.AudioInput != nil else { return }
+      self.ReportAudio()
     }
-    let Session = AVAudioSession.sharedInstance()
-    if Session.currentRoute.inputs.first?.uid != PreferredInputId, let Port = Session.availableInputs?.first(where: { $0.uid == PreferredInputId }) {
-      let Now = Date().timeIntervalSince1970
-      if Now - LastRouteFix > 2 {
-        LastRouteFix = Now
-        try? Session.setPreferredInput(Port)
-        OnLog?("音频路由被系统切换，已切回采集卡输入：\(Port.portName)")
-      }
-    }
-    ReportAudio()
   }
 
   private func ReportAudio() {
@@ -152,27 +222,29 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   }
 
   private func InputPorts() -> [AVAudioSessionPortDescription] {
-    ConfigureAudio()
     return AudioSession.availableInputs ?? []
   }
 
   private func InputPort(_ DeviceId: String) -> AVAudioSessionPortDescription? {
     let Ports = InputPorts()
-    if !DeviceId.isEmpty, let Exact = Ports.first(where: { $0.uid == DeviceId || $0.portName == DeviceId }) {
+    let Name = AudioInputs().first(where: { $0.uniqueID == DeviceId })?.localizedName
+    if !DeviceId.isEmpty, let Exact = Ports.first(where: { $0.uid == DeviceId || $0.portName == DeviceId || $0.portName == Name }) {
       return Exact
     }
     return Ports.first(where: { $0.portType == .usbAudio }) ?? Ports.first(where: { IsExternal($0) })
+  }
+
+  private func AudioInputs() -> [AVCaptureDevice] {
+    var Types: [AVCaptureDevice.DeviceType] = [.builtInMicrophone]
+    if #available(iOS 17.0, *) { Types = [.microphone, .external] }
+    return AVCaptureDevice.DiscoverySession(deviceTypes: Types, mediaType: .audio, position: .unspecified).devices
   }
 
   /// The capture session does not follow the AVAudioSession route, so the input
   /// device has to be matched to the selected port by name; otherwise the iPad
   /// microphone is recorded instead of the capture card audio.
   private func AudioDevice(_ PortName: String) -> AVCaptureDevice? {
-    var Types: [AVCaptureDevice.DeviceType] = [.builtInMicrophone]
-    if #available(iOS 17.0, *) {
-      Types = [.microphone, .external]
-    }
-    let Devices = AVCaptureDevice.DiscoverySession(deviceTypes: Types, mediaType: .audio, position: .unspecified).devices
+    let Devices = AudioInputs()
     if !PortName.isEmpty, let Match = Devices.first(where: { $0.localizedName == PortName }) {
       return Match
     }
@@ -192,36 +264,41 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
 
   func AudioDevices(_ Completion: @escaping ([[String: Any]]) -> Void) {
     guard AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined else {
-      Completion(InputAudioDevices())
+      CaptureQueue.async {
+        let Items = self.InputAudioDevices()
+        DispatchQueue.main.async { Completion(Items) }
+      }
       return
     }
     var Finished = false
     let Lock = NSLock()
-    let Finish: ([[String: Any]]) -> Void = { Items in
+    let Finish: () -> Void = {
       Lock.lock()
-      if Finished {
+      guard !Finished else {
         Lock.unlock()
         return
       }
       Finished = true
       Lock.unlock()
-      DispatchQueue.main.async { Completion(Items) }
+      self.CaptureQueue.async {
+        let Items = self.InputAudioDevices()
+        DispatchQueue.main.async { Completion(Items) }
+      }
     }
-    AVCaptureDevice.requestAccess(for: .audio) { _ in
-      Finish(self.InputAudioDevices())
-    }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-      Finish(self.InputAudioDevices())
-    }
+    AVCaptureDevice.requestAccess(for: .audio) { _ in Finish() }
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3) { Finish() }
   }
 
   private func InputAudioDevices() -> [[String: Any]] {
-    let Items = InputPorts().map { Port in
+    var Items = InputPorts().map { Port -> [String: Any] in
       [
         "id": Port.uid,
         "name": Port.portName,
         "external": IsExternal(Port),
       ]
+    }
+    for Device in AudioInputs() where !Items.contains(where: { ($0["name"] as? String) == Device.localizedName }) {
+      Items.append(["id": Device.uniqueID, "name": Device.localizedName, "external": IsExternal(Device)])
     }
     OnLog?("音频输入 \(Items.count) 个：" + Items.map({ "\($0["name"] ?? "")" }).joined(separator: "、"))
     return Items
@@ -269,18 +346,19 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   }
 
   func Prepare(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Orientation: String, Completion: @escaping (CaptureModeInfo?, String?) -> Void) {
+    let Version = NewRequest()
     OnLog?("准备采集 device=\(DeviceId) \(Width)x\(Height)@\(Fps) audio=\(Audio) audioDevice=\(AudioDeviceId) orientation=\(Orientation)")
     Request(Video: true) { VideoOk in
       guard VideoOk else {
-        Completion(nil, "相机权限被拒绝")
+        DispatchQueue.main.async { Completion(nil, "相机权限被拒绝") }
         return
       }
       guard Audio else {
-        self.Apply(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: false, AudioDeviceId: "", Orientation: Orientation, Completion: Completion)
+        self.Apply(Version: Version, DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: false, AudioDeviceId: "", Orientation: Orientation, Completion: Completion)
         return
       }
       AVCaptureDevice.requestAccess(for: .audio) { Granted in
-        self.Apply(DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: Granted, AudioDeviceId: AudioDeviceId, Orientation: Orientation, Completion: Completion)
+        self.Apply(Version: Version, DeviceId: DeviceId, Width: Width, Height: Height, Fps: Fps, Audio: Granted, AudioDeviceId: AudioDeviceId, Orientation: Orientation, Completion: Completion)
       }
     }
   }
@@ -298,8 +376,13 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     }
   }
 
-  private func Apply(DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Orientation: String, Completion: @escaping (CaptureModeInfo?, String?) -> Void) {
+  private func Apply(Version: Int, DeviceId: String, Width: Int, Height: Int, Fps: Int, Audio: Bool, AudioDeviceId: String, Orientation: String, Completion: @escaping (CaptureModeInfo?, String?) -> Void) {
     CaptureQueue.async {
+      guard self.IsCurrent(Version) else {
+        DispatchQueue.main.async { Completion(nil, "采集准备已取消") }
+        return
+      }
+      let Start = ProcessInfo.processInfo.systemUptime
       guard let Device = self.Find(DeviceId) else {
         self.OnLog?("未找到采集设备：\(DeviceId)")
         DispatchQueue.main.async { Completion(nil, "未找到 USB 采集设备，需要 iPadOS 17 或更高版本") }
@@ -307,9 +390,9 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
       }
       var AudioPort: AVAudioSessionPortDescription?
       if Audio {
+        self.ConfigureAudio()
         AudioPort = self.InputPort(AudioDeviceId)
         if let Port = AudioPort {
-          self.PreferredInputId = Port.uid
           try? self.AudioSession.setPreferredInput(Port)
           self.OnLog?("音频路由选择：\(Port.portName)（\(Port.portType.rawValue)）")
           let Deadline = Date().addingTimeInterval(1.5)
@@ -390,7 +473,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         if self.Session.canAddOutput(self.SnapshotOutput) { self.Session.addOutput(self.SnapshotOutput) }
       }
       let Size = CMVideoFormatDescriptionGetDimensions(Device.activeFormat.formatDescription)
-      self.CaptureFps = UseFps
       self.VideoAngle = Self.Angle(Orientation, Width: Int(Size.width), Height: Int(Size.height))
       self.Session.commitConfiguration()
       var Applied: CGFloat = 0
@@ -402,9 +484,33 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         }
       }
       let Turned = Applied == 90 || Applied == 270
-      self.WriterInputSize = Turned ? CGSize(width: CGFloat(Size.height), height: CGFloat(Size.width)) : CGSize(width: CGFloat(Size.width), height: CGFloat(Size.height))
+      let InputSize = Turned ? CGSize(width: CGFloat(Size.height), height: CGFloat(Size.width)) : CGSize(width: CGFloat(Size.width), height: CGFloat(Size.height))
+      let AudioEnabled = self.AudioInput != nil
+      let ActualFps = UseFps
+      self.SampleLock.lock()
+      self.AudioSampleRate = 48000
+      self.AudioChannels = 2
+      self.SampleLock.unlock()
+      self.RecordQueue.async {
+        self.RecordAudio = AudioEnabled
+        self.RecordSize = InputSize
+        self.RecordFps = ActualFps
+      }
       self.Prepared = true
+      self.PreparedVersion = Version
+      let PreviewStart = ProcessInfo.processInfo.systemUptime
+      self.ConfigurePreviews()
+      self.Trace("预览连接配置", Since: PreviewStart)
+      let RunningStart = ProcessInfo.processInfo.systemUptime
       self.Session.startRunning()
+      self.Trace("采集会话启动", Since: RunningStart)
+      guard self.IsCurrent(Version) else {
+        self.Session.stopRunning()
+        self.Prepared = false
+        DispatchQueue.main.async { Completion(nil, "采集准备已取消") }
+        return
+      }
+      self.Trace("采集准备", Since: Start)
       self.OnLog?("采集已启动 \(Int(Size.width))x\(Int(Size.height))@\(UseFps) 音频输入=\(self.AudioInput?.device.localizedName ?? "无") 当前路由=\(self.AudioSession.currentRoute.inputs.first?.portName ?? "无")")
       let Mode = CaptureModeInfo(Width: Int(Size.width), Height: Int(Size.height), Fps: UseFps)
       DispatchQueue.main.async { Completion(Mode, nil) }
@@ -491,7 +597,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
       MonitorPlayer?.play()
       return
     }
-    ConfigureAudio()
     guard let Format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 2, interleaved: false) else { return }
     let Engine = AVAudioEngine()
     let Player = AVAudioPlayerNode()
@@ -521,6 +626,48 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     MonitorFormat = nil
   }
 
+  private func SetSampleAdmission(_ Enabled: Bool) {
+    SampleLock.lock()
+    RecordingSamples = Enabled
+    SampleLock.unlock()
+  }
+
+  private func InvalidateSamples() {
+    SampleLock.lock()
+    RecordingSamples = false
+    SampleVersion += 1
+    SampleLock.unlock()
+  }
+
+  private func EnqueueSample(_ Sample: CMSampleBuffer, Video: Bool) {
+    SampleLock.lock()
+    // Bound retained capture buffers even while writer creation is slow.
+    let Allowed = Video ? PendingVideo < 3 : PendingAudio < 8
+    guard RecordingSamples, Allowed else {
+      SampleLock.unlock()
+      return
+    }
+    let Version = SampleVersion
+    if Video { PendingVideo += 1 } else { PendingAudio += 1 }
+    SampleLock.unlock()
+    RecordQueue.async {
+      defer {
+        self.SampleLock.lock()
+        if Video { self.PendingVideo -= 1 } else { self.PendingAudio -= 1 }
+        self.SampleLock.unlock()
+      }
+      self.SampleLock.lock()
+      let Active = self.RecordingSamples && self.SampleVersion == Version
+      self.SampleLock.unlock()
+      guard Active else { return }
+      if Video {
+        self.AppendVideo(Sample)
+      } else {
+        self.AppendAudio(Sample)
+      }
+    }
+  }
+
   func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
     if output === SnapshotOutput {
       if let Pixel = CMSampleBufferGetImageBuffer(sampleBuffer) {
@@ -528,16 +675,16 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         SnapshotPixel = Pixel
         SnapshotLock.unlock()
       }
-      RecordQueue.async { self.AppendVideo(sampleBuffer) }
+      EnqueueSample(sampleBuffer, Video: true)
       return
     }
-    RecordQueue.async { self.AppendAudio(sampleBuffer) }
     if let Format = Self.AudioFormat(sampleBuffer), Format.0 >= 8000, Format.1 > 0 {
-      // The writer has to be configured with the same rate / channel count the
-      // capture output really delivers, otherwise every audio append is refused.
+      SampleLock.lock()
       AudioSampleRate = Format.0
       AudioChannels = Format.1
+      SampleLock.unlock()
     }
+    EnqueueSample(sampleBuffer, Video: false)
     guard MonitorEnabled, let Player = MonitorPlayer, let Format = MonitorFormat else { return }
     let Frames = CMSampleBufferGetNumSamples(sampleBuffer)
     if Frames <= 0 { return }
@@ -578,69 +725,100 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     return Result != .error && ConversionError == nil
   }
 
-  private func FreeBytes() -> Int64 {
-    let Home = URL(fileURLWithPath: NSHomeDirectory())
-    if let Values = try? Home.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+  private func FreeMegabytes(_ Folder: String) -> Int64? {
+    let Volume = URL(fileURLWithPath: Folder)
+    if let Values = try? Volume.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
        let Capacity = Values.volumeAvailableCapacityForImportantUsage {
-      return Int64(Capacity)
+      return Int64(Capacity) / (1024 * 1024)
     }
-    return 0
-  }
-
-  private func FreeMegabytes() -> Int64 {
-    return FreeBytes() / (1024 * 1024)
+    return nil
   }
 
   func StartRecording(_ Path: String, Completion: @escaping (String?) -> Void) {
     CaptureQueue.async {
-      guard self.Prepared, self.Session.isRunning else {
+      guard self.Prepared, self.Session.isRunning, self.IsCurrent(self.PreparedVersion) else {
         DispatchQueue.main.async { Completion("采集会话未启动") }
         return
       }
-      let Folder = (Path as NSString).deletingLastPathComponent
-      try? FileManager.default.createDirectory(atPath: Folder, withIntermediateDirectories: true)
-      let Free = self.FreeMegabytes()
-      if Free > 0, Free < 512 {
-        self.OnLog?("存储空间不足：剩余 \(Free)MB")
-        DispatchQueue.main.async { Completion("存储空间不足（剩余 \(Free) MB），请清理缓存后重试") }
-        return
-      }
-      self.RecordQueue.async {
-        let Failure = self.BeginWriter(Path)
-        self.OnLog?("开始录制：\(Path) 剩余空间=\(Free)MB 尺寸=\(Int(self.WriterInputSize.width))x\(Int(self.WriterInputSize.height)) 音频=\(self.WriterAudio != nil) 结果=\(Failure ?? "ok")")
-        if Failure == nil { self.OnState?("recording") }
-        DispatchQueue.main.async { Completion(Failure) }
+      let Token = self.BeginRecordRequest()
+      let Version = self.PreparedVersion
+      self.StorageQueue.async {
+        let Start = ProcessInfo.processInfo.systemUptime
+        let Folder = (Path as NSString).deletingLastPathComponent
+        do {
+          try FileManager.default.createDirectory(atPath: Folder, withIntermediateDirectories: true)
+        } catch {
+          DispatchQueue.main.async { Completion("无法创建录制目录：\(error.localizedDescription)") }
+          return
+        }
+        let Free = self.FreeMegabytes(Folder)
+        self.Trace("录制目录与空间预检", Since: Start)
+        self.CaptureQueue.async {
+          guard self.IsRecordCurrent(Token), self.IsCurrent(Version), self.Prepared, self.Session.isRunning else {
+            DispatchQueue.main.async { Completion("录制启动已取消") }
+            return
+          }
+          if let Free = Free, Free < 512 {
+            self.OnLog?("存储空间不足：剩余 \(Free)MB")
+            DispatchQueue.main.async { Completion("存储空间不足（剩余 \(Free) MB），请清理缓存后重试") }
+            return
+          }
+          self.RecordQueue.async {
+            guard self.IsRecordCurrent(Token), self.IsCurrent(Version) else {
+              DispatchQueue.main.async { Completion("录制启动已取消") }
+              return
+            }
+            let WriterStart = ProcessInfo.processInfo.systemUptime
+            var Failure = self.BeginWriter(Path)
+            self.Trace("录制写入器启动", Since: WriterStart)
+            let HasAudio = self.WriterAudio != nil
+            if Failure == nil {
+              // Stop or Dispose may have arrived while the writer was created.
+              if self.IsRecordCurrent(Token), self.IsCurrent(Version) {
+                self.SetSampleAdmission(true)
+                self.OnState?("recording")
+              } else {
+                self.InvalidateSamples()
+                self.EndWriter(nil)
+                Failure = "录制启动已取消"
+              }
+            }
+            let Capacity = Free.map { "\($0)MB" } ?? "未知"
+            self.OnLog?("开始录制：\(Path) 剩余空间=\(Capacity) 尺寸=\(Int(self.RecordSize.width))x\(Int(self.RecordSize.height)) 音频=\(HasAudio) 结果=\(Failure ?? "ok")")
+            let Posted = ProcessInfo.processInfo.systemUptime
+            DispatchQueue.main.async {
+              self.Trace("录制启动主线程回调等待", Since: Posted)
+              Completion(Failure)
+            }
+          }
+        }
       }
     }
   }
 
   func StopRecording(_ Completion: @escaping (String?) -> Void) {
     CaptureQueue.async {
-      self.RecordQueue.async {
-        guard self.Writer != nil else {
-          DispatchQueue.main.async { Completion(nil) }
-          return
-        }
-        self.EndWriter(Completion)
-      }
+      self.CancelRecordRequest()
+      self.SetSampleAdmission(false)
+      self.RecordQueue.async { self.EndWriter(Completion) }
     }
   }
 
-  // Runs on RecordQueue. Creating the writer is fast, so this never blocks the
-  // capture pipeline the way AVCaptureMovieFileOutput did on 1080p120.
+  // Runs on RecordQueue; never holds the sample delegate queues while creating
+  // the hardware H.264 / AAC writer.
   private func BeginWriter(_ Path: String) -> String? {
-    EndWriter(nil, Silent: true)
+    EndWriter(nil)
     try? FileManager.default.removeItem(atPath: Path)
     guard let Writer = try? AVAssetWriter(outputURL: URL(fileURLWithPath: Path), fileType: .mov) else {
       return "无法创建录制文件"
     }
-    var Width = Int(WriterInputSize.width)
-    var Height = Int(WriterInputSize.height)
+    var Width = Int(RecordSize.width)
+    var Height = Int(RecordSize.height)
     if Width <= 0 || Height <= 0 {
       Width = 1920
       Height = 1080
     }
-    let Fps = max(1, CaptureFps)
+    let Fps = max(1, RecordFps)
     let Bitrate = max(4_000_000, min(45_000_000, Int(Double(Width * Height * Fps) * 0.08)))
     let Compression: [String: Any] = [
       AVVideoAverageBitRateKey: Bitrate,
@@ -659,11 +837,15 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     guard Writer.canAdd(Video) else { return "录制编码器初始化失败" }
     Writer.add(Video)
     var Audio: AVAssetWriterInput?
-    if AudioInput != nil {
+    if RecordAudio {
+      SampleLock.lock()
+      let Channels = AudioChannels
+      let SampleRate = AudioSampleRate
+      SampleLock.unlock()
       let Input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
         AVFormatIDKey: kAudioFormatMPEG4AAC,
-        AVNumberOfChannelsKey: max(1, AudioChannels),
-        AVSampleRateKey: AudioSampleRate > 0 ? AudioSampleRate : 48000,
+        AVNumberOfChannelsKey: max(1, Channels),
+        AVSampleRateKey: SampleRate > 0 ? SampleRate : 48000,
         AVEncoderBitRateKey: 128000,
       ])
       Input.expectsMediaDataInRealTime = true
@@ -692,9 +874,15 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
 
   // Runs on RecordQueue. Closes the segment and reports its path once the file
   // is fully written, so the Dart side never merges a half written file.
-  private func EndWriter(_ Completion: ((String?) -> Void)?, Silent: Bool = false) {
+  private func EndWriter(_ Completion: ((String?) -> Void)?) {
+    SetSampleAdmission(false)
     guard let Writer = self.Writer else {
-      if let Completion = Completion { DispatchQueue.main.async { Completion(nil) } }
+      guard let Completion = Completion else { return }
+      if Finishing > 0 {
+        FinishWaiters.append(Completion)
+      } else {
+        DispatchQueue.main.async { Completion(nil) }
+      }
       return
     }
     let Path = self.WriterPath
@@ -710,8 +898,7 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     self.WriterVideoWritten = false
     self.WriterAudioWritten = false
     let Finish: (String?) -> Void = { Reason in
-      self.OnLog?(Reason == nil ? "录制分段结束 path=\(Path) 剩余空间=\(self.FreeMegabytes())MB" : "录制分段失败 \(Reason ?? "") path=\(Path) 剩余空间=\(self.FreeMegabytes())MB")
-      if !Silent { self.OnState?("idle") }
+      self.OnLog?(Reason == nil ? "录制分段结束 path=\(Path)" : "录制分段失败 \(Reason ?? "") path=\(Path)")
       if let Completion = Completion { DispatchQueue.main.async { Completion(Reason == nil ? Path : nil) } }
     }
     guard Writer.status == .writing else {
@@ -729,18 +916,38 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     }
     Video?.markAsFinished()
     Audio?.markAsFinished()
+    Finishing += 1
     Writer.finishWriting {
-      if Writer.status == .completed, Wrote {
-        Finish(nil)
-      } else {
-        try? FileManager.default.removeItem(atPath: Path)
-        Finish("状态=\(Writer.status.rawValue) 错误=\(Writer.error?.localizedDescription ?? "无")")
+      self.RecordQueue.async {
+        if Writer.status == .completed, Wrote {
+          Finish(nil)
+        } else {
+          try? FileManager.default.removeItem(atPath: Path)
+          Finish("状态=\(Writer.status.rawValue) 错误=\(Writer.error?.localizedDescription ?? "无")")
+        }
+        let Waiters = self.FinishWaiters
+        self.FinishWaiters = []
+        self.Finishing -= 1
+        if self.Finishing == 0 {
+          for Waiter in Waiters { DispatchQueue.main.async { Waiter(nil) } }
+        }
       }
     }
   }
 
+  private func RecordingFailed(_ Reason: String) {
+    guard self.Writer != nil else { return }
+    OnLog?(Reason)
+    OnState?("idle")
+    EndWriter(nil)
+  }
+
   private func AppendVideo(_ Sample: CMSampleBuffer) {
-    guard let Writer = self.Writer, let Input = self.WriterVideo, Writer.status == .writing else { return }
+    guard let Writer = self.Writer, let Input = self.WriterVideo else { return }
+    guard Writer.status == .writing else {
+      RecordingFailed("录制写入器已停止：\(Writer.error?.localizedDescription ?? "未知错误")")
+      return
+    }
     guard CMSampleBufferDataIsReady(Sample), Input.isReadyForMoreMediaData else { return }
     if !WriterStarted {
       WriterStart = CMSampleBufferGetPresentationTimeStamp(Sample)
@@ -751,7 +958,7 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
       WriterVideoWritten = true
     } else if !WriterAppendFailed {
       WriterAppendFailed = true
-      OnLog?("写入视频帧失败：\(Writer.error?.localizedDescription ?? "无")")
+      RecordingFailed("写入视频帧失败：\(Writer.error?.localizedDescription ?? "无")")
     }
   }
 
@@ -765,38 +972,37 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
       WriterAudioWritten = true
     } else if !WriterAudioFailed {
       WriterAudioFailed = true
-      OnLog?("写入音频帧失败：\(Writer.error?.localizedDescription ?? "无")")
+      RecordingFailed("写入音频帧失败：\(Writer.error?.localizedDescription ?? "无")")
     }
   }
 
-  func Dispose() {
+  func Dispose(_ Completion: @escaping () -> Void) {
+    _ = NewRequest()
+    CancelRecordRequest()
+    InvalidateSamples()
     CaptureQueue.async {
+      let Start = ProcessInfo.processInfo.systemUptime
       self.OnLog?("释放采集会话")
-      self.RecordQueue.async { self.EndWriter(nil) }
+      self.Prepared = false
       self.MonitorEnabled = false
       self.StopMonitor()
-      if let Output = self.AudioOutput {
-        self.Session.beginConfiguration()
-        self.Session.removeOutput(Output)
-        self.Session.commitConfiguration()
-        self.AudioOutput = nil
-      }
-      if self.Session.outputs.contains(self.SnapshotOutput) {
-        self.Session.beginConfiguration()
-        self.Session.removeOutput(self.SnapshotOutput)
-        self.Session.commitConfiguration()
-      }
+      if self.Session.isRunning { self.Session.stopRunning() }
+      for Preview in self.Previews.values { Preview.session = nil }
+      self.Session.beginConfiguration()
+      if let Output = self.AudioOutput { self.Session.removeOutput(Output) }
+      if self.Session.outputs.contains(self.SnapshotOutput) { self.Session.removeOutput(self.SnapshotOutput) }
+      for Input in self.Session.inputs { self.Session.removeInput(Input) }
+      self.Session.commitConfiguration()
+      self.AudioOutput = nil
+      self.VideoInput = nil
+      self.AudioInput = nil
       self.SnapshotLock.lock()
       self.SnapshotPixel = nil
       self.SnapshotLock.unlock()
-      if self.Session.isRunning { self.Session.stopRunning() }
-      self.Session.beginConfiguration()
-      for Input in self.Session.inputs { self.Session.removeInput(Input) }
-      self.Session.commitConfiguration()
-      self.VideoInput = nil
-      self.AudioInput = nil
-      self.Prepared = false
-      self.OnState?("idle")
+      self.Trace("采集会话释放", Since: Start)
+      self.RecordQueue.async {
+        self.EndWriter { _ in Completion() }
+      }
     }
   }
 

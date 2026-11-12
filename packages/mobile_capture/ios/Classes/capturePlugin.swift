@@ -64,8 +64,7 @@ import UIKit
         result(Path)
       }
     case "Dispose":
-      Capture.Dispose()
-      result(nil)
+      Capture.Dispose { result(nil) }
     case "Snapshot":
       let Width = Arguments["width"] as? Int ?? 1280
       let Height = Arguments["height"] as? Int ?? 720
@@ -170,9 +169,6 @@ final class CapturePreviewContainer: UIView {
     self.Capture = Capture
     super.init(frame: Frame)
     backgroundColor = .black
-    Preview.session = Capture.Session
-    Preview.videoGravity = .resizeAspect
-    layer.addSublayer(Preview)
   }
 
   required init?(coder: NSCoder) {
@@ -180,49 +176,42 @@ final class CapturePreviewContainer: UIView {
     super.init(coder: coder)
   }
 
-  private var Capture: CaptureSession?
-  private let Preview = AVCaptureVideoPreviewLayer()
-  private var ConfiguredAngle: CGFloat = -1
+  private let Capture: CaptureSession?
+  private var Preview: AVCaptureVideoPreviewLayer?
+  private var PreviewVersion = 0
+
+  deinit {
+    if let Preview = Preview { Capture?.DetachPreview(Preview) }
+  }
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    guard let Capture = Capture else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    // Reassigning the session on every layout makes the capture graph
-    // renegotiate its format and stalls the main thread while recording starts
-    // (1080p120). Only attach when it actually changed.
-    if Preview.session !== Capture.Session {
-      Preview.session = Capture.Session
-    }
-    if Preview.superlayer !== layer {
-      Preview.removeFromSuperlayer()
-      layer.addSublayer(Preview)
-    }
-    Preview.frame = bounds
-    if let Connection = Preview.connection, ConfiguredAngle != Capture.VideoAngle {
-      ConfiguredAngle = Capture.VideoAngle
-      if #available(iOS 17.0, *) {
-        if Connection.isVideoRotationAngleSupported(Capture.VideoAngle) {
-          Connection.videoRotationAngle = Capture.VideoAngle
-        }
-      }
-      Connection.automaticallyAdjustsVideoMirroring = false
-      if Connection.isVideoMirroringSupported {
-        Connection.isVideoMirrored = false
-      }
-      Connection.isEnabled = true
-    }
+    Preview?.frame = bounds
     CATransaction.commit()
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    if window != nil, let Capture = Capture {
-      if Preview.session !== Capture.Session {
-        Preview.session = Capture.Session
-      }
-      setNeedsLayout()
+    PreviewVersion += 1
+    let Version = PreviewVersion
+    if let Old = Preview {
+      Old.removeFromSuperlayer()
+      Capture?.DetachPreview(Old)
+      Preview = nil
+    }
+    guard window != nil, let Capture = Capture else { return }
+    let Next = AVCaptureVideoPreviewLayer()
+    Next.videoGravity = .resizeAspect
+    Preview = Next
+    // Session and connection access can wait on AVFoundation. Bind before
+    // mounting the layer, on the same queue that configures the capture graph.
+    Capture.AttachPreview(Next) { [weak self] in
+      guard let self = self, self.PreviewVersion == Version,
+            self.Preview === Next, self.window != nil else { return }
+      self.layer.addSublayer(Next)
+      self.setNeedsLayout()
     }
   }
 }

@@ -35,6 +35,8 @@ class MobileRecorder {
   String? AudioError;
   int Segments = 0;
   Future<void> Finalizes = Future<void>.value();
+  Future<void>? Operation;
+  Future<void>? StopTask;
 
   String NextPath([DateTime? Now]) {
     final Base = Now ?? DateTime.now();
@@ -58,11 +60,25 @@ class MobileRecorder {
     await Source.Monitor(Value);
   }
 
-  Future<void> Start() async {
+  Future<void> Start() {
+    if (Stopping) return Future<void>.value();
+    return RunOperation(StartCapture);
+  }
+
+  Future<void> RunOperation(Future<void> Function() Action) {
+    final Task = Action();
+    Operation = Task;
+    return Task.whenComplete(() {
+      if (identical(Operation, Task)) Operation = null;
+    });
+  }
+
+  Future<void> StartCapture() async {
     Error.value = null;
     AudioError = null;
     AudioActive = AudioRequested;
     await BeginSegment();
+    if (Stopping) return;
     Segments = 1;
     Clock?.cancel();
     Clock = Timer.periodic(const Duration(seconds: Config.SegmentSeconds), (_) => Roll());
@@ -103,25 +119,7 @@ class MobileRecorder {
     if (Busy || Stopping || Target == null) return;
     Busy = true;
     try {
-      final OldTarget = Target;
-      final OldActual = Actual;
-      final OldAudio = AudioPath;
-      final OldOffset = AudioOffsetUs;
-      final OldAudioActive = AudioActive;
-      try {
-        await Source.StopRecording();
-      } catch (_) {}
-      try {
-        await Source.StopAudio();
-      } catch (_) {}
-      Target = null;
-      Actual = null;
-      AudioPath = null;
-      AudioOffsetUs = 0;
-      AudioActive = false;
-      if (OldTarget != null) EnqueueFinalize(OldTarget, OldActual, OldAudio, OldOffset, OldAudioActive);
-      await BeginSegment();
-      Segments++;
+      await RunOperation(RollSegment);
     } catch (Cause) {
       Error.value = CauseText(Cause);
       Clock?.cancel();
@@ -131,11 +129,52 @@ class MobileRecorder {
     }
   }
 
-  Future<void> Stop() async {
+  Future<void> RollSegment() async {
+    final OldTarget = Target;
+    final OldActual = Actual;
+    final OldAudio = AudioPath;
+    final OldOffset = AudioOffsetUs;
+    final OldAudioActive = AudioActive;
+    try {
+      await Source.StopRecording();
+    } catch (_) {}
+    try {
+      await Source.StopAudio();
+    } catch (_) {}
+    Target = null;
+    Actual = null;
+    AudioPath = null;
+    AudioOffsetUs = 0;
+    AudioActive = false;
+    if (OldTarget != null) EnqueueFinalize(OldTarget, OldActual, OldAudio, OldOffset, OldAudioActive);
+    // Stop may have started while the old segment was closing. Then this roll
+    // must not open a new segment: Stop closes whatever is still active.
     if (Stopping) return;
+    await BeginSegment();
+    if (Stopping) return;
+    Segments++;
+  }
+
+  Future<void> Stop() {
     Stopping = true;
     Clock?.cancel();
     Clock = null;
+    final Pending = StopTask;
+    if (Pending != null) return Pending;
+    final Task = StopCapture();
+    StopTask = Task;
+    return Task.whenComplete(() {
+      if (identical(StopTask, Task)) StopTask = null;
+    });
+  }
+
+  Future<void> StopCapture() async {
+    final InFlight = Operation;
+    if (InFlight != null) {
+      try {
+        await InFlight;
+      } catch (_) {}
+    }
     final OldTarget = Target;
     final OldActual = Actual;
     final OldAudio = AudioPath;

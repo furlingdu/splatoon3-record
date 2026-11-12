@@ -19,8 +19,8 @@ import 'mobile/recorder.dart';
 export 'mobile/mobileMedia.dart';
 
 class MobileCaptureService implements CapturePlatform {
-  MobileCaptureService(this.Directories, this.FFmpeg)
-      : Sources = PlatformInfo.IOS ? <MobileCaptureSource>[IosCaptureSource()] : <MobileCaptureSource>[AndroidUvcSource()] {
+  MobileCaptureService(this.Directories, this.FFmpeg, {List<MobileCaptureSource>? Sources})
+      : Sources = Sources ?? (PlatformInfo.IOS ? <MobileCaptureSource>[IosCaptureSource()] : <MobileCaptureSource>[AndroidUvcSource()]) {
     if (PlatformInfo.IOS) {
       Events = MobileCapture.Events.receiveBroadcastStream().listen(HandleEvent, onError: (Object Error) => OnLog?.call('采集事件监听失败：$Error'));
     }
@@ -36,6 +36,9 @@ class MobileCaptureService implements CapturePlatform {
   bool Recovered = false;
   bool AutoRecover = false;
   bool PendingIdle = false;
+  bool RecordingStarted = false;
+  int RunVersion = 0;
+  Future<void>? StopTask;
 
   void HandleEvent(dynamic Value) {
     if (Value is! Map) return;
@@ -44,8 +47,17 @@ class MobileCaptureService implements CapturePlatform {
     if (Text.isEmpty) return;
     if (Type == 'state') {
       OnLog?.call('采集状态：$Text');
-      if (Text == 'idle') {
-        if (_State.value == 'recording' && !Stopping) {
+      if (Text == 'recording') {
+        if (Starting || Running) {
+          RecordingStarted = true;
+          PendingIdle = false;
+        }
+      } else if (Text == 'idle') {
+        // Preparation can release an old session, and segment rollover stops
+        // the writer deliberately. Only recover an active, unexpected stop.
+        if (!RecordingStarted || Stopping || Recorder?.Busy == true) return;
+        RecordingStarted = false;
+        if (_State.value == 'recording') {
           final Value = LastSettings;
           if (!Recovered && Value != null) {
             Recovered = true;
@@ -66,8 +78,9 @@ class MobileCaptureService implements CapturePlatform {
   }
 
   Future<void> ResumeRecording(RecordSettings Value) async {
+    final Version = RunVersion;
     await Future<void>.delayed(const Duration(seconds: 1));
-    if (_State.value != 'idle') return;
+    if (Version != RunVersion || Stopping || _State.value != 'idle') return;
     AutoRecover = true;
     try {
       await Start(Value);
@@ -200,12 +213,16 @@ class MobileCaptureService implements CapturePlatform {
       _Error.value = '移动端不支持直播';
       return;
     }
-    await Stop(Fast: true);
+    final Cleanup = Stop(Fast: true);
+    final Version = RunVersion;
+    await Cleanup;
+    if (Version != RunVersion) return;
     unawaited(SweepCache());
     _Error.value = null;
     _State.value = 'starting';
     LastSettings = Value;
     PendingIdle = false;
+    RecordingStarted = false;
     if (!AutoRecover) Recovered = false;
     OnLog?.call('移动端开始采集 source=${Value.MobileSource} device=${Value.MobileDevice} audio=${Value.MobileAudio} audioDevice=${Value.MobileAudioDevice} monitor=${Value.MonitorAudio} ${Value.Width}x${Value.Height}@${Value.Fps}');
     final Source = SourceFor(Value);
@@ -217,21 +234,27 @@ class MobileCaptureService implements CapturePlatform {
     Active = Source;
     try {
       final List<CaptureDevice> Items = await Source.Devices();
+      if (Version != RunVersion) return;
       if (Items.isEmpty) throw StateError('没有检测到 USB 采集卡');
       final Device = Items.firstWhere((Item) => Item.Id == Value.MobileDevice, orElse: () => Items.first);
       final List<CaptureMode> Formats = await Source.Modes(Device.Id);
+      if (Version != RunVersion) return;
       if (Formats.isEmpty) throw StateError('采集卡没有报告可用档位');
       final Picked = Pick(Formats, Value);
       if (Picked == null) throw StateError('采集卡没有可用档位');
       final Ready = await Source.Prepare(Device, Picked, Value);
+      if (Version != RunVersion) return;
       Mode = Ready;
       OnLog?.call('移动端采集就绪 device=${Device.Id} ${Ready.Width}x${Ready.Height}@${Ready.MaxFps} audio=${Value.MobileAudio}');
       final Engine = MobileRecorder(Source, Directories, Value.MobileAudio);
       Recorder = Engine;
       Engine.Error.addListener(RecorderChanged);
       await Engine.Start();
+      if (Version != RunVersion) return;
       if (Value.MonitorAudio) await Engine.Monitor(true);
+      if (Version != RunVersion) return;
       Segments = Engine.Segments;
+      RecordingStarted = !PendingIdle;
       _State.value = 'recording';
       if (PendingIdle) {
         PendingIdle = false;
@@ -258,6 +281,7 @@ class MobileCaptureService implements CapturePlatform {
       SweepClock = Timer.periodic(const Duration(minutes: 5), (_) => unawaited(SweepCache()));
       PushStats();
     } catch (Cause) {
+      if (Version != RunVersion) return;
       OnLog?.call('移动端采集失败：$Cause');
       await Stop(Fast: true);
       _State.value = 'error';
@@ -316,8 +340,21 @@ class MobileCaptureService implements CapturePlatform {
   }
 
   @override
-  Future<void> Stop({bool Fast = false}) async {
+  Future<void> Stop({bool Fast = false}) {
+    RunVersion++;
     Stopping = true;
+    PendingIdle = false;
+    RecordingStarted = false;
+    final Pending = StopTask;
+    if (Pending != null) return Pending;
+    final Task = StopCapture();
+    StopTask = Task;
+    return Task.whenComplete(() {
+      if (identical(StopTask, Task)) StopTask = null;
+    });
+  }
+
+  Future<void> StopCapture() async {
     OnLog?.call('移动端停止采集 state=${_State.value}');
     DeviceClock?.cancel();
     DeviceClock = null;
@@ -353,26 +390,23 @@ class MobileCaptureService implements CapturePlatform {
   /// could fill the device. Recording then failed with "Cannot Record".
   Future<void> SweepCache() async {
     final Folder = Directory(Directories.Cache);
-    if (!Folder.existsSync()) return;
     final Cutoff = DateTime.now().millisecondsSinceEpoch - Config.CacheKeepMs;
-    final Keep = <String>{};
-    final Engine = Recorder;
-    if (Engine != null) {
-      for (final Item in <String?>[Engine.Target, Engine.Actual, Engine.AudioPath]) {
-        if (Item != null) Keep.add(Item);
-      }
-    }
     var Removed = 0;
-    for (final Item in Folder.listSync().whereType<File>()) {
-      final Lower = Item.path.toLowerCase();
-      if (!Lower.endsWith('.mov') && !Lower.endsWith('.mp4') && !Lower.endsWith('.m4a')) continue;
-      if (Keep.contains(Item.path)) continue;
-      try {
-        if (Item.statSync().modified.millisecondsSinceEpoch > Cutoff) continue;
-        Item.deleteSync();
-        Removed++;
-      } catch (_) {}
-    }
+    try {
+      if (!await Folder.exists()) return;
+      await for (final Item in Folder.list()) {
+        if (Item is! File) continue;
+        final Lower = Item.path.toLowerCase();
+        if (!Lower.endsWith('.mov') && !Lower.endsWith('.mp4') && !Lower.endsWith('.m4a')) continue;
+        final Engine = Recorder;
+        if (Engine != null && <String?>[Engine.Target, Engine.Actual, Engine.AudioPath].contains(Item.path)) continue;
+        try {
+          if ((await Item.stat()).modified.millisecondsSinceEpoch > Cutoff) continue;
+          await Item.delete();
+          Removed++;
+        } catch (_) {}
+      }
+    } catch (_) {}
     if (Removed > 0) OnLog?.call('清理过期缓存 $Removed 个');
   }
 
