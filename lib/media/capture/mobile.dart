@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:mobile_capture/mobileCapture.dart';
 
+import '../../config/constants.dart';
 import '../../config/system.dart';
 import '../../domain/models.dart';
 import '../ffmpeg/ffmpegService.dart';
@@ -53,7 +54,7 @@ class MobileCaptureService implements CapturePlatform {
             unawaited(ResumeRecording(Value));
           } else {
             _State.value = 'error';
-            _Error.value = '录制意外中断，请检查采集卡连接后点击重试采集';
+            _Error.value = '录制意外中断，请检查采集卡连接与存储空间后点击重试采集';
           }
         } else if (_State.value == 'starting' && !Stopping) {
           PendingIdle = true;
@@ -89,6 +90,7 @@ class MobileCaptureService implements CapturePlatform {
   CaptureMode? Mode;
   Timer? StatsClock;
   Timer? DeviceClock;
+  Timer? SweepClock;
   String? ActiveDeviceId;
   int DeviceMisses = 0;
   int Segments = 0;
@@ -199,6 +201,7 @@ class MobileCaptureService implements CapturePlatform {
       return;
     }
     await Stop(Fast: true);
+    unawaited(SweepCache());
     _Error.value = null;
     _State.value = 'starting';
     LastSettings = Value;
@@ -239,7 +242,7 @@ class MobileCaptureService implements CapturePlatform {
           unawaited(ResumeRecording(Value));
         } else {
           _State.value = 'error';
-          _Error.value = '录制意外中断，请检查采集卡连接后点击重试采集';
+          _Error.value = '录制意外中断，请检查采集卡连接与存储空间后点击重试采集';
         }
         return;
       }
@@ -251,12 +254,14 @@ class MobileCaptureService implements CapturePlatform {
       DeviceClock = Timer.periodic(const Duration(seconds: 2), (_) => unawaited(Check()));
       StatsClock?.cancel();
       StatsClock = Timer.periodic(const Duration(seconds: 2), (_) => PushStats());
+      SweepClock?.cancel();
+      SweepClock = Timer.periodic(const Duration(minutes: 5), (_) => unawaited(SweepCache()));
       PushStats();
     } catch (Cause) {
       OnLog?.call('移动端采集失败：$Cause');
       await Stop(Fast: true);
       _State.value = 'error';
-      _Error.value = '$Cause';
+      _Error.value = CauseText(Cause);
     }
   }
 
@@ -320,6 +325,8 @@ class MobileCaptureService implements CapturePlatform {
     DeviceMisses = 0;
     StatsClock?.cancel();
     StatsClock = null;
+    SweepClock?.cancel();
+    SweepClock = null;
     final Engine = Recorder;
     Recorder = null;
     if (Engine != null) {
@@ -340,6 +347,33 @@ class MobileCaptureService implements CapturePlatform {
     _Stats.value = null;
     _State.value = 'idle';
     Stopping = false;
+  }
+
+  /// Mobile capture never had a cache sweep, so abandoned segments piled up and
+  /// could fill the device. Recording then failed with "Cannot Record".
+  Future<void> SweepCache() async {
+    final Folder = Directory(Directories.Cache);
+    if (!Folder.existsSync()) return;
+    final Cutoff = DateTime.now().millisecondsSinceEpoch - Config.CacheKeepMs;
+    final Keep = <String>{};
+    final Engine = Recorder;
+    if (Engine != null) {
+      for (final Item in <String?>[Engine.Target, Engine.Actual, Engine.AudioPath]) {
+        if (Item != null) Keep.add(Item);
+      }
+    }
+    var Removed = 0;
+    for (final Item in Folder.listSync().whereType<File>()) {
+      final Lower = Item.path.toLowerCase();
+      if (!Lower.endsWith('.mov') && !Lower.endsWith('.mp4') && !Lower.endsWith('.m4a')) continue;
+      if (Keep.contains(Item.path)) continue;
+      try {
+        if (Item.statSync().modified.millisecondsSinceEpoch > Cutoff) continue;
+        Item.deleteSync();
+        Removed++;
+      } catch (_) {}
+    }
+    if (Removed > 0) OnLog?.call('清理过期缓存 $Removed 个');
   }
 
   @override

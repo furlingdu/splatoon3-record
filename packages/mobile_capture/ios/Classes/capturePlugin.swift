@@ -182,19 +182,26 @@ final class CapturePreviewContainer: UIView {
 
   private var Capture: CaptureSession?
   private let Preview = AVCaptureVideoPreviewLayer()
+  private var ConfiguredAngle: CGFloat = -1
 
   override func layoutSubviews() {
     super.layoutSubviews()
     guard let Capture = Capture else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    Preview.session = Capture.Session
+    // Reassigning the session on every layout makes the capture graph
+    // renegotiate its format and stalls the main thread while recording starts
+    // (1080p120). Only attach when it actually changed.
+    if Preview.session !== Capture.Session {
+      Preview.session = Capture.Session
+    }
     if Preview.superlayer !== layer {
       Preview.removeFromSuperlayer()
       layer.addSublayer(Preview)
     }
     Preview.frame = bounds
-    if let Connection = Preview.connection {
+    if let Connection = Preview.connection, ConfiguredAngle != Capture.VideoAngle {
+      ConfiguredAngle = Capture.VideoAngle
       if #available(iOS 17.0, *) {
         if Connection.isVideoRotationAngleSupported(Capture.VideoAngle) {
           Connection.videoRotationAngle = Capture.VideoAngle
@@ -212,7 +219,9 @@ final class CapturePreviewContainer: UIView {
   override func didMoveToWindow() {
     super.didMoveToWindow()
     if window != nil, let Capture = Capture {
-      Preview.session = Capture.Session
+      if Preview.session !== Capture.Session {
+        Preview.session = Capture.Session
+      }
       setNeedsLayout()
     }
   }

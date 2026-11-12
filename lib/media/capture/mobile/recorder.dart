@@ -2,10 +2,19 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../../../config/constants.dart';
 import '../../../domain/models.dart';
 import 'source.dart';
+
+/// Platform channel failures carry their message inside the exception, which is
+/// unreadable in the UI ("PlatformException(...)"). Keep only the message.
+String CauseText(Object Cause) {
+  if (Cause is PlatformException) return Cause.message ?? Cause.code;
+  if (Cause is StateError) return Cause.message;
+  return '$Cause';
+}
 
 class MobileRecorder {
   MobileRecorder(this.Source, this.Directories, this.AudioRequested);
@@ -86,7 +95,7 @@ class MobileRecorder {
       AudioOffsetUs = (Clip.StartNs - VideoStartNs) ~/ 1000;
     } catch (Cause) {
       AudioActive = false;
-      AudioError = '$Cause';
+      AudioError = CauseText(Cause);
     }
   }
 
@@ -114,7 +123,7 @@ class MobileRecorder {
       await BeginSegment();
       Segments++;
     } catch (Cause) {
-      Error.value = '$Cause';
+      Error.value = CauseText(Cause);
       Clock?.cancel();
       Clock = null;
     } finally {
@@ -155,7 +164,7 @@ class MobileRecorder {
 
   void EnqueueFinalize(String FinalTarget, String? SourcePath, String? Audio, int Offset, bool HadAudio) {
     Finalizes = Finalizes.then((_) => Finalize(FinalTarget, SourcePath, Audio, Offset, HadAudio)).catchError((Object Cause) {
-      Error.value = '$Cause';
+      Error.value = CauseText(Cause);
     });
   }
 

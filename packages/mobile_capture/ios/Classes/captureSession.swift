@@ -503,16 +503,43 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
     return Result != .error && ConversionError == nil
   }
 
+  private func FreeBytes() -> Int64 {
+    let Home = URL(fileURLWithPath: NSHomeDirectory())
+    if let Values = try? Home.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+       let Capacity = Values.volumeAvailableCapacityForImportantUsage {
+      return Int64(Capacity)
+    }
+    return 0
+  }
+
+  private func FreeMegabytes() -> Int64 {
+    return FreeBytes() / (1024 * 1024)
+  }
+
   func StartRecording(_ Path: String, Completion: @escaping (String?) -> Void) {
     CaptureQueue.async {
       guard self.Prepared, self.Session.isRunning else {
         DispatchQueue.main.async { Completion("采集会话未启动") }
         return
       }
+      let Folder = (Path as NSString).deletingLastPathComponent
+      try? FileManager.default.createDirectory(atPath: Folder, withIntermediateDirectories: true)
+      let Free = self.FreeMegabytes()
+      if Free > 0, Free < 512 {
+        self.OnLog?("存储空间不足：剩余 \(Free)MB")
+        DispatchQueue.main.async { Completion("存储空间不足（剩余 \(Free) MB），请清理缓存后重试") }
+        return
+      }
       if self.Output.isRecording { self.Output.stopRecording() }
       try? FileManager.default.removeItem(atPath: Path)
-      self.OnLog?("开始录制：\(Path)")
+      let Connection = self.Output.connection(with: .video)
+      self.OnLog?("开始录制：\(Path) 剩余空间=\(Free)MB 视频连接=\(Connection?.isActive ?? false) 音频连接=\(self.Output.connection(with: .audio)?.isActive ?? false)")
       self.Output.startRecording(to: URL(fileURLWithPath: Path), recordingDelegate: self)
+      if !self.Output.isRecording {
+        self.OnLog?("录制未能启动：文件输出未进入录制状态")
+        DispatchQueue.main.async { Completion("无法开始录制，请检查采集卡与存储空间") }
+        return
+      }
       self.OnState?("recording")
       DispatchQueue.main.async { Completion(nil) }
     }
@@ -610,7 +637,11 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
 
   func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
     let Path = error == nil ? outputFileURL.path : nil
-    OnLog?("录制分段结束 error=\(error?.localizedDescription ?? "无") path=\(Path ?? "无效")")
+    if let Failure = error as NSError? {
+      OnLog?("录制分段结束 error=\(Failure.localizedDescription) domain=\(Failure.domain) code=\(Failure.code) file=\(outputFileURL.lastPathComponent) 剩余空间=\(FreeMegabytes())MB")
+    } else {
+      OnLog?("录制分段结束 path=\(Path ?? "无效") 剩余空间=\(FreeMegabytes())MB")
+    }
     let Callback = Pending
     Pending = nil
     OnState?("idle")
