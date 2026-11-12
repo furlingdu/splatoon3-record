@@ -427,8 +427,20 @@ extension AppNSOFlow on AppController {
   }
 
   Future<void> DeleteNSOAccount(String Id) async {
-    if (Accounts.length <= 1) return;
-    Accounts.removeWhere((Item) => Item.Id == Id);
+    final Index = Accounts.indexWhere((Item) => Item.Id == Id);
+    if (Index < 0) {
+      Notice = '该账户已不存在';
+      PushStatus();
+      await Logs.App('nso delete missing id=$Id');
+      return;
+    }
+    if (Accounts.length <= 1) {
+      Notice = '至少需要保留一个 NSO 账户';
+      PushStatus();
+      await Logs.App('nso delete rejected keep-one id=$Id');
+      return;
+    }
+    Accounts.removeAt(Index);
     if (CurrentNSOId == Id) CurrentNSOId = Accounts.isEmpty ? null : Accounts.first.Id;
     NSOSessions.remove(Id);
     final Data = Map<String, dynamic>.from(Vault.Data);
@@ -438,7 +450,13 @@ extension AppNSOFlow on AppController {
       Sessions.remove(Id);
       Data['nsoSessions'] = Sessions;
     }
-    await Vault.Save(Data);
+    try {
+      await Vault.Save(Data);
+      await Logs.App('nso delete ok id=$Id left=${Accounts.length}');
+    } catch (Cause) {
+      Notice = '账户已移除，但保存登录信息失败：$Cause';
+      await Logs.App('nso delete save failed id=$Id $Cause');
+    }
     PushStatus();
   }
 
