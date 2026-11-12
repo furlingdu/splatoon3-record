@@ -17,6 +17,9 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   private let SnapshotOutput = AVCaptureVideoDataOutput()
   private let CaptureQueue = DispatchQueue(label: "splatoon3record.mobile_capture")
   private let SnapshotQueue = DispatchQueue(label: "splatoon3record.mobile_snapshot")
+  // Snapshot conversion must not share the sample buffer queue: a slow render
+  // there drops recorded frames (alwaysDiscardsLateVideoFrames).
+  private let SnapshotWorkQueue = DispatchQueue(label: "splatoon3record.mobile_snapshot_work")
   private let MonitorQueue = DispatchQueue(label: "splatoon3record.audio_monitor")
   // Segment writes happen on their own serial queue so a slow encoder never
   // blocks session control (start / stop / monitor) and vice versa.
@@ -47,6 +50,10 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   private var WriterVideoWritten = false
   private var WriterAudioWritten = false
   private var WriterAppendFailed = false
+  private var WriterAudioFailed = false
+  private var WriterStart = CMTime.invalid
+  private var AudioSampleRate = 48000.0
+  private var AudioChannels = 2
   private var WriterInputSize = CGSize.zero
   private var CaptureFps = 30
 
@@ -163,7 +170,7 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   private func AudioDevice(_ PortName: String) -> AVCaptureDevice? {
     var Types: [AVCaptureDevice.DeviceType] = [.builtInMicrophone]
     if #available(iOS 17.0, *) {
-      Types = [.microphone]
+      Types = [.microphone, .external]
     }
     let Devices = AVCaptureDevice.DiscoverySession(deviceTypes: Types, mediaType: .audio, position: .unspecified).devices
     if !PortName.isEmpty, let Match = Devices.first(where: { $0.localizedName == PortName }) {
@@ -525,6 +532,12 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
       return
     }
     RecordQueue.async { self.AppendAudio(sampleBuffer) }
+    if let Format = Self.AudioFormat(sampleBuffer), Format.0 >= 8000, Format.1 > 0 {
+      // The writer has to be configured with the same rate / channel count the
+      // capture output really delivers, otherwise every audio append is refused.
+      AudioSampleRate = Format.0
+      AudioChannels = Format.1
+    }
     guard MonitorEnabled, let Player = MonitorPlayer, let Format = MonitorFormat else { return }
     let Frames = CMSampleBufferGetNumSamples(sampleBuffer)
     if Frames <= 0 { return }
@@ -532,6 +545,12 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     guard let Buffer = AVAudioPCMBuffer(pcmFormat: Format, frameCapacity: Capacity) else { return }
     if !CopyAudio(sampleBuffer, To: Buffer, Format: Format) { return }
     Player.scheduleBuffer(Buffer, completionHandler: nil)
+  }
+
+  private static func AudioFormat(_ Sample: CMSampleBuffer) -> (Double, Int)? {
+    guard let Description = CMSampleBufferGetFormatDescription(Sample),
+          let Stream = CMAudioFormatDescriptionGetStreamBasicDescription(Description)?.pointee else { return nil }
+    return (Stream.mSampleRate, Int(Stream.mChannelsPerFrame))
   }
 
   private func CopyAudio(_ SampleBuffer: CMSampleBuffer, To Buffer: AVAudioPCMBuffer, Format: AVAudioFormat) -> Bool {
@@ -643,8 +662,8 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     if AudioInput != nil {
       let Input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
         AVFormatIDKey: kAudioFormatMPEG4AAC,
-        AVNumberOfChannelsKey: 2,
-        AVSampleRateKey: 48000,
+        AVNumberOfChannelsKey: max(1, AudioChannels),
+        AVSampleRateKey: AudioSampleRate > 0 ? AudioSampleRate : 48000,
         AVEncoderBitRateKey: 128000,
       ])
       Input.expectsMediaDataInRealTime = true
@@ -665,6 +684,8 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     WriterVideoWritten = false
     WriterAudioWritten = false
     WriterAppendFailed = false
+    WriterAudioFailed = false
+    WriterStart = CMTime.invalid
     self.Writer = Writer
     return nil
   }
@@ -680,6 +701,7 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     let Video = self.WriterVideo
     let Audio = self.WriterAudio
     let Wrote = self.WriterVideoWritten
+    let Started = self.WriterStarted
     self.Writer = nil
     self.WriterVideo = nil
     self.WriterAudio = nil
@@ -695,6 +717,14 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     guard Writer.status == .writing else {
       try? FileManager.default.removeItem(atPath: Path)
       Finish("写入未开始 状态=\(Writer.status.rawValue) 错误=\(Writer.error?.localizedDescription ?? "无")")
+      return
+    }
+    // No session start means no frame was ever written: finishing such a writer
+    // only produces a broken asset, so cancel it instead.
+    guard Started else {
+      Writer.cancelWriting()
+      try? FileManager.default.removeItem(atPath: Path)
+      Finish("没有写入任何视频帧")
       return
     }
     Video?.markAsFinished()
@@ -713,7 +743,8 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     guard let Writer = self.Writer, let Input = self.WriterVideo, Writer.status == .writing else { return }
     guard CMSampleBufferDataIsReady(Sample), Input.isReadyForMoreMediaData else { return }
     if !WriterStarted {
-      Writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(Sample))
+      WriterStart = CMSampleBufferGetPresentationTimeStamp(Sample)
+      Writer.startSession(atSourceTime: WriterStart)
       WriterStarted = true
     }
     if Input.append(Sample) {
@@ -725,9 +756,17 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   }
 
   private func AppendAudio(_ Sample: CMSampleBuffer) {
-    guard WriterStarted, let Writer = self.Writer, let Input = self.WriterAudio, Writer.status == .writing else { return }
+    guard WriterStarted, WriterStart.isValid, let Writer = self.Writer, let Input = self.WriterAudio, Writer.status == .writing else { return }
     guard CMSampleBufferDataIsReady(Sample), Input.isReadyForMoreMediaData else { return }
-    if Input.append(Sample) { WriterAudioWritten = true }
+    // Frames older than the session start are rejected by the writer, and a
+    // rejected append fails the whole segment.
+    guard CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(Sample), WriterStart) >= 0 else { return }
+    if Input.append(Sample) {
+      WriterAudioWritten = true
+    } else if !WriterAudioFailed {
+      WriterAudioFailed = true
+      OnLog?("写入音频帧失败：\(Writer.error?.localizedDescription ?? "无")")
+    }
   }
 
   func Dispose() {
@@ -805,6 +844,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
       }
       DispatchQueue.main.async { Completion(DataValue) }
     }
-    SnapshotQueue.async(execute: Task)
+    SnapshotWorkQueue.async(execute: Task)
   }
 }
