@@ -51,6 +51,7 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   private var MonitorPlayer: AVAudioPlayerNode?
   private var MonitorFormat: AVAudioFormat?
   private var MonitorEnabled = false
+  private var LastMonitorRestart: TimeInterval = 0
   private var AudioConfigured = false
   // AVCaptureMovieFileOutput refuses to start on this capture chain
   // ("Cannot Record", AVFoundationErrorDomain -11805) and blocks for seconds on
@@ -127,8 +128,9 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
 
   func DetachPreview(_ Preview: AVCaptureVideoPreviewLayer) {
     CaptureQueue.async {
-      self.Previews.removeValue(forKey: ObjectIdentifier(Preview))
+      guard self.Previews.removeValue(forKey: ObjectIdentifier(Preview)) != nil else { return }
       Preview.session = nil
+      self.OnLog?("预览层卸载")
     }
   }
 
@@ -148,6 +150,7 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   override init() {
     super.init()
     NotificationCenter.default.addObserver(self, selector: #selector(RouteChanged(_:)), name: AVAudioSession.routeChangeNotification, object: nil)
+    NotificationCenter.default.addObserver(self, selector: #selector(MonitorConfigurationChanged(_:)), name: .AVAudioEngineConfigurationChange, object: nil)
     NotificationCenter.default.addObserver(self, selector: #selector(SessionInterrupted(_:)), name: AVCaptureSession.wasInterruptedNotification, object: Session)
     NotificationCenter.default.addObserver(self, selector: #selector(SessionResumed(_:)), name: AVCaptureSession.interruptionEndedNotification, object: Session)
     NotificationCenter.default.addObserver(self, selector: #selector(SessionFailed(_:)), name: AVCaptureSession.runtimeErrorNotification, object: Session)
@@ -173,7 +176,26 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   @objc private func RouteChanged(_ Note: Notification) {
     CaptureQueue.async {
       guard self.AudioInput != nil else { return }
+      self.RouteMonitorOutput()
       self.ReportAudio()
+    }
+  }
+
+  // Plugging in headphones or a Bluetooth headset stops the engine; without
+  // restarting it the monitor stays silent even though the route is available.
+  @objc private func MonitorConfigurationChanged(_ Note: Notification) {
+    // Wait for the engine to settle: it stops right after posting this change,
+    // and restarting an engine that is still running would loop.
+    CaptureQueue.asyncAfter(deadline: .now() + 0.3) {
+      guard self.MonitorEnabled, let Engine = self.MonitorEngine, !Engine.isRunning else { return }
+      let Now = ProcessInfo.processInfo.systemUptime
+      guard Now - self.LastMonitorRestart > 0.5 else { return }
+      self.LastMonitorRestart = Now
+      self.OnLog?("声音返听输出变化，正在恢复")
+      self.StopMonitor()
+      self.RouteMonitorOutput()
+      self.StartMonitor()
+      self.LogAudioRoute()
     }
   }
 
@@ -183,6 +205,43 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     let Name = Input?.portName ?? "无"
     let Type = Input?.portType.rawValue ?? ""
     OnAudio?("音频输入：\(Name) \(Type)")
+    LogAudioRoute()
+  }
+
+  private func LogAudioRoute() {
+    let Inputs = AudioSession.currentRoute.inputs.map { "\($0.portName)(\($0.portType.rawValue))" }.joined(separator: "、")
+    let Outputs = AudioSession.currentRoute.outputs.map { "\($0.portName)(\($0.portType.rawValue))" }.joined(separator: "、")
+    OnLog?("音频路由 输入=\(Inputs.isEmpty ? "无" : Inputs) 输出=\(Outputs.isEmpty ? "无" : Outputs)")
+  }
+
+  // Playback must follow the system default output. With a USB capture card
+  // attached, playAndRecord routes the monitor to the card's line-out, so the
+  // iPad speaker and wired or Bluetooth headphones stay silent. Force the
+  // speaker only when the card itself is the output and no headset is present.
+  private func RouteMonitorOutput() {
+    guard let Card = AudioInput?.device.localizedName, !Card.isEmpty else { return }
+    let Outputs = AudioSession.currentRoute.outputs
+    let Headset = Outputs.contains { Port -> Bool in
+      switch Port.portType {
+      case .headphones, .headsetMic, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
+        return true
+      case .usbAudio:
+        return Port.portName != Card
+      default:
+        return false
+      }
+    }
+    do {
+      if Headset {
+        try AudioSession.overrideOutputAudioPort(.none)
+      } else if Outputs.contains(where: { $0.portType == .usbAudio }) {
+        try AudioSession.overrideOutputAudioPort(.speaker)
+      } else {
+        try AudioSession.overrideOutputAudioPort(.none)
+      }
+    } catch {
+      OnLog?("音频输出路由设置失败：\(error.localizedDescription)")
+    }
   }
 
   private var DeviceTypes: [AVCaptureDevice.DeviceType] {
@@ -208,7 +267,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   // the audio graph, which is what used to abort every iOS segment.
   private func ConfigureAudio() {
     guard !AudioConfigured else { return }
-    AudioConfigured = true
     do {
       try AudioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetoothA2DP])
     } catch {
@@ -216,6 +274,9 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     }
     do {
       try AudioSession.setActive(true)
+      // Only a successful activation counts: if it failed because the
+      // microphone permission was still pending, Prepare must retry it.
+      AudioConfigured = true
     } catch {
       OnLog?("音频会话激活失败：\(error.localizedDescription)")
     }
@@ -244,9 +305,21 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   /// device has to be matched to the selected port by name; otherwise the iPad
   /// microphone is recorded instead of the capture card audio.
   private func AudioDevice(_ PortName: String) -> AVCaptureDevice? {
-    let Devices = AudioInputs()
-    if !PortName.isEmpty, let Match = Devices.first(where: { $0.localizedName == PortName }) {
-      return Match
+    var Devices = AudioInputs()
+    if !PortName.isEmpty {
+      if let Match = Devices.first(where: { $0.localizedName == PortName }) {
+        return Match
+      }
+      // The external device can take a moment to appear in the discovery session
+      // after the route changes; without the retry the segment silently records
+      // the built-in microphone while monitoring plays the capture card.
+      for _ in 0..<12 {
+        Thread.sleep(forTimeInterval: 0.1)
+        Devices = AudioInputs()
+        if let Match = Devices.first(where: { $0.localizedName == PortName }) {
+          return Match
+        }
+      }
     }
     if let External = Devices.first(where: { IsExternal($0) }) {
       return External
@@ -263,11 +336,18 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   }
 
   func AudioDevices(_ Completion: @escaping ([[String: Any]]) -> Void) {
-    guard AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined else {
-      CaptureQueue.async {
-        let Items = self.InputAudioDevices()
-        DispatchQueue.main.async { Completion(Items) }
+    let Enumerate: () -> Void = {
+      self.CaptureQueue.async {
+        // availableInputs stays empty until the audio session has a recording
+        // category, which is why the settings page used to report "no audio
+        // input" while monitoring already played the capture card. Configure the
+        // session once here; Prepare then reuses it instead of reconfiguring.
+        self.ConfigureAudio()
+        self.ReadAudioDevices(Attempt: 0, Completion: Completion)
       }
+    }
+    guard AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined else {
+      Enumerate()
       return
     }
     var Finished = false
@@ -280,13 +360,26 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
       }
       Finished = true
       Lock.unlock()
-      self.CaptureQueue.async {
-        let Items = self.InputAudioDevices()
-        DispatchQueue.main.async { Completion(Items) }
-      }
+      Enumerate()
     }
     AVCaptureDevice.requestAccess(for: .audio) { _ in Finish() }
-    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3) { Finish() }
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 10) { Finish() }
+  }
+
+  // Runs on CaptureQueue. A capture card that was just plugged in, or a port the
+  // system is still activating, only shows up after a moment; retry briefly
+  // instead of reporting that the device has no audio input.
+  private func ReadAudioDevices(Attempt: Int, Completion: @escaping ([[String: Any]]) -> Void) {
+    let Items = InputAudioDevices()
+    let External = Items.contains { ($0["external"] as? Bool) == true }
+    if External || Attempt >= 4 {
+      OnLog?("音频输入 \(Items.count) 个：" + Items.map { "\($0["name"] ?? "")" }.joined(separator: "、"))
+      DispatchQueue.main.async { Completion(Items) }
+      return
+    }
+    CaptureQueue.asyncAfter(deadline: .now() + 0.25) {
+      self.ReadAudioDevices(Attempt: Attempt + 1, Completion: Completion)
+    }
   }
 
   private func InputAudioDevices() -> [[String: Any]] {
@@ -300,7 +393,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     for Device in AudioInputs() where !Items.contains(where: { ($0["name"] as? String) == Device.localizedName }) {
       Items.append(["id": Device.uniqueID, "name": Device.localizedName, "external": IsExternal(Device)])
     }
-    OnLog?("音频输入 \(Items.count) 个：" + Items.map({ "\($0["name"] ?? "")" }).joined(separator: "、"))
     return Items
   }
 
@@ -511,7 +603,9 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         return
       }
       self.Trace("采集准备", Since: Start)
-      self.OnLog?("采集已启动 \(Int(Size.width))x\(Int(Size.height))@\(UseFps) 音频输入=\(self.AudioInput?.device.localizedName ?? "无") 当前路由=\(self.AudioSession.currentRoute.inputs.first?.portName ?? "无")")
+      self.RouteMonitorOutput()
+      self.OnLog?("采集已启动 \(Int(Size.width))x\(Int(Size.height))@\(UseFps) 音频输入=\(self.AudioInput?.device.localizedName ?? "无")")
+      self.LogAudioRoute()
       let Mode = CaptureModeInfo(Width: Int(Size.width), Height: Int(Size.height), Fps: UseFps)
       DispatchQueue.main.async { Completion(Mode, nil) }
     }
@@ -582,7 +676,9 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
           return
         }
         self.MonitorEnabled = true
+        self.RouteMonitorOutput()
         self.StartMonitor()
+        self.LogAudioRoute()
         self.OnLog?("声音返听已开启")
       } else {
         self.MonitorEnabled = false

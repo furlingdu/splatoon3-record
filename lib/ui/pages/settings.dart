@@ -43,6 +43,14 @@ class SettingsPageState extends State<SettingsPage> {
     PushUrl.text = Draft.RtmpPushUrl;
     PushKey.text = Draft.RtmpPushKey;
     LoadModes();
+    // USB devices are enumerated once at startup, which can happen before the
+    // capture card (or its audio port) is ready. Re-enumerate when the page
+    // opens so the audio list does not stay empty until a manual refresh.
+    if (PlatformInfo.Mobile) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) RefreshMobileDevices();
+      });
+    }
   }
 
   List<CaptureDevice> MobileVideoDevices() {

@@ -126,6 +126,7 @@ import UIKit
         events(["type": "log", "value": Value])
       }
     }
+    Drop?.Log = { [weak self] Value in self?.Capture.OnLog?(Value) }
     return nil
   }
 
@@ -186,6 +187,10 @@ final class CapturePreviewContainer: UIView {
 
   override func layoutSubviews() {
     super.layoutSubviews()
+    // Zero sized passes happen while the status page is offstage; leaving the
+    // layer at its last size keeps the preview rendering instead of showing the
+    // green placeholder again when it comes back.
+    guard bounds.width > 1, bounds.height > 1 else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     Preview?.frame = bounds
@@ -194,23 +199,28 @@ final class CapturePreviewContainer: UIView {
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    PreviewVersion += 1
-    let Version = PreviewVersion
-    if let Old = Preview {
-      Old.removeFromSuperlayer()
-      Capture?.DetachPreview(Old)
-      Preview = nil
-    }
     guard window != nil, let Capture = Capture else { return }
+    if let Current = Preview {
+      // Flutter detaches platform views while a page is offstage. Reuse the
+      // existing preview layer: a new layer flashes green for a frame while it
+      // waits for the first capture frame, and recreating it also drops the
+      // current frame on every page switch.
+      if Current.superlayer == nil { layer.addSublayer(Current) }
+      setNeedsLayout()
+      return
+    }
     let Next = AVCaptureVideoPreviewLayer()
     Next.videoGravity = .resizeAspect
+    Next.frame = bounds
+    PreviewVersion += 1
+    let Version = PreviewVersion
     Preview = Next
     // Session and connection access can wait on AVFoundation. Bind before
     // mounting the layer, on the same queue that configures the capture graph.
     Capture.AttachPreview(Next) { [weak self] in
       guard let self = self, self.PreviewVersion == Version,
             self.Preview === Next, self.window != nil else { return }
-      self.layer.addSublayer(Next)
+      if Next.superlayer == nil { self.layer.addSublayer(Next) }
       self.setNeedsLayout()
     }
   }

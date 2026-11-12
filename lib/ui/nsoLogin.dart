@@ -12,9 +12,13 @@ import 'theme.dart';
 import 'controls.dart';
 
 class NSOLoginPanel extends StatefulWidget {
-  const NSOLoginPanel({super.key, required this.Controller});
+  const NSOLoginPanel({super.key, required this.Controller, this.OnLogin});
 
   final AppController Controller;
+
+  /// Called when the login completes, so a dialog hosting this panel can close
+  /// itself instead of leaving the user on a stale success screen.
+  final VoidCallback? OnLogin;
 
   @override
   State<NSOLoginPanel> createState() => NSOLoginPanelState();
@@ -24,10 +28,16 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
   final TextEditingController Callback = TextEditingController();
   TextDrop? Drop;
   bool DropActive = false;
+  // Feedback is rendered inside the panel: a SnackBar belongs to the page's
+  // Scaffold, so it is hidden behind the login dialog.
+  String? Message;
+  bool MessageError = false;
+  bool Awaiting = false;
 
   @override
   void initState() {
     super.initState();
+    widget.Controller.addListener(FollowAuth);
     if (!PlatformInfo.IOS) return;
     Drop = TextDrop(OnDrop: Accept, OnActive: Highlight);
     unawaited(Drop!.Start());
@@ -35,6 +45,7 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
 
   @override
   void dispose() {
+    widget.Controller.removeListener(FollowAuth);
     unawaited(Drop?.Stop());
     Callback.dispose();
     super.dispose();
@@ -45,28 +56,49 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
     setState(() => DropActive = Value);
   }
 
+  // The callback can arrive through the app link handler, which completes the
+  // login without Submit awaiting anything, so success is also detected here.
+  void FollowAuth() {
+    if (!mounted || !Awaiting) return;
+    if (widget.Controller.PendingAuth != null) return;
+    Awaiting = false;
+    if (widget.OnLogin != null) {
+      widget.OnLogin!.call();
+      return;
+    }
+    Notice('Nintendo 登录成功');
+  }
+
+  void Notice(String Value, {bool Error = false}) {
+    if (!mounted) return;
+    setState(() {
+      Message = Value;
+      MessageError = Error;
+    });
+  }
+
   void Accept(String Value) {
     if (!mounted) return;
     if (widget.Controller.PendingAuth == null || widget.Controller.AuthBusy) {
-      AppSnack.Show(context, '请先获取登录链接');
+      Notice('请先获取登录链接', Error: true);
       return;
     }
     if (NSOAuthCallback.ParseInput(Value) == null) {
-      AppSnack.Show(context, '未识别 Nintendo 登录回调链接');
+      Notice('未识别 Nintendo 登录回调链接', Error: true);
       return;
     }
     Callback.text = Value;
-    AppSnack.Show(context, '已填入回调链接');
+    Notice('已填入回调链接');
   }
 
   Future<void> CopyLink() async {
     final Url = widget.Controller.PendingAuth?.Url;
     if (Url == null || Url.isEmpty) {
-      AppSnack.Show(context, '请先获取 Nintendo 登录链接');
+      Notice('请先获取 Nintendo 登录链接', Error: true);
       return;
     }
     await Clipboard.setData(ClipboardData(text: Url));
-    if (mounted) AppSnack.Show(context, '登录链接已复制');
+    Notice('登录链接已复制');
   }
 
   Future<void> PasteLink() async {
@@ -74,22 +106,31 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
     final Text = Data?.text?.trim() ?? '';
     if (!mounted) return;
     if (Text.isEmpty) {
-      AppSnack.Show(context, '剪贴板中没有可粘贴的链接');
+      Notice('剪贴板中没有可粘贴的链接', Error: true);
       return;
     }
     Callback.text = Text;
+    Notice('已填入剪贴板内容');
   }
 
   Future<void> Submit() async {
     if (widget.Controller.AuthBusy) return;
     final Text = Callback.text.trim();
     if (Text.isEmpty) {
-      AppSnack.Show(context, '请先粘贴 Nintendo 登录回调链接');
+      Notice('请先粘贴 Nintendo 登录回调链接', Error: true);
       return;
     }
+    Awaiting = true;
+    Notice('正在完成 Nintendo 登录…');
     await widget.Controller.SubmitAuth(Text);
-    if (!mounted) return;
-    if (widget.Controller.PendingAuth == null) Callback.clear();
+    if (!mounted || !Awaiting) return;
+    Awaiting = false;
+    if (widget.Controller.PendingAuth == null) {
+      Callback.clear();
+      widget.OnLogin?.call();
+      return;
+    }
+    Notice(widget.Controller.Notice ?? '登录未完成，请检查回调链接后重试', Error: true);
   }
 
   @override
@@ -136,9 +177,13 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
           Enabled: Pending != null && !Busy,
           OnIcon: Icons.content_paste,
           OnIconTap: PasteLink,
+          OnChanged: (_) {
+            if (Message != null) setState(() => Message = null);
+          },
           OnSubmitted: (_) => Submit(),
         ),
       ),
+      if (Message != null) AppHint(Message!, Error: MessageError),
       AppButton(Label: Busy ? '正在登录…' : '登录', Enabled: Pending != null && !Busy, OnPressed: Submit),
       if (Pending == null) const AppHint('当前没有待完成的登录，请先获取登录链接。'),
     ]);
@@ -148,14 +193,20 @@ class NSOLoginPanelState extends State<NSOLoginPanel> {
 Future<void> OpenNSOLogin(BuildContext Context, AppController Controller) async {
   final Ok = await RequestNSOLogin(Context, Controller);
   if (!Ok || !Context.mounted) return;
+  final WasPending = Controller.PendingAuth != null;
   await showDialog<void>(
     context: Context,
-    builder: (Context) => AppDialog(
+    builder: (DialogContext) => AppDialog(
       Title: '登录 Nintendo 账号',
-      Content: NSOLoginPanel(Controller: Controller),
+      Content: NSOLoginPanel(Controller: Controller, OnLogin: () => Navigator.of(DialogContext).pop()),
       Actions: <Widget>[
-        AppButton(Label: '关闭', Kind: AppButtonKind.Text, OnPressed: () => Navigator.of(Context).pop()),
+        AppButton(Label: '关闭', Kind: AppButtonKind.Text, OnPressed: () => Navigator.of(DialogContext).pop()),
       ],
     ),
   );
+  // The dialog closes as soon as the login completes; confirm it on the page,
+  // where the SnackBar is no longer hidden by the dialog route.
+  if (WasPending && Controller.PendingAuth == null && Context.mounted) {
+    AppSnack.Show(Context, 'Nintendo 登录成功');
+  }
 }
