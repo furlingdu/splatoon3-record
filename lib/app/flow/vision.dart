@@ -146,6 +146,7 @@ extension AppVisionFlow on AppController {
     } else if (Current.isEmpty && Next.isEmpty) {
       return;
     }
+    if (Current.isEmpty != Next.isEmpty) unawaited(Logs.App('preview blur rects=${Next.length}'));
     BlurRects.value = Next;
   }
 

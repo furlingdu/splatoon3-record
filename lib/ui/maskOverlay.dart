@@ -35,9 +35,9 @@ class MaskOverlay extends StatelessWidget {
               Shape.addRRect(RRect.fromRectAndRadius(Rect.fromLTRB(Left, Top, Right, Bottom), const Radius.circular(4)));
             }
             if (Shape.getBounds().isEmpty) return const SizedBox.shrink();
-            // Roughly the same relative radius the Electron build used for its
-            // 1280 wide live canvas.
-            final Sigma = (Width / 1280 * 10).clamp(3.0, 16.0);
+            // The streaming pipeline blurs the 1280x720 stream with
+            // boxblur=20:2, so the preview uses the same relative radius.
+            final Sigma = (Width / 1280 * 16).clamp(4.0, 24.0);
             return ClipPath(
               clipper: PathClipper(Shape),
               child: BackdropFilter(
