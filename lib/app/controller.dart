@@ -146,6 +146,7 @@ class AppController extends ChangeNotifier {
     Version = Package.version;
     await Logs.App('app start version=$Version platform=${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
     await Configs.Load();
+    await NormalizeSaveDir();
     await Logs.App('config setupDone=${Configs.Current.SetupDone} captureMode=${SettingsValue.CaptureMode} autoRecord=${SettingsValue.AutoRecord} monitor=${SettingsValue.MonitorAudio} mobileAudio=${SettingsValue.MobileAudio}');
     await Archive.Load();
     await MigrateHandled();

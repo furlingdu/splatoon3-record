@@ -19,6 +19,9 @@
 - 归档编码顺序：硬件 HEVC → 硬件 H.264 → CPU（libx265）。
 - 画面识别必须走 GPU：Windows 用 DirectML（`onnxruntime_v2` + `windows/third_party/onnxruntime` 的 DML 版 DLL），只有 DirectML 不可用时才回退 CPU，并在日志里打印实际后端。
 - 直播打码的预览画面与推流内容一致：预览层用采样到的检测框叠加模糊（和 Electron 版本一致），采样帧交给识别，预览本身不逐帧推理、也不复制整帧。
+- iOS 分段录制走 `AVAssetWriter`（硬件 H.264 + AAC，见 `packages/mobile_capture/ios/Classes/captureSession.swift`）：`AVCaptureMovieFileOutput` 在 1080p120 采集卡上会直接拒绝对录（`AVFoundationErrorDomain -11805`）并阻塞数秒，不要改回去。iOS 的 `AVAudioSession` 只在准备阶段配置一次，录制中不要再 `setCategory`/`setActive`/`setPreferredInput`。
+- 归档视频写入设置里的保存目录（`OutputDir()`），目录不可写时回退到默认目录并记录日志；移动端每次启动把配置里的旧沙盒绝对路径重锚到当前容器。
+- 选择目录用应用内选择器（`lib/ui/folderPicker.dart`），不要用 `file_selector` 的目录对话框：系统模态窗口会在采集运行时卡住窗口线程。
 
 ## 提交
 

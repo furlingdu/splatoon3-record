@@ -57,10 +57,49 @@ extension AppPlatformFlow on AppController {
     if (PlatformInfo.Desktop) unawaited(WarmPreviewWindow());
   }
 
-  Future<void> PickFolder() async {
-    final Path = await getDirectoryPath(confirmButtonText: '选择文件夹');
-    if (Path == null) return;
+  Future<void> ApplySaveDir(String Value) async {
+    final Path = Value.trim();
+    if (Path.isEmpty) return;
+    try {
+      await Directory(Path).create(recursive: true);
+    } catch (Cause) {
+      await Logs.App('save dir rejected $Path $Cause');
+      Notice = '无法使用该目录：$Cause';
+      Notify();
+      return;
+    }
     await SaveSettings(SettingsValue.Copy(<String, dynamic>{'saveDir': Path}));
+    Notice = '录像将保存到 $Path';
+    Notify();
+  }
+
+  /// Where cropped videos are written. Falls back to the app directory when the
+  /// configured folder disappeared (removed drive, revoked permission).
+  Future<String> OutputDir() async {
+    final Configured = SettingsValue.SaveDir.trim();
+    if (Configured.isEmpty || Configured == Directories.Videos) return Directories.Videos;
+    try {
+      await Directory(Configured).create(recursive: true);
+      return Configured;
+    } catch (Cause) {
+      await Logs.App('save dir unusable, using default $Configured $Cause');
+      return Directories.Videos;
+    }
+  }
+
+  Future<void> NormalizeSaveDir() async {
+    if (!PlatformInfo.Mobile) return;
+    try {
+      final Configured = SettingsValue.SaveDir.trim();
+      if (Configured == Directories.Videos) return;
+      // The sandbox container UUID changes with every install, so a persisted
+      // absolute path from an older build points at a directory that no longer
+      // exists (or belongs to another app) and every write would fail.
+      await Logs.App('save dir re-anchored ${Configured.isEmpty ? '空' : Configured} -> ${Directories.Videos}');
+      await Configs.SaveSettings(SettingsValue.Copy(<String, dynamic>{'saveDir': Directories.Videos}));
+    } catch (Cause) {
+      await Logs.App('save dir normalize failed $Cause');
+    }
   }
 
   Future<void> PickBackground() async {

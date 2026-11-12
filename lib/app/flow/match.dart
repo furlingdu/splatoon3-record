@@ -45,7 +45,8 @@ extension AppMatchFlow on AppController {
     if (Owned) PushStatus();
     try {
       final Name = Formats.MatchFileName(Match.Kind, Match.EndAt, Match.Key);
-      final Output = '${Directories.Videos}${Platform.pathSeparator}$Name.mp4';
+      final Folder = await OutputDir();
+      final Output = '$Folder${Platform.pathSeparator}$Name.mp4';
       final Path = await Capture.Crop(Match, Output, SettingsValue, LeadMs: Match.Kind == 'highlight' ? 0 : Config.ClipLeadMs, TailMs: Match.Kind == 'highlight' ? 0 : Config.ClipTailMs);
       if (Path == null || !File(Path).existsSync() || File(Path).lengthSync() == 0) return false;
       Match.VideoPath = Path;

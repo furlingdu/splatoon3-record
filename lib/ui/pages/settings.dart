@@ -8,6 +8,7 @@ import '../../format/formats.dart';
 import '../../media/capture/mobile/modes.dart';
 import '../theme.dart';
 import '../controls.dart';
+import '../folderPicker.dart';
 import '../shell.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -416,7 +417,9 @@ class SettingsPageState extends State<SettingsPage> {
       const AppSectionTitle('存储与运行'),
       if (!PlatformInfo.Mobile) ...<Widget>[
         AppTextField(Label: '视频保存目录', Controller: SaveDir, ReadOnly: true, Placeholder: '默认保存到 ~/.splatoon3record/videos', OnIcon: Icons.folder, OnIconTap: () async {
-          await widget.Controller.PickFolder();
+          final Picked = await ShowFolderPicker(context, Initial: SaveDir.text);
+          if (Picked == null || !mounted) return;
+          await widget.Controller.ApplySaveDir(Picked);
           if (!mounted) return;
           setState(() => SaveDir.text = widget.Controller.SettingsValue.SaveDir);
         }),

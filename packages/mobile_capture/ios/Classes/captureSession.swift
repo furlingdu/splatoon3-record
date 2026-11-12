@@ -1,3 +1,4 @@
+import AudioToolbox
 import AVFoundation
 import CoreGraphics
 import CoreImage
@@ -10,20 +11,21 @@ struct CaptureModeInfo {
   let Fps: Int
 }
 
-final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
+final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
   let Session = AVCaptureSession()
 
-  private let Output = AVCaptureMovieFileOutput()
   private let SnapshotOutput = AVCaptureVideoDataOutput()
   private let CaptureQueue = DispatchQueue(label: "splatoon3record.mobile_capture")
   private let SnapshotQueue = DispatchQueue(label: "splatoon3record.mobile_snapshot")
   private let MonitorQueue = DispatchQueue(label: "splatoon3record.audio_monitor")
+  // Segment writes happen on their own serial queue so a slow encoder never
+  // blocks session control (start / stop / monitor) and vice versa.
+  private let RecordQueue = DispatchQueue(label: "splatoon3record.mobile_record")
   private let SnapshotLock = NSLock()
   private let SnapshotContext = CIContext(options: nil)
   private var SnapshotPixel: CVPixelBuffer?
   private var VideoInput: AVCaptureDeviceInput?
   private var AudioInput: AVCaptureDeviceInput?
-  private var Pending: ((String?) -> Void)?
   private var Prepared = false
   private var AudioOutput: AVCaptureAudioDataOutput?
   private var MonitorEngine: AVAudioEngine?
@@ -32,6 +34,21 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
   private var MonitorEnabled = false
   private var PreferredInputId = ""
   private var LastRouteFix: TimeInterval = 0
+  private var AudioConfigured = false
+  // AVCaptureMovieFileOutput refuses to start on this capture chain
+  // ("Cannot Record", AVFoundationErrorDomain -11805) and blocks for seconds on
+  // 1080p120, so segments are written with AVAssetWriter instead: hardware
+  // H.264 for video plus AAC for audio, using the device frame timestamps.
+  private var Writer: AVAssetWriter?
+  private var WriterVideo: AVAssetWriterInput?
+  private var WriterAudio: AVAssetWriterInput?
+  private var WriterPath = ""
+  private var WriterStarted = false
+  private var WriterVideoWritten = false
+  private var WriterAudioWritten = false
+  private var WriterAppendFailed = false
+  private var WriterInputSize = CGSize.zero
+  private var CaptureFps = 30
 
   var OnState: ((String) -> Void)?
   var OnAudio: ((String) -> Void)?
@@ -65,6 +82,12 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
 
   @objc private func RouteChanged(_ Note: Notification) {
     guard AudioInput != nil, !PreferredInputId.isEmpty else { return }
+    // Switching the preferred input mid-recording renegotiates the audio graph
+    // and can truncate the segment, so only do it while idle.
+    if Writer != nil {
+      ReportAudio()
+      return
+    }
     let Session = AVAudioSession.sharedInstance()
     if Session.currentRoute.inputs.first?.uid != PreferredInputId, let Port = Session.availableInputs?.first(where: { $0.uid == PreferredInputId }) {
       let Now = Date().timeIntervalSince1970
@@ -103,13 +126,26 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
     return AVAudioSession.sharedInstance()
   }
 
-  private func OpenAudio() {
-    try? AudioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers])
-    try? AudioSession.setActive(true)
+  // The audio category is configured exactly once per process. Re-asserting it
+  // (setCategory / setActive) while the capture session is running tears down
+  // the audio graph, which is what used to abort every iOS segment.
+  private func ConfigureAudio() {
+    guard !AudioConfigured else { return }
+    AudioConfigured = true
+    do {
+      try AudioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+    } catch {
+      OnLog?("音频类别设置失败：\(error.localizedDescription)")
+    }
+    do {
+      try AudioSession.setActive(true)
+    } catch {
+      OnLog?("音频会话激活失败：\(error.localizedDescription)")
+    }
   }
 
   private func InputPorts() -> [AVAudioSessionPortDescription] {
-    OpenAudio()
+    ConfigureAudio()
     return AudioSession.availableInputs ?? []
   }
 
@@ -121,8 +157,26 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
     return Ports.first(where: { $0.portType == .usbAudio }) ?? Ports.first(where: { IsExternal($0) })
   }
 
-  private func Microphone() -> AVCaptureDevice? {
-    return AVCaptureDevice.default(for: .audio)
+  /// The capture session does not follow the AVAudioSession route, so the input
+  /// device has to be matched to the selected port by name; otherwise the iPad
+  /// microphone is recorded instead of the capture card audio.
+  private func AudioDevice(_ PortName: String) -> AVCaptureDevice? {
+    var Types: [AVCaptureDevice.DeviceType] = [.builtInMicrophone]
+    if #available(iOS 17.0, *) {
+      Types = [.microphone]
+    }
+    let Devices = AVCaptureDevice.DiscoverySession(deviceTypes: Types, mediaType: .audio, position: .unspecified).devices
+    if !PortName.isEmpty, let Match = Devices.first(where: { $0.localizedName == PortName }) {
+      return Match
+    }
+    if let External = Devices.first(where: { IsExternal($0) }) {
+      return External
+    }
+    let Fallback = AVCaptureDevice.default(for: .audio)
+    if let Fallback = Fallback {
+      OnLog?("音频输入未匹配到「\(PortName)」，回退到 \(Fallback.localizedName)")
+    }
+    return Fallback
   }
 
   private func IsExternal(_ Port: AVAudioSessionPortDescription) -> Bool {
@@ -297,7 +351,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
           self.Session.removeInput(Old)
           self.AudioInput = nil
         }
-        if let Mic = self.Microphone(), let Input = try? AVCaptureDeviceInput(device: Mic), self.Session.canAddInput(Input) {
+        if let Mic = self.AudioDevice(Port.portName), let Input = try? AVCaptureDeviceInput(device: Mic), self.Session.canAddInput(Input) {
           self.Session.addInput(Input)
           self.AudioInput = Input
           self.OnLog?("已加入音频输入：\(Mic.localizedName)")
@@ -318,34 +372,30 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
         self.MonitorEnabled = false
         self.StopMonitor()
       }
-      if !self.Session.outputs.contains(self.Output) {
-        if self.Session.canAddOutput(self.Output) { self.Session.addOutput(self.Output) }
-      }
       if !self.Session.outputs.contains(self.SnapshotOutput) {
+        // NV12 keeps the 1080p120 path cheap and is what the hardware H.264
+        // encoder in AVAssetWriter wants; BGRA at that rate wastes bandwidth.
         self.SnapshotOutput.videoSettings = [
-          kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+          kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
         ]
         self.SnapshotOutput.alwaysDiscardsLateVideoFrames = true
         self.SnapshotOutput.setSampleBufferDelegate(self, queue: self.SnapshotQueue)
         if self.Session.canAddOutput(self.SnapshotOutput) { self.Session.addOutput(self.SnapshotOutput) }
       }
       let Size = CMVideoFormatDescriptionGetDimensions(Device.activeFormat.formatDescription)
+      self.CaptureFps = UseFps
       self.VideoAngle = Self.Angle(Orientation, Width: Int(Size.width), Height: Int(Size.height))
       self.Session.commitConfiguration()
-      if let Connection = self.Output.connection(with: .video) {
-        self.Rotate(Connection, Angle: self.VideoAngle)
-        Connection.automaticallyAdjustsVideoMirroring = false
-        if Connection.isVideoMirroringSupported {
-          Connection.isVideoMirrored = false
-        }
-      }
+      var Applied: CGFloat = 0
       if let Connection = self.SnapshotOutput.connection(with: .video) {
-        self.Rotate(Connection, Angle: self.VideoAngle)
+        Applied = Self.Rotate(Connection, Angle: self.VideoAngle)
         Connection.automaticallyAdjustsVideoMirroring = false
         if Connection.isVideoMirroringSupported {
           Connection.isVideoMirrored = false
         }
       }
+      let Turned = Applied == 90 || Applied == 270
+      self.WriterInputSize = Turned ? CGSize(width: CGFloat(Size.height), height: CGFloat(Size.width)) : CGSize(width: CGFloat(Size.width), height: CGFloat(Size.height))
       self.Prepared = true
       self.Session.startRunning()
       self.OnLog?("采集已启动 \(Int(Size.width))x\(Int(Size.height))@\(UseFps) 音频输入=\(self.AudioInput?.device.localizedName ?? "无") 当前路由=\(self.AudioSession.currentRoute.inputs.first?.portName ?? "无")")
@@ -369,13 +419,16 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
     }
   }
 
-  private func Rotate(_ Connection: AVCaptureConnection?, Angle: CGFloat) {
-    guard let Connection = Connection else { return }
+  /// Returns the rotation actually applied, so the writer can size its frames to
+  /// the pixel buffers the connection really delivers.
+  private static func Rotate(_ Connection: AVCaptureConnection, Angle: CGFloat) -> CGFloat {
     if #available(iOS 17.0, *) {
       if Connection.isVideoRotationAngleSupported(Angle) {
         Connection.videoRotationAngle = Angle
+        return Angle
       }
     }
+    return 0
   }
 
   private static func Pick(_ Device: AVCaptureDevice, Width: Int, Height: Int, Fps: Int) -> AVCaptureDevice.Format? {
@@ -431,7 +484,7 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       MonitorPlayer?.play()
       return
     }
-    OpenAudio()
+    ConfigureAudio()
     guard let Format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 2, interleaved: false) else { return }
     let Engine = AVAudioEngine()
     let Player = AVAudioPlayerNode()
@@ -463,12 +516,15 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
 
   func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
     if output === SnapshotOutput {
-      guard let Pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-      SnapshotLock.lock()
-      SnapshotPixel = Pixel
-      SnapshotLock.unlock()
+      if let Pixel = CMSampleBufferGetImageBuffer(sampleBuffer) {
+        SnapshotLock.lock()
+        SnapshotPixel = Pixel
+        SnapshotLock.unlock()
+      }
+      RecordQueue.async { self.AppendVideo(sampleBuffer) }
       return
     }
+    RecordQueue.async { self.AppendAudio(sampleBuffer) }
     guard MonitorEnabled, let Player = MonitorPlayer, let Format = MonitorFormat else { return }
     let Frames = CMSampleBufferGetNumSamples(sampleBuffer)
     if Frames <= 0 { return }
@@ -530,37 +586,154 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
         DispatchQueue.main.async { Completion("存储空间不足（剩余 \(Free) MB），请清理缓存后重试") }
         return
       }
-      if self.Output.isRecording { self.Output.stopRecording() }
-      try? FileManager.default.removeItem(atPath: Path)
-      let Connection = self.Output.connection(with: .video)
-      self.OnLog?("开始录制：\(Path) 剩余空间=\(Free)MB 视频连接=\(Connection?.isActive ?? false) 音频连接=\(self.Output.connection(with: .audio)?.isActive ?? false)")
-      self.Output.startRecording(to: URL(fileURLWithPath: Path), recordingDelegate: self)
-      if !self.Output.isRecording {
-        self.OnLog?("录制未能启动：文件输出未进入录制状态")
-        DispatchQueue.main.async { Completion("无法开始录制，请检查采集卡与存储空间") }
-        return
+      self.RecordQueue.async {
+        let Failure = self.BeginWriter(Path)
+        self.OnLog?("开始录制：\(Path) 剩余空间=\(Free)MB 尺寸=\(Int(self.WriterInputSize.width))x\(Int(self.WriterInputSize.height)) 音频=\(self.WriterAudio != nil) 结果=\(Failure ?? "ok")")
+        if Failure == nil { self.OnState?("recording") }
+        DispatchQueue.main.async { Completion(Failure) }
       }
-      self.OnState?("recording")
-      DispatchQueue.main.async { Completion(nil) }
     }
   }
 
   func StopRecording(_ Completion: @escaping (String?) -> Void) {
     CaptureQueue.async {
-      guard self.Output.isRecording else {
-        DispatchQueue.main.async { Completion(nil) }
-        return
+      self.RecordQueue.async {
+        guard self.Writer != nil else {
+          DispatchQueue.main.async { Completion(nil) }
+          return
+        }
+        self.EndWriter(Completion)
       }
-      self.Pending = Completion
-      self.OnLog?("停止录制")
-      self.Output.stopRecording()
     }
+  }
+
+  // Runs on RecordQueue. Creating the writer is fast, so this never blocks the
+  // capture pipeline the way AVCaptureMovieFileOutput did on 1080p120.
+  private func BeginWriter(_ Path: String) -> String? {
+    EndWriter(nil, Silent: true)
+    try? FileManager.default.removeItem(atPath: Path)
+    guard let Writer = try? AVAssetWriter(outputURL: URL(fileURLWithPath: Path), fileType: .mov) else {
+      return "无法创建录制文件"
+    }
+    var Width = Int(WriterInputSize.width)
+    var Height = Int(WriterInputSize.height)
+    if Width <= 0 || Height <= 0 {
+      Width = 1920
+      Height = 1080
+    }
+    let Fps = max(1, CaptureFps)
+    let Bitrate = max(4_000_000, min(45_000_000, Int(Double(Width * Height * Fps) * 0.08)))
+    let Compression: [String: Any] = [
+      AVVideoAverageBitRateKey: Bitrate,
+      AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+      AVVideoExpectedSourceFrameRateKey: Fps,
+      AVVideoMaxKeyFrameIntervalKey: Fps,
+      AVVideoAllowFrameReorderingKey: false,
+    ]
+    let Video = AVAssetWriterInput(mediaType: .video, outputSettings: [
+      AVVideoCodecKey: AVVideoCodecType.h264,
+      AVVideoWidthKey: Width,
+      AVVideoHeightKey: Height,
+      AVVideoCompressionPropertiesKey: Compression,
+    ])
+    Video.expectsMediaDataInRealTime = true
+    guard Writer.canAdd(Video) else { return "录制编码器初始化失败" }
+    Writer.add(Video)
+    var Audio: AVAssetWriterInput?
+    if AudioInput != nil {
+      let Input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+        AVFormatIDKey: kAudioFormatMPEG4AAC,
+        AVNumberOfChannelsKey: 2,
+        AVSampleRateKey: 48000,
+        AVEncoderBitRateKey: 128000,
+      ])
+      Input.expectsMediaDataInRealTime = true
+      if Writer.canAdd(Input) {
+        Writer.add(Input)
+        Audio = Input
+      } else {
+        OnLog?("录制音频轨道不可用")
+      }
+    }
+    guard Writer.startWriting() else {
+      return Writer.error?.localizedDescription ?? "无法开始写入录制文件"
+    }
+    WriterVideo = Video
+    WriterAudio = Audio
+    WriterPath = Path
+    WriterStarted = false
+    WriterVideoWritten = false
+    WriterAudioWritten = false
+    WriterAppendFailed = false
+    self.Writer = Writer
+    return nil
+  }
+
+  // Runs on RecordQueue. Closes the segment and reports its path once the file
+  // is fully written, so the Dart side never merges a half written file.
+  private func EndWriter(_ Completion: ((String?) -> Void)?, Silent: Bool = false) {
+    guard let Writer = self.Writer else {
+      if let Completion = Completion { DispatchQueue.main.async { Completion(nil) } }
+      return
+    }
+    let Path = self.WriterPath
+    let Video = self.WriterVideo
+    let Audio = self.WriterAudio
+    let Wrote = self.WriterVideoWritten
+    self.Writer = nil
+    self.WriterVideo = nil
+    self.WriterAudio = nil
+    self.WriterPath = ""
+    self.WriterStarted = false
+    self.WriterVideoWritten = false
+    self.WriterAudioWritten = false
+    let Finish: (String?) -> Void = { Reason in
+      self.OnLog?(Reason == nil ? "录制分段结束 path=\(Path) 剩余空间=\(self.FreeMegabytes())MB" : "录制分段失败 \(Reason ?? "") path=\(Path) 剩余空间=\(self.FreeMegabytes())MB")
+      if !Silent { self.OnState?("idle") }
+      if let Completion = Completion { DispatchQueue.main.async { Completion(Reason == nil ? Path : nil) } }
+    }
+    guard Writer.status == .writing else {
+      try? FileManager.default.removeItem(atPath: Path)
+      Finish("写入未开始 状态=\(Writer.status.rawValue) 错误=\(Writer.error?.localizedDescription ?? "无")")
+      return
+    }
+    Video?.markAsFinished()
+    Audio?.markAsFinished()
+    Writer.finishWriting {
+      if Writer.status == .completed, Wrote {
+        Finish(nil)
+      } else {
+        try? FileManager.default.removeItem(atPath: Path)
+        Finish("状态=\(Writer.status.rawValue) 错误=\(Writer.error?.localizedDescription ?? "无")")
+      }
+    }
+  }
+
+  private func AppendVideo(_ Sample: CMSampleBuffer) {
+    guard let Writer = self.Writer, let Input = self.WriterVideo, Writer.status == .writing else { return }
+    guard CMSampleBufferDataIsReady(Sample), Input.isReadyForMoreMediaData else { return }
+    if !WriterStarted {
+      Writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(Sample))
+      WriterStarted = true
+    }
+    if Input.append(Sample) {
+      WriterVideoWritten = true
+    } else if !WriterAppendFailed {
+      WriterAppendFailed = true
+      OnLog?("写入视频帧失败：\(Writer.error?.localizedDescription ?? "无")")
+    }
+  }
+
+  private func AppendAudio(_ Sample: CMSampleBuffer) {
+    guard WriterStarted, let Writer = self.Writer, let Input = self.WriterAudio, Writer.status == .writing else { return }
+    guard CMSampleBufferDataIsReady(Sample), Input.isReadyForMoreMediaData else { return }
+    if Input.append(Sample) { WriterAudioWritten = true }
   }
 
   func Dispose() {
     CaptureQueue.async {
       self.OnLog?("释放采集会话")
-      if self.Output.isRecording { self.Output.stopRecording() }
+      self.RecordQueue.async { self.EndWriter(nil) }
       self.MonitorEnabled = false
       self.StopMonitor()
       if let Output = self.AudioOutput {
@@ -633,20 +806,5 @@ final class CaptureSession: NSObject, AVCaptureFileOutputRecordingDelegate, AVCa
       DispatchQueue.main.async { Completion(DataValue) }
     }
     SnapshotQueue.async(execute: Task)
-  }
-
-  func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
-    let Path = error == nil ? outputFileURL.path : nil
-    if let Failure = error as NSError? {
-      OnLog?("录制分段结束 error=\(Failure.localizedDescription) domain=\(Failure.domain) code=\(Failure.code) file=\(outputFileURL.lastPathComponent) 剩余空间=\(FreeMegabytes())MB")
-    } else {
-      OnLog?("录制分段结束 path=\(Path ?? "无效") 剩余空间=\(FreeMegabytes())MB")
-    }
-    let Callback = Pending
-    Pending = nil
-    OnState?("idle")
-    if let Callback = Callback {
-      DispatchQueue.main.async { Callback(Path) }
-    }
   }
 }
