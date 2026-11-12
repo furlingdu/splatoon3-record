@@ -456,6 +456,7 @@ class SettingsPageState extends State<SettingsPage> {
         onChangeEnd: (Value) => Update(Draft.Copy(<String, dynamic>{'backgroundDim': Value.round()})),
       ),
       AppHint('数值越高背景越暗，能避免背景图案影响文字阅读。'),
+      const AppSectionTitle('主题设置'),
       Row(children: <Widget>[
         Container(width: 34, height: 34, decoration: BoxDecoration(color: AppTheme.ParseColor(Draft.ThemeColor), borderRadius: BorderRadius.circular(10), border: Border.all(color: Scheme.outlineVariant))),
         const SizedBox(width: 12),
