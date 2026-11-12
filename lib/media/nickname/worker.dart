@@ -6,6 +6,7 @@ import 'package:onnxruntime_v2/onnxruntime_v2.dart';
 
 import '../../config/constants.dart';
 import 'detect.dart';
+import 'input.dart';
 
 void VisionWorker(List<Object> Args) {
   final Main = Args[0] as SendPort;
@@ -64,10 +65,10 @@ void VisionWorker(List<Object> Args) {
       final Height = (Message[3] as num).toInt();
       final Confidence = (Message[4] as num).toDouble();
       final Shot = BuildLetterbox(Frame, Width, Height, Config.DetectInputSize);
-      final Input = OrtValueTensor.createTensorWithDataList(Shot.Blob, <int>[1, 3, Config.DetectInputSize, Config.DetectInputSize]);
+      final Input = OrtFloatInput.Create(Shot.Blob, <int>[1, 3, Config.DetectInputSize, Config.DetectInputSize]);
       List<OrtValue?>? Outputs;
       try {
-        final Results = Session!.run(RunOptions!, <String, OrtValue>{Session.inputNames.first: Input});
+        final Results = Session!.run(RunOptions!, <String, OrtValue>{Session.inputNames.first: Input.Value});
         Outputs = Results;
         final Value = Results.first?.value;
         final Boxes = DecodeDetections(Value, Width: Width, Height: Height, InputSize: Config.DetectInputSize, Confidence: Confidence);
@@ -89,7 +90,7 @@ void VisionWorker(List<Object> Args) {
             Item?.release();
           }
         }
-        Input.release();
+        Input.dispose();
       }
     } catch (Cause) {
       Main.send(<Object?>[Id, null, '$Cause']);
