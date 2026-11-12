@@ -8,11 +8,19 @@ import 'package:flutter/material.dart';
 /// (same cadence as the mask that is pushed to the streaming pipeline). The
 /// video underneath keeps its original frame rate: only the overlay is updated
 /// per sample, so no per-frame inference or frame copying happens here.
+///
+/// The preview texture is painted again inside [ImageFiltered] instead of using
+/// a backdrop filter, because a filtered copy of the texture always blurs,
+/// while a backdrop filter depends on the platform compositor picking up the
+/// external texture in its backdrop.
 class MaskOverlay extends StatelessWidget {
-  const MaskOverlay({super.key, required this.Mask});
+  const MaskOverlay({super.key, required this.Mask, required this.Child});
 
   /// Normalized (0..1) rectangles in capture order, top-left origin.
   final ValueListenable<List<Rect>> Mask;
+
+  /// The preview itself, painted again and blurred inside the rectangles.
+  final Widget Child;
 
   @override
   Widget build(BuildContext context) {
@@ -40,9 +48,9 @@ class MaskOverlay extends StatelessWidget {
             final Sigma = (Width / 1280 * 16).clamp(4.0, 24.0);
             return ClipPath(
               clipper: PathClipper(Shape),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: Sigma, sigmaY: Sigma, tileMode: TileMode.decal),
-                child: const SizedBox.expand(),
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: Sigma, sigmaY: Sigma, tileMode: TileMode.decal),
+                child: Child,
               ),
             );
           },

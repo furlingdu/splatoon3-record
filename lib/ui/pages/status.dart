@@ -203,7 +203,7 @@ class CapturePreview extends StatelessWidget {
                           fit: StackFit.expand,
                           children: <Widget>[
                             Live,
-                            MaskOverlay(Mask: Mask),
+                            MaskOverlay(Mask: Mask, Child: Live),
                           ],
                         ),
                 ),
