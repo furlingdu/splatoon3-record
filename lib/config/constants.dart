@@ -4,6 +4,7 @@ abstract final class Config {
   static const int DetectSnapshotWidth = 1280;
   static const int DetectSnapshotHeight = 720;
   static const int DetectIntervalMs = 1000;
+  static const int DetectIntervalGpuMs = 500;
   static const int DetectMinGapMs = 150;
   static const double DetectConfidence = 0.25;
   static const double EventConfidence = 0.8;

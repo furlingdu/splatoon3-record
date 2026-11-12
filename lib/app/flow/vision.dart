@@ -3,6 +3,8 @@ part of 'package:splatoon3record/app/controller.dart';
 extension AppVisionFlow on AppController {
   bool get NeedVision => SettingsValue.RecordWork || SettingsValue.RecordHighlight || (SettingsValue.BlurNickname && Capture.LiveTarget != null);
 
+  int get DetectStep => Vision.Provider == 'DML' ? Config.DetectIntervalGpuMs : Config.DetectIntervalMs;
+
   DetectionGate GateFor(int Label) {
     return Gates.putIfAbsent(Label, () {
       if (Label == Config.HighlightLabel) return DetectionGate(RequiredHits: 1, CooldownMs: Config.HighlightCooldownMs, ReleaseMs: 1500);
@@ -45,7 +47,7 @@ extension AppVisionFlow on AppController {
       VisionRunning = true;
       VisionClock?.cancel();
       VisionClock = Timer(Duration.zero, () => unawaited(VisionTick()));
-      await Logs.App('vision start interval=${Config.DetectIntervalMs}ms work=${SettingsValue.RecordWork} highlight=${SettingsValue.RecordHighlight} blur=${SettingsValue.BlurNickname}');
+      await Logs.App('vision start interval=${DetectStep}ms provider=${Vision.Provider ?? '-'} work=${SettingsValue.RecordWork} highlight=${SettingsValue.RecordHighlight} blur=${SettingsValue.BlurNickname}');
     } finally {
       VisionStarting = false;
     }
@@ -80,7 +82,7 @@ extension AppVisionFlow on AppController {
       if (VisionRunning) {
         VisionClock?.cancel();
         final Elapsed = DateTime.now().millisecondsSinceEpoch - RequestedAt;
-        final Delay = (Config.DetectIntervalMs - Elapsed).clamp(Config.DetectMinGapMs, Config.DetectIntervalMs).toInt();
+        final Delay = (DetectStep - Elapsed).clamp(Config.DetectMinGapMs, DetectStep).toInt();
         VisionClock = Timer(Duration(milliseconds: Delay), () => unawaited(VisionTick()));
       }
     }
@@ -97,7 +99,7 @@ extension AppVisionFlow on AppController {
       if (Label == Config.HighlightLabel && !SettingsValue.RecordHighlight) continue;
       if ((Label == Config.WorkStartLabel || Label == Config.WorkResultLabel || Label == Config.WorkEndLabel) && !SettingsValue.RecordWork) continue;
       final Seen = (Best[Label] ?? 0) >= Config.EventConfidence;
-      final TriggerAt = GateFor(Label).Update(At, Seen, Config.DetectIntervalMs);
+      final TriggerAt = GateFor(Label).Update(At, Seen, DetectStep);
       if (TriggerAt == null) continue;
       if (Label == Config.HighlightLabel) {
         unawaited(Logs.App('vision highlight at=$TriggerAt conf=${(Best[Label] ?? 0).toStringAsFixed(2)}'));

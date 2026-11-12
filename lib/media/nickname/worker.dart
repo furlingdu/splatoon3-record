@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:onnxruntime/onnxruntime.dart';
+import 'package:onnxruntime_v2/onnxruntime.dart';
 
 import '../../config/constants.dart';
 import 'detect.dart';
@@ -16,13 +16,29 @@ void VisionWorker(List<Object> Args) {
   OrtRunOptions? RunOptions;
   try {
     OrtEnv.instance.init();
-    SessionOptions = OrtSessionOptions();
-    final Threads = (Platform.numberOfProcessors ~/ 2).clamp(1, 4);
-    SessionOptions.setIntraOpNumThreads(Threads);
-    SessionOptions.setInterOpNumThreads(1);
-    SessionOptions.setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);
-    Session = OrtSession.fromBuffer(Model, SessionOptions);
+    final Threads = (Platform.numberOfProcessors ~/ 2).clamp(1, 4).toInt();
+    OrtSessionOptions Build(bool Gpu) {
+      final Options = OrtSessionOptions();
+      Options.setIntraOpNumThreads(Threads);
+      Options.setInterOpNumThreads(1);
+      Options.setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);
+      if (Gpu) Options.appendDirectMLProvider();
+      return Options;
+    }
+    var Provider = 'CPU';
+    try {
+      SessionOptions = Build(true);
+      Session = OrtSession.fromBuffer(Model, SessionOptions);
+      Provider = 'DML';
+    } catch (_) {
+      try {
+        SessionOptions?.release();
+      } catch (_) {}
+      SessionOptions = Build(false);
+      Session = OrtSession.fromBuffer(Model, SessionOptions);
+    }
     RunOptions = OrtRunOptions();
+    Main.send(<Object>[-2, Provider]);
     Main.send(Port.sendPort);
   } catch (Cause) {
     Main.send(<Object>[Port.sendPort, '$Cause']);

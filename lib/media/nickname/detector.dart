@@ -23,6 +23,9 @@ class SplatoonVision {
   bool _Released = false;
   String? ErrorText;
 
+  /// Inference backend reported by the worker: `DML` (GPU) or `CPU`.
+  String? Provider;
+
   bool get Ready => _Worker != null && !_Failed;
 
   Future<void> Start() {
@@ -40,6 +43,7 @@ class SplatoonVision {
     _Failed = false;
     _Released = false;
     ErrorText = null;
+    Provider = null;
     final Model = await rootBundle.load(Config.ModelPath);
     final Bytes = Model.buffer.asUint8List(Model.offsetInBytes, Model.lengthInBytes);
     final Port = ReceivePort();
@@ -97,6 +101,10 @@ class SplatoonVision {
   }
 
   void _OnMessage(dynamic Message) {
+    if (Message is List && Message.length > 1 && Message.first is num && (Message.first as num).toInt() == -2) {
+      Provider = '${Message[1]}';
+      return;
+    }
     if (Message is SendPort) {
       if (_Ready != null && !_Ready!.isCompleted) _Ready!.complete(Message);
       return;

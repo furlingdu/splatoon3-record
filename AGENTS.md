@@ -17,6 +17,7 @@
 - 预览不可见（没有纹理读取）时允许降为 5fps 心跳以节省 CPU，恢复可见后必须立即回到原始帧率。
 - 录制时间戳优先使用采集设备提供的帧时间戳，不要把线程到达时间直接当作播放时间戳。
 - 归档编码顺序：硬件 HEVC → 硬件 H.264 → CPU（libx265）。
+- 画面识别必须走 GPU：Windows 用 DirectML（`onnxruntime_v2` + `windows/third_party/onnxruntime` 的 DML 版 DLL），只有 DirectML 不可用时才回退 CPU，并在日志里打印实际后端。
 
 ## 提交
 

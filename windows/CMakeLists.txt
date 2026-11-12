@@ -87,6 +87,15 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     COMPONENT Runtime)
 endif()
 
+# DirectML build of ONNX Runtime so the vision model runs on the GPU. It is
+# installed after the plugins so it replaces the CPU-only onnxruntime.dll that
+# the onnxruntime_v2 plugin bundles.
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime/onnxruntime.dll"
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime/DirectML.dll"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"
