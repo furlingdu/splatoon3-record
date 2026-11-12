@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:onnxruntime_v2/onnxruntime.dart';
+import 'package:onnxruntime_v2/onnxruntime_v2.dart';
 
 import '../../config/constants.dart';
 import 'detect.dart';
