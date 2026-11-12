@@ -49,6 +49,14 @@ jobs:
           cache: false
       - name: Resolve dependencies
         run: flutter pub get
+      - name: Align onnxruntime_v2 iOS deployment target
+        # onnxruntime-objc 1.23.0 要求 iOS 15.1，而插件 podspec 仍声明 11.0，
+        # Flutter 会因此拒绝执行 pod install，这里把插件声明的下限改成实际要求。
+        run: |
+          Spec=$(find "$HOME/.pub-cache" -path '*onnxruntime_v2-*/ios/onnxruntime_v2.podspec' | head -n 1)
+          echo "patching $Spec"
+          sed -i '' "s/s.platform = :ios, '11.0'/s.platform = :ios, '15.1'/" "$Spec"
+          grep -n 'platform' "$Spec"
       - name: Build runner app
         run: flutter build ios --release --no-codesign
       - name: Package unsigned ipa
