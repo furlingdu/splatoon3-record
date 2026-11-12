@@ -47,7 +47,7 @@ class LivePageState extends State<LivePage> {
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
             Text('直播画面', style: AppTheme.Style(Size: 13, ColorValue: Scheme.onSurfaceVariant)),
             const SizedBox(height: 6),
-            CapturePreview(Controller: widget.Controller),
+            CapturePreview(Controller: widget.Controller, Mask: widget.Controller.BlurRects),
           ])),
         ]),
         const AppSectionTitle('直播与打码'),

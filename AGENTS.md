@@ -18,6 +18,7 @@
 - 录制时间戳优先使用采集设备提供的帧时间戳，不要把线程到达时间直接当作播放时间戳。
 - 归档编码顺序：硬件 HEVC → 硬件 H.264 → CPU（libx265）。
 - 画面识别必须走 GPU：Windows 用 DirectML（`onnxruntime_v2` + `windows/third_party/onnxruntime` 的 DML 版 DLL），只有 DirectML 不可用时才回退 CPU，并在日志里打印实际后端。
+- 直播打码的预览画面与推流内容一致：预览层用采样到的检测框叠加模糊（和 Electron 版本一致），采样帧交给识别，预览本身不逐帧推理、也不复制整帧。
 
 ## 提交
 

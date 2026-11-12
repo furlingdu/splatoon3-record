@@ -58,6 +58,7 @@ extension AppVisionFlow on AppController {
     VisionRunning = false;
     VisionClock?.cancel();
     VisionClock = null;
+    UpdateBlurRects(const <DetectedBox>[]);
     await Capture.SetVision(false);
     try {
       await Vision.Stop();
@@ -119,9 +120,33 @@ extension AppVisionFlow on AppController {
     }
     Timeline.Trim(At);
     if (SettingsValue.BlurNickname && Capture.LiveTarget != null) {
-      final Mask = BuildMask(Boxes.where((Item) => (Item.Label == Config.PlayerNicknameLabel || Item.Label == Config.KillPlayerNicknameLabel) && Item.Confidence >= Config.NicknameConfidence).toList(), Config.MaskWidth, Config.MaskHeight);
+      final Targets = Boxes.where((Item) => (Item.Label == Config.PlayerNicknameLabel || Item.Label == Config.KillPlayerNicknameLabel) && Item.Confidence >= Config.NicknameConfidence).toList();
+      UpdateBlurRects(Targets);
+      final Mask = BuildMask(Targets, Config.MaskWidth, Config.MaskHeight);
       if (Capture is DesktopCaptureAdapter) (Capture as DesktopCaptureAdapter).Inner.UpdateMask(Mask);
+    } else {
+      UpdateBlurRects(const <DetectedBox>[]);
     }
+  }
+
+  /// The live preview paints these rectangles until the next sampled frame
+  /// arrives, so a running preview is never rebuilt per detection tick.
+  void UpdateBlurRects(List<DetectedBox> Boxes) {
+    final Next = BuildPreviewBlurRects(Boxes);
+    final Current = BlurRects.value;
+    if (Current.length == Next.length && Current.isNotEmpty) {
+      var Same = true;
+      for (var Index = 0; Index < Next.length; Index++) {
+        if ((Current[Index].left - Next[Index].left).abs() > 0.002 || (Current[Index].top - Next[Index].top).abs() > 0.002 || (Current[Index].right - Next[Index].right).abs() > 0.002 || (Current[Index].bottom - Next[Index].bottom).abs() > 0.002) {
+          Same = false;
+          break;
+        }
+      }
+      if (Same) return;
+    } else if (Current.isEmpty && Next.isEmpty) {
+      return;
+    }
+    BlurRects.value = Next;
   }
 
   Future<Uint8List?> MaskFromFrame(Uint8List Rgba, int Width, int Height) async {
@@ -248,4 +273,44 @@ extension AppVisionFlow on AppController {
   }
 
   WorkResolution ResolveWork(int NsoTime) => Timeline.Resolve(NsoTime);
+}
+
+// Blur geometry in the normalized detection space. These numbers come from the
+// Electron build, which blurred the live canvas with the boxes of the sampled
+// detection frame: merge boxes closer than 6px, pad them by 8px, keep 10.
+const double PreviewBlurGap = 6 / 1280;
+const double PreviewBlurPadX = 8 / 1280;
+const double PreviewBlurPadY = 8 / 720;
+const int PreviewBlurLimit = 10;
+
+List<Rect> BuildPreviewBlurRects(List<DetectedBox> Boxes) {
+  final Rects = <Rect>[];
+  for (final Box in Boxes) {
+    final Left = (Box.Left - PreviewBlurPadX).clamp(0.0, 1.0);
+    final Top = (Box.Top - PreviewBlurPadY).clamp(0.0, 1.0);
+    final Right = (Box.Right + PreviewBlurPadX).clamp(0.0, 1.0);
+    final Bottom = (Box.Bottom + PreviewBlurPadY).clamp(0.0, 1.0);
+    if (Right - Left <= 0 || Bottom - Top <= 0) continue;
+    Rects.add(Rect.fromLTRB(Left, Top, Right, Bottom));
+  }
+  var Merged = true;
+  while (Merged) {
+    Merged = false;
+    for (var Left = 0; Left < Rects.length && !Merged; Left++) {
+      for (var Right = Left + 1; Right < Rects.length; Right++) {
+        if (!NearPreviewRects(Rects[Left], Rects[Right])) continue;
+        Rects[Left] = Rects[Left].expandToInclude(Rects[Right]);
+        Rects.removeAt(Right);
+        Merged = true;
+        break;
+      }
+    }
+  }
+  if (Rects.length <= PreviewBlurLimit) return Rects;
+  Rects.sort((A, B) => (B.width * B.height).compareTo(A.width * A.height));
+  return Rects.take(PreviewBlurLimit).toList();
+}
+
+bool NearPreviewRects(Rect Left, Rect Right) {
+  return Left.left - PreviewBlurGap < Right.right && Right.left - PreviewBlurGap < Left.right && Left.top - PreviewBlurGap < Right.bottom && Right.top - PreviewBlurGap < Left.bottom;
 }

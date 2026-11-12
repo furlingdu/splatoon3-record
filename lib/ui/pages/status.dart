@@ -5,6 +5,7 @@ import '../../config/system.dart';
 import '../../format/formats.dart';
 import '../theme.dart';
 import '../controls.dart';
+import '../maskOverlay.dart';
 import '../shell.dart';
 
 class StatusPage extends StatelessWidget {
@@ -172,11 +173,12 @@ class StatusPage extends StatelessWidget {
 }
 
 class CapturePreview extends StatelessWidget {
-  const CapturePreview({super.key, required this.Controller, this.Height = 0, this.EnableFullscreen = true});
+  const CapturePreview({super.key, required this.Controller, this.Height = 0, this.EnableFullscreen = true, this.Mask});
 
   final AppController Controller;
   final double Height;
   final bool EnableFullscreen;
+  final ValueListenable<List<Rect>>? Mask;
 
   @override
   Widget build(BuildContext context) {
@@ -185,6 +187,7 @@ class CapturePreview extends StatelessWidget {
       final Width = Constraints.maxWidth;
       final BoxHeight = Height > 0 ? Height : Width * 9 / 16;
       final Live = Controller.Capture.BuildPreview(context);
+      final Mask = this.Mask;
       final Preview = Container(
         height: BoxHeight,
         width: double.infinity,
@@ -194,7 +197,15 @@ class CapturePreview extends StatelessWidget {
             ? RepaintBoundary(
                 child: Transform.flip(
                   flipY: Controller.SettingsValue.FlipVertical,
-                  child: Live,
+                  child: Mask == null
+                      ? Live
+                      : Stack(
+                          fit: StackFit.expand,
+                          children: <Widget>[
+                            Live,
+                            MaskOverlay(Mask: Mask),
+                          ],
+                        ),
                 ),
               )
             : Center(

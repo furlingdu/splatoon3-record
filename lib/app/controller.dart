@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Rect;
 
 import 'package:app_links/app_links.dart';
 import 'package:file_selector/file_selector.dart';
@@ -89,6 +90,7 @@ class AppController extends ChangeNotifier {
   bool PreviewReady = false;
   String? PreviewMessage;
   bool PreviewStopping = false;
+  final ValueNotifier<List<Rect>> BlurRects = ValueNotifier<List<Rect>>(const <Rect>[]);
   QQBind? QQBindRef;
   QQBot? QQBotRef;
   String QQState = 'unbound';
