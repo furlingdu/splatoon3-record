@@ -1,5 +1,6 @@
-import 'dart:ui' show ImageFilter;
+import 'dart:ui' show ImageFilter, Path, Radius, RRect, Rect, Size, TileMode;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// Draws the nickname blur on top of a live preview.
