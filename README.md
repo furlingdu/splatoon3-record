@@ -26,7 +26,7 @@ Splatoon3 Record 是一款面向 Splatoon 3 的本地录制、直播与对局归
 
 ## 运行要求
 
-- Windows 10/11、macOS、Linux，或 Android / iOS 移动设备
+- Windows 10/11、macOS、Linux，或 Android / iOS 移动设备（iOS 需要 15.1 及以上，受 ONNX Runtime 依赖限制）
 - 可用的采集卡或摄像头，以及音频采集设备
 - Nintendo Switch Online 登录需要访问 Nintendo 服务及项目配置的 NSO / znca 接口
 - QQBot 推送需要在本机完成机器人绑定
