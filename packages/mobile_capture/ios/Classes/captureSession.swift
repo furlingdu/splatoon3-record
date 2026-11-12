@@ -176,7 +176,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
   @objc private func RouteChanged(_ Note: Notification) {
     CaptureQueue.async {
       guard self.AudioInput != nil else { return }
-      self.RouteMonitorOutput()
       self.ReportAudio()
     }
   }
@@ -193,7 +192,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
       self.LastMonitorRestart = Now
       self.OnLog?("声音返听输出变化，正在恢复")
       self.StopMonitor()
-      self.RouteMonitorOutput()
       self.StartMonitor()
       self.LogAudioRoute()
     }
@@ -212,36 +210,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     let Inputs = AudioSession.currentRoute.inputs.map { "\($0.portName)(\($0.portType.rawValue))" }.joined(separator: "、")
     let Outputs = AudioSession.currentRoute.outputs.map { "\($0.portName)(\($0.portType.rawValue))" }.joined(separator: "、")
     OnLog?("音频路由 输入=\(Inputs.isEmpty ? "无" : Inputs) 输出=\(Outputs.isEmpty ? "无" : Outputs)")
-  }
-
-  // Playback must follow the system default output. With a USB capture card
-  // attached, playAndRecord routes the monitor to the card's line-out, so the
-  // iPad speaker and wired or Bluetooth headphones stay silent. Force the
-  // speaker only when the card itself is the output and no headset is present.
-  private func RouteMonitorOutput() {
-    guard let Card = AudioInput?.device.localizedName, !Card.isEmpty else { return }
-    let Outputs = AudioSession.currentRoute.outputs
-    let Headset = Outputs.contains { Port -> Bool in
-      switch Port.portType {
-      case .headphones, .headsetMic, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
-        return true
-      case .usbAudio:
-        return Port.portName != Card
-      default:
-        return false
-      }
-    }
-    do {
-      if Headset {
-        try AudioSession.overrideOutputAudioPort(.none)
-      } else if Outputs.contains(where: { $0.portType == .usbAudio }) {
-        try AudioSession.overrideOutputAudioPort(.speaker)
-      } else {
-        try AudioSession.overrideOutputAudioPort(.none)
-      }
-    } catch {
-      OnLog?("音频输出路由设置失败：\(error.localizedDescription)")
-    }
   }
 
   private var DeviceTypes: [AVCaptureDevice.DeviceType] {
@@ -603,7 +571,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         return
       }
       self.Trace("采集准备", Since: Start)
-      self.RouteMonitorOutput()
       self.OnLog?("采集已启动 \(Int(Size.width))x\(Int(Size.height))@\(UseFps) 音频输入=\(self.AudioInput?.device.localizedName ?? "无")")
       self.LogAudioRoute()
       let Mode = CaptureModeInfo(Width: Int(Size.width), Height: Int(Size.height), Fps: UseFps)
@@ -676,7 +643,6 @@ final class CaptureSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
           return
         }
         self.MonitorEnabled = true
-        self.RouteMonitorOutput()
         self.StartMonitor()
         self.LogAudioRoute()
         self.OnLog?("声音返听已开启")
